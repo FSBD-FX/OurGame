@@ -1,0 +1,15 @@
+.godot/
+.superpowers/
+.vs/
+.idea/
+bin/
+obj/
+*.tmp
+*.log
+
+# Local development runtimes and downloaded archives.
+tools/runtime/
+
+# Local builds and Steam upload staging.
+builds/
+steam_build/
