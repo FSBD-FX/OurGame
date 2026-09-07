@@ -1,341 +1,349 @@
 [gd_scene format=3]
 
-[ext_resource type="Script" path="res://scripts/prologue/seamless/PrologueSector.cs" id="1_iiy13"]
-[ext_resource type="Script" path="res://scripts/presentation/CanyonBackdropVisual.cs" id="2_7l00d"]
-[ext_resource type="Script" path="res://scripts/abilities/GrappleSurface2D.cs" id="3_i0dvc"]
-[ext_resource type="Script" path="res://scripts/prologue/traversal/TraversalSegment2D.cs" id="4_5tc6c"]
-[ext_resource type="Script" path="res://scripts/world/KillZone.cs" id="5_52s6a"]
-[ext_resource type="Script" path="res://scripts/prologue/mechanisms/CanyonClawMechanism2D.cs" id="6_dyy7h"]
-[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="7_ksj8r"]
-[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="8_6dwv4"]
-
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_knjd3"]
-size = Vector2(280, 40)
-
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_2s0ap"]
-size = Vector2(160, 32)
-
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_0gcx5"]
-size = Vector2(300, 40)
-
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_d2jc7"]
-size = Vector2(430, 32)
+[ext_resource type="Script" path="res://scripts/prologue/seamless/PrologueSector.cs" id="1_i0dvc"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonBackdropVisual.cs" id="2_5tc6c"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonPlatformVisual.cs" id="3_52s6a"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonAnchorVisual.cs" id="4_dyy7h"]
+[ext_resource type="Script" path="res://scripts/abilities/GrappleSurface2D.cs" id="5_ksj8r"]
+[ext_resource type="Script" path="res://scripts/prologue/traversal/TraversalSegment2D.cs" id="6_6dwv4"]
+[ext_resource type="Script" path="res://scripts/world/KillZone.cs" id="7_knjd3"]
+[ext_resource type="Script" path="res://scripts/prologue/mechanisms/CanyonClawMechanism2D.cs" id="8_2s0ap"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="9_0gcx5"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="10_d2jc7"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_dxa4e"]
-size = Vector2(360, 40)
+size = Vector2(280, 40)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_1hw70"]
-size = Vector2(420, 32)
+size = Vector2(160, 32)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_4hssx"]
-size = Vector2(360, 36)
+size = Vector2(300, 40)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_h6uhl"]
-size = Vector2(320, 28)
+size = Vector2(430, 32)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_si5jp"]
-size = Vector2(42, 300)
+size = Vector2(360, 40)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_qmf3r"]
-size = Vector2(360, 32)
+size = Vector2(420, 32)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_pgq5f"]
-size = Vector2(40, 240)
+size = Vector2(360, 36)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_ngsyf"]
-size = Vector2(42, 260)
+size = Vector2(320, 28)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_baajp"]
-size = Vector2(200, 32)
+size = Vector2(42, 300)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_bknsk"]
 size = Vector2(360, 32)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_hbmem"]
-size = Vector2(360, 20)
+size = Vector2(40, 240)
 
-[sub_resource type="CircleShape2D" id="CircleShape2D_si1x5"]
-radius = 24.0
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_si1x5"]
+size = Vector2(42, 260)
 
-[sub_resource type="CircleShape2D" id="CircleShape2D_hwf7y"]
-radius = 28.0
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_hwf7y"]
+size = Vector2(200, 32)
 
-[sub_resource type="CircleShape2D" id="CircleShape2D_gkdvc"]
-radius = 24.0
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_gkdvc"]
+size = Vector2(360, 32)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_ryiho"]
-size = Vector2(1004, 16)
+size = Vector2(360, 20)
 
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_cwl7k"]
-size = Vector2(84, 16)
+[sub_resource type="CircleShape2D" id="CircleShape2D_cwl7k"]
+radius = 24.0
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_yx4c4"]
 radius = 28.0
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_q0jtb"]
+radius = 24.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_mhpcd"]
+size = Vector2(1004, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_5b6gf"]
+size = Vector2(84, 16)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_w4m1s"]
 radius = 28.0
 
-[node name="CanyonDescent" type="Node2D" unique_id=1614437150]
-script = ExtResource("1_iiy13")
+[sub_resource type="CircleShape2D" id="CircleShape2D_8kx3q"]
+radius = 28.0
+
+[node name="CanyonDescent" type="Node2D" unique_id=1436770612]
+script = ExtResource("1_i0dvc")
 SectorId = 1
 Bounds = Rect2(0, 0, 1280, 1440)
 
-[node name="VisualRoot" type="Node2D" parent="." unique_id=2106691611]
+[node name="VisualRoot" type="Node2D" parent="." unique_id=141981367]
 
-[node name="Background" type="Node2D" parent="VisualRoot" unique_id=605251499]
+[node name="Background" type="Node2D" parent="VisualRoot" unique_id=1907005348]
 z_index = -40
 
-[node name="CanyonVoid" type="Polygon2D" parent="VisualRoot/Background" unique_id=1719257490]
+[node name="CanyonVoid" type="Polygon2D" parent="VisualRoot/Background" unique_id=1322806365]
 position = Vector2(640, 720)
 color = Color(0.06666667, 0.09803922, 0.12156863, 1)
 polygon = PackedVector2Array(-640, -720, 640, -720, 640, 720, -640, 720)
 
-[node name="DistantCanyon" type="Node2D" parent="VisualRoot/Background" unique_id=1458432836]
-script = ExtResource("2_7l00d")
+[node name="DistantCanyon" type="Node2D" parent="VisualRoot/Background" unique_id=956735384]
+script = ExtResource("2_5tc6c")
 SectorId = 1
 SectorBounds = Rect2(0, 0, 1280, 1440)
 DistantLayer = true
 
-[node name="Midground" type="Node2D" parent="VisualRoot" unique_id=181655414]
+[node name="Midground" type="Node2D" parent="VisualRoot" unique_id=1488223687]
 z_index = -20
 
-[node name="CanyonRib1" type="Polygon2D" parent="VisualRoot/Midground" unique_id=1324845793]
+[node name="CanyonRib1" type="Polygon2D" parent="VisualRoot/Midground" unique_id=2019481937]
 position = Vector2(90, 1166.4)
 color = Color(0.11764706, 0.17254902, 0.1882353, 1)
 polygon = PackedVector2Array(-16, -273.6, 16, -273.6, 16, 273.6, -16, 273.6)
 
-[node name="CanyonRib2" type="Polygon2D" parent="VisualRoot/Midground" unique_id=88306461]
+[node name="CanyonRib2" type="Polygon2D" parent="VisualRoot/Midground" unique_id=85147010]
 position = Vector2(273.3333, 1108.8)
 color = Color(0.11764706, 0.17254902, 0.1882353, 1)
 polygon = PackedVector2Array(-16, -331.19998, 16, -331.19998, 16, 331.19998, -16, 331.19998)
 
-[node name="CanyonRib3" type="Polygon2D" parent="VisualRoot/Midground" unique_id=444285894]
+[node name="CanyonRib3" type="Polygon2D" parent="VisualRoot/Midground" unique_id=666853596]
 position = Vector2(456.66666, 1051.2)
 color = Color(0.11764706, 0.17254902, 0.1882353, 1)
 polygon = PackedVector2Array(-16, -388.8, 16, -388.8, 16, 388.8, -16, 388.8)
 
-[node name="CanyonRib4" type="Polygon2D" parent="VisualRoot/Midground" unique_id=864726171]
+[node name="CanyonRib4" type="Polygon2D" parent="VisualRoot/Midground" unique_id=1901997069]
 position = Vector2(640, 1166.4)
 color = Color(0.11764706, 0.17254902, 0.1882353, 1)
 polygon = PackedVector2Array(-16, -273.6, 16, -273.6, 16, 273.6, -16, 273.6)
 
-[node name="CanyonRib5" type="Polygon2D" parent="VisualRoot/Midground" unique_id=1047380107]
+[node name="CanyonRib5" type="Polygon2D" parent="VisualRoot/Midground" unique_id=1228547353]
 position = Vector2(823.3333, 1108.8)
 color = Color(0.11764706, 0.17254902, 0.1882353, 1)
 polygon = PackedVector2Array(-16, -331.19998, 16, -331.19998, 16, 331.19998, -16, 331.19998)
 
-[node name="CanyonRib6" type="Polygon2D" parent="VisualRoot/Midground" unique_id=1061322421]
+[node name="CanyonRib6" type="Polygon2D" parent="VisualRoot/Midground" unique_id=48869220]
 position = Vector2(1006.6667, 1051.2)
 color = Color(0.11764706, 0.17254902, 0.1882353, 1)
 polygon = PackedVector2Array(-16, -388.8, 16, -388.8, 16, 388.8, -16, 388.8)
 
-[node name="CanyonRib7" type="Polygon2D" parent="VisualRoot/Midground" unique_id=1083762586]
+[node name="CanyonRib7" type="Polygon2D" parent="VisualRoot/Midground" unique_id=111365001]
 position = Vector2(1190, 1166.4)
 color = Color(0.11764706, 0.17254902, 0.1882353, 1)
 polygon = PackedVector2Array(-16, -273.6, 16, -273.6, 16, 273.6, -16, 273.6)
 
-[node name="CanyonLandmark" type="Node2D" parent="VisualRoot/Midground" unique_id=918593571]
-script = ExtResource("2_7l00d")
+[node name="CanyonLandmark" type="Node2D" parent="VisualRoot/Midground" unique_id=171920726]
+script = ExtResource("2_5tc6c")
 SectorId = 1
 SectorBounds = Rect2(0, 0, 1280, 1440)
 
-[node name="GameplayReadable" type="Node2D" parent="VisualRoot" unique_id=1122966905]
+[node name="GameplayReadable" type="Node2D" parent="VisualRoot" unique_id=246794172]
 z_index = -2
 
-[node name="MicroSceneReadability" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=965796018]
+[node name="MicroSceneReadability" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1559752916]
 
-[node name="CraneShaft" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=437057708]
+[node name="CraneShaft" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=32136517]
 position = Vector2(320, 250)
 color = Color(0.72, 0.58, 0.3, 0.04)
 polygon = PackedVector2Array(-316, -246, 316, -246, 316, 246, -316, 246)
 
-[node name="FrostVent" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=1963055445]
+[node name="FrostVent" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=1226982284]
 position = Vector2(900, 580)
 color = Color(0.72, 0.58, 0.3, 0.04)
 polygon = PackedVector2Array(-376, -216, 376, -216, 376, 216, -376, 216)
 
-[node name="BrokenLift" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=567745327]
+[node name="BrokenLift" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=1773305669]
 position = Vector2(790, 1100)
 color = Color(0.72, 0.58, 0.3, 0.04)
 polygon = PackedVector2Array(-486, -336, 486, -336, 486, 336, -486, 336)
 
-[node name="ArchiveAlcove" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=289059203]
+[node name="ArchiveAlcove" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=1428516945]
 position = Vector2(180, 1130)
 color = Color(0.52, 0.69, 0.6, 0.055)
 polygon = PackedVector2Array(-176, -146, 176, -146, 176, 146, -176, 146)
 
-[node name="EntryShelf" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=1876209045]
+[node name="EntryShelf" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1558350267]
 position = Vector2(140, 630)
-color = Color(0.2509804, 0.3372549, 0.3529412, 1)
-polygon = PackedVector2Array(-140, -20, 140, -20, 140, 20, -140, 20)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(280, 40)
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/EntryShelf" unique_id=1651738349]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/EntryShelf" unique_id=656556201]
 position = Vector2(0, -17)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-140, -3, 140, -3, 140, 3, -140, 3)
 
-[node name="GripStoneCatchZone" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=1159812312]
+[node name="GripStoneCatchZone" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1722694781]
 position = Vector2(340, 700)
-color = Color(0.30588236, 0.47058824, 0.43137255, 1)
-polygon = PackedVector2Array(-80, -16, 80, -16, 80, 16, -80, 16)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(160, 32)
+CatchShelf = true
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/GripStoneCatchZone" unique_id=1957922072]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/GripStoneCatchZone" unique_id=1698940881]
 position = Vector2(0, -13)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-80, -3, 80, -3, 80, 3, -80, 3)
 
-[node name="GripLanding" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=2086536227]
+[node name="GripLanding" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1075071369]
 position = Vector2(720, 760)
-color = Color(0.30588236, 0.47058824, 0.43137255, 1)
-polygon = PackedVector2Array(-150, -20, 150, -20, 150, 20, -150, 20)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(300, 40)
+CatchShelf = true
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/GripLanding" unique_id=1050078228]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/GripLanding" unique_id=1501348038]
 position = Vector2(0, -17)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-150, -3, 150, -3, 150, 3, -150, 3)
 
-[node name="GripCatchShelf" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=1407723573]
+[node name="GripCatchShelf" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=86155877]
 position = Vector2(430, 870)
-color = Color(0.30588236, 0.47058824, 0.43137255, 1)
-polygon = PackedVector2Array(-215, -16, 215, -16, 215, 16, -215, 16)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(430, 32)
+CatchShelf = true
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/GripCatchShelf" unique_id=1952388772]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/GripCatchShelf" unique_id=856859935]
 position = Vector2(0, -13)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-215, -3, 215, -3, 215, 3, -215, 3)
 
-[node name="IceLanding" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=375996094]
+[node name="IceLanding" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1004975557]
 position = Vector2(1010, 990)
-color = Color(0.2509804, 0.3372549, 0.3529412, 1)
-polygon = PackedVector2Array(-180, -20, 180, -20, 180, 20, -180, 20)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(360, 40)
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/IceLanding" unique_id=1027827095]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/IceLanding" unique_id=1332843901]
 position = Vector2(0, -17)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-180, -3, 180, -3, 180, 3, -180, 3)
 
-[node name="IceCatchShelf" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=473589009]
+[node name="IceCatchShelf" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1747333383]
 position = Vector2(790, 1120)
-color = Color(0.30588236, 0.47058824, 0.43137255, 1)
-polygon = PackedVector2Array(-210, -16, 210, -16, 210, 16, -210, 16)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(420, 32)
+CatchShelf = true
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/IceCatchShelf" unique_id=1964335863]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/IceCatchShelf" unique_id=504346851]
 position = Vector2(0, -13)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-210, -3, 210, -3, 210, 3, -210, 3)
 
-[node name="BottomApproach" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=1497477756]
+[node name="BottomApproach" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=835331516]
 position = Vector2(1080, 1260)
-color = Color(0.2509804, 0.3372549, 0.3529412, 1)
-polygon = PackedVector2Array(-180, -18, 180, -18, 180, 18, -180, 18)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(360, 36)
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/BottomApproach" unique_id=1376953705]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/BottomApproach" unique_id=64586118]
 position = Vector2(0, -15)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-180, -3, 180, -3, 180, 3, -180, 3)
 
-[node name="BottomLip" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=564645973]
+[node name="BottomLip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1860159989]
 position = Vector2(1120, 1400)
-color = Color(0.2509804, 0.3372549, 0.3529412, 1)
-polygon = PackedVector2Array(-160, -14, 160, -14, 160, 14, -160, 14)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(320, 28)
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/BottomLip" unique_id=1651997223]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/BottomLip" unique_id=385616008]
 position = Vector2(0, -11)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-160, -3, 160, -3, 160, 3, -160, 3)
 
-[node name="CraneShaftWall" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=232009245]
+[node name="CraneShaftWall" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=2061677976]
 position = Vector2(600, 310)
-color = Color(0.2509804, 0.3372549, 0.3529412, 1)
-polygon = PackedVector2Array(-21, -150, 21, -150, 21, 150, -21, 150)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(42, 300)
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/CraneShaftWall" unique_id=893806080]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/CraneShaftWall" unique_id=894009241]
 position = Vector2(0, -147)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-21, -3, 21, -3, 21, 3, -21, 3)
 
-[node name="FrostVentCeiling" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=1328105341]
+[node name="FrostVentCeiling" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=988301827]
 position = Vector2(800, 500)
-color = Color(0.2509804, 0.3372549, 0.3529412, 1)
-polygon = PackedVector2Array(-180, -16, 180, -16, 180, 16, -180, 16)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(360, 32)
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/FrostVentCeiling" unique_id=188705069]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/FrostVentCeiling" unique_id=1808810568]
 position = Vector2(0, -13)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-180, -3, 180, -3, 180, 3, -180, 3)
 
-[node name="VisibleIceWall" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=1197852353]
+[node name="VisibleIceWall" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1400350124]
 position = Vector2(1240, 720)
-color = Color(0.3254902, 0.49803922, 0.5803922, 1)
-polygon = PackedVector2Array(-20, -120, 20, -120, 20, 120, -20, 120)
+script = ExtResource("3_52s6a")
+SurfaceMaterial = 3
+SkinSize = Vector2(40, 240)
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/VisibleIceWall" unique_id=2084492289]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/VisibleIceWall" unique_id=1842470126]
 position = Vector2(0, -117)
 color = Color(0.65882355, 0.84705883, 0.9098039, 1)
 polygon = PackedVector2Array(-20, -3, 20, -3, 20, 3, -20, 3)
 
-[node name="SelfRescueWall" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=1847383890]
+[node name="SelfRescueWall" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=244165512]
 position = Vector2(1120, 620)
-color = Color(0.2509804, 0.3372549, 0.3529412, 1)
-polygon = PackedVector2Array(-21, -130, 21, -130, 21, 130, -21, 130)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(42, 260)
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SelfRescueWall" unique_id=1181008287]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SelfRescueWall" unique_id=517516993]
 position = Vector2(0, -127)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-21, -3, 21, -3, 21, 3, -21, 3)
 
-[node name="SelfRescueCatch" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=1677801264]
+[node name="SelfRescueCatch" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1452991085]
 position = Vector2(1180, 900)
-color = Color(0.30588236, 0.47058824, 0.43137255, 1)
-polygon = PackedVector2Array(-100, -16, 100, -16, 100, 16, -100, 16)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(200, 32)
+CatchShelf = true
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SelfRescueCatch" unique_id=987194657]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SelfRescueCatch" unique_id=799625005]
 position = Vector2(0, -13)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-100, -3, 100, -3, 100, 3, -100, 3)
 
-[node name="GripStoneLesson" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=1578608286]
+[node name="GripStoneLesson" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=534542805]
 position = Vector2(260, 260)
-color = Color(0.4627451, 0.70980394, 0.6117647, 1)
-polygon = PackedVector2Array(29, 0, 27.580639, 8.9614935, 23.461493, 17.045773, 17.045773, 23.461493, 8.961493, 27.580639, -1.2676303e-06, 29, -8.9614935, 27.580639, -17.045776, 23.461489, -23.461494, 17.04577, -27.580639, 8.9614935, -29, -2.5352606e-06, -27.580637, -8.961499, -23.46149, -17.045776, -17.045767, -23.461496, -8.961483, -27.58064, 3.4582155e-07, -29, 8.961496, -27.580639, 17.045778, -23.461489, 23.46149, -17.045774, 27.580639, -8.961492)
+script = ExtResource("4_dyy7h")
 
-[node name="DedicatedLessonAnchor" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=1107077651]
+[node name="DedicatedLessonAnchor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=554758628]
 position = Vector2(470, 330)
-color = Color(0.8235294, 0.6784314, 0.36078432, 1)
-polygon = PackedVector2Array(33, 0, 31.384867, 10.197561, 26.697561, 19.396914, 19.396914, 26.697561, 10.19756, 31.384867, -1.4424758e-06, 33, -10.197562, 31.384865, -19.39692, 26.697557, -26.697563, 19.396912, -31.384865, 10.197562, -33, -2.8849515e-06, -31.384861, -10.197568, -26.69756, -19.396917, -19.396908, -26.697565, -10.197549, -31.384869, 3.9352105e-07, -33, 10.197565, -31.384865, 19.396921, -26.697556, 26.69756, -19.396915, 31.384867, -10.197559)
+script = ExtResource("4_dyy7h")
+SurfaceMaterial = 2
+Radius = 28.0
 
-[node name="VisibleIceRejection" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=256514309]
+[node name="VisibleIceRejection" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=824862020]
 position = Vector2(900, 720)
-color = Color(0.5686275, 0.8039216, 0.9098039, 1)
-polygon = PackedVector2Array(29, 0, 27.580639, 8.9614935, 23.461493, 17.045773, 17.045773, 23.461493, 8.961493, 27.580639, -1.2676303e-06, 29, -8.9614935, 27.580639, -17.045776, 23.461489, -23.461494, 17.04577, -27.580639, 8.9614935, -29, -2.5352606e-06, -27.580637, -8.961499, -23.46149, -17.045776, -17.045767, -23.461496, -8.961483, -27.58064, 3.4582155e-07, -29, 8.961496, -27.580639, 17.045778, -23.461489, 23.46149, -17.045774, 27.580639, -8.961492)
+script = ExtResource("4_dyy7h")
+SurfaceMaterial = 3
 
-[node name="ArchiveFloor" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=1984182124]
+[node name="ArchiveFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1902791638]
 position = Vector2(180, 1224)
-color = Color(0.2509804, 0.3372549, 0.3529412, 1)
-polygon = PackedVector2Array(-180, -16, 180, -16, 180, 16, -180, 16)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(360, 32)
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ArchiveFloor" unique_id=1771880217]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ArchiveFloor" unique_id=478714417]
 position = Vector2(0, -13)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-180, -3, 180, -3, 180, 3, -180, 3)
 
-[node name="ArchiveSkipFloor" type="Polygon2D" parent="VisualRoot/GameplayReadable" unique_id=157063621]
+[node name="ArchiveSkipFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1248492288]
 position = Vector2(180, 1320)
-color = Color(0.2509804, 0.3372549, 0.3529412, 1)
-polygon = PackedVector2Array(-180, -10, 180, -10, 180, 10, -180, 10)
+script = ExtResource("3_52s6a")
+SkinSize = Vector2(360, 20)
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ArchiveSkipFloor" unique_id=1712780104]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ArchiveSkipFloor" unique_id=223037180]
 position = Vector2(0, -7)
 color = Color(0.6627451, 0.78039217, 0.6156863, 1)
 polygon = PackedVector2Array(-180, -3, 180, -3, 180, 3, -180, 3)
 
-[node name="Foreground" type="Node2D" parent="VisualRoot" unique_id=1303180810]
+[node name="Foreground" type="Node2D" parent="VisualRoot" unique_id=1165967853]
 z_index = 20
 
-[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=1238968774]
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=635412470]
 z_index = 30
 
-[node name="SectorLabel" type="Label" parent="VisualRoot/Effects" unique_id=845019443]
+[node name="SectorLabel" type="Label" parent="VisualRoot/Effects" unique_id=1900154279]
 visible = false
 modulate = Color(0.75, 0.82, 0.76, 0.55)
 offset_left = 42.0
@@ -344,264 +352,264 @@ offset_right = 42.0
 offset_bottom = 34.0
 text = "CanyonDescent"
 
-[node name="Gameplay" type="Node2D" parent="." unique_id=37189720]
+[node name="Gameplay" type="Node2D" parent="." unique_id=1195451187]
 
-[node name="Collision" type="Node2D" parent="Gameplay" unique_id=1751868241]
+[node name="Collision" type="Node2D" parent="Gameplay" unique_id=1777766246]
 
-[node name="EntryShelf" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1468203843]
+[node name="EntryShelf" type="StaticBody2D" parent="Gameplay/Collision" unique_id=101376734]
 position = Vector2(140, 630)
 collision_layer = 33
 collision_mask = 0
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/EntryShelf" unique_id=1577730963]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/EntryShelf" unique_id=278282035]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/EntryShelf" unique_id=277218406]
-shape = SubResource("RectangleShape2D_knjd3")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/EntryShelf" unique_id=1603888509]
+shape = SubResource("RectangleShape2D_dxa4e")
 
-[node name="GripStoneCatchZone" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1059934279]
+[node name="GripStoneCatchZone" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1649921516]
 position = Vector2(340, 700)
 collision_layer = 33
 collision_mask = 0
 metadata/catch_shelf = true
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/GripStoneCatchZone" unique_id=368469492]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/GripStoneCatchZone" unique_id=1571459910]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/GripStoneCatchZone" unique_id=2004315885]
-shape = SubResource("RectangleShape2D_2s0ap")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/GripStoneCatchZone" unique_id=1146663933]
+shape = SubResource("RectangleShape2D_1hw70")
 
-[node name="GripLanding" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1413851673]
+[node name="GripLanding" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1393144039]
 position = Vector2(720, 760)
 collision_layer = 33
 collision_mask = 0
 metadata/catch_shelf = true
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/GripLanding" unique_id=714117133]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/GripLanding" unique_id=1662465250]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/GripLanding" unique_id=1971834773]
-shape = SubResource("RectangleShape2D_0gcx5")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/GripLanding" unique_id=1406729138]
+shape = SubResource("RectangleShape2D_4hssx")
 one_way_collision = true
 one_way_collision_margin = 16.0
 
-[node name="GripCatchShelf" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1502100145]
+[node name="GripCatchShelf" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1582544836]
 position = Vector2(430, 870)
 collision_layer = 33
 collision_mask = 0
 metadata/catch_shelf = true
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/GripCatchShelf" unique_id=873327945]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/GripCatchShelf" unique_id=2047581109]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/GripCatchShelf" unique_id=1969523334]
-shape = SubResource("RectangleShape2D_d2jc7")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/GripCatchShelf" unique_id=340184998]
+shape = SubResource("RectangleShape2D_h6uhl")
 one_way_collision = true
 one_way_collision_margin = 16.0
 
-[node name="IceLanding" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1623991379]
+[node name="IceLanding" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1978950123]
 position = Vector2(1010, 990)
 collision_layer = 33
 collision_mask = 0
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/IceLanding" unique_id=6470699]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/IceLanding" unique_id=674577955]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/IceLanding" unique_id=1830423250]
-shape = SubResource("RectangleShape2D_dxa4e")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/IceLanding" unique_id=1434996007]
+shape = SubResource("RectangleShape2D_si5jp")
 
-[node name="IceCatchShelf" type="StaticBody2D" parent="Gameplay/Collision" unique_id=102635976]
+[node name="IceCatchShelf" type="StaticBody2D" parent="Gameplay/Collision" unique_id=2128873662]
 position = Vector2(790, 1120)
 collision_layer = 33
 collision_mask = 0
 metadata/catch_shelf = true
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/IceCatchShelf" unique_id=84815083]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/IceCatchShelf" unique_id=2089052940]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/IceCatchShelf" unique_id=66012001]
-shape = SubResource("RectangleShape2D_1hw70")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/IceCatchShelf" unique_id=820201817]
+shape = SubResource("RectangleShape2D_qmf3r")
 one_way_collision = true
 one_way_collision_margin = 16.0
 
-[node name="BottomApproach" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1957740889]
+[node name="BottomApproach" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1166923731]
 position = Vector2(1080, 1260)
 collision_layer = 33
 collision_mask = 0
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/BottomApproach" unique_id=2001264186]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/BottomApproach" unique_id=20357542]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/BottomApproach" unique_id=1936513715]
-shape = SubResource("RectangleShape2D_4hssx")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/BottomApproach" unique_id=453625052]
+shape = SubResource("RectangleShape2D_pgq5f")
 
-[node name="BottomLip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=2092459765]
+[node name="BottomLip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=280894524]
 position = Vector2(1120, 1400)
 collision_layer = 33
 collision_mask = 0
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/BottomLip" unique_id=1178708950]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/BottomLip" unique_id=1398036268]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/BottomLip" unique_id=582739636]
-shape = SubResource("RectangleShape2D_h6uhl")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/BottomLip" unique_id=461803426]
+shape = SubResource("RectangleShape2D_ngsyf")
 
-[node name="CraneShaftWall" type="StaticBody2D" parent="Gameplay/Collision" unique_id=922231653]
+[node name="CraneShaftWall" type="StaticBody2D" parent="Gameplay/Collision" unique_id=893778971]
 position = Vector2(600, 310)
 collision_layer = 33
 collision_mask = 0
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/CraneShaftWall" unique_id=1486901678]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/CraneShaftWall" unique_id=307067255]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/CraneShaftWall" unique_id=953158058]
-shape = SubResource("RectangleShape2D_si5jp")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/CraneShaftWall" unique_id=2113581195]
+shape = SubResource("RectangleShape2D_baajp")
 
-[node name="FrostVentCeiling" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1971610086]
+[node name="FrostVentCeiling" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1558222800]
 position = Vector2(800, 500)
 collision_layer = 33
 collision_mask = 0
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/FrostVentCeiling" unique_id=601401234]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/FrostVentCeiling" unique_id=737620724]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/FrostVentCeiling" unique_id=360333191]
-shape = SubResource("RectangleShape2D_qmf3r")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/FrostVentCeiling" unique_id=578262490]
+shape = SubResource("RectangleShape2D_bknsk")
 
-[node name="VisibleIceWall" type="StaticBody2D" parent="Gameplay/Collision" unique_id=836423052]
+[node name="VisibleIceWall" type="StaticBody2D" parent="Gameplay/Collision" unique_id=135947517]
 position = Vector2(1240, 720)
 collision_layer = 33
 collision_mask = 0
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/VisibleIceWall" unique_id=688266904]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/VisibleIceWall" unique_id=1840249047]
+script = ExtResource("5_ksj8r")
 Material = 3
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/VisibleIceWall" unique_id=883682338]
-shape = SubResource("RectangleShape2D_pgq5f")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/VisibleIceWall" unique_id=1036184964]
+shape = SubResource("RectangleShape2D_hbmem")
 
-[node name="SelfRescueWall" type="StaticBody2D" parent="Gameplay/Collision" unique_id=469442842]
+[node name="SelfRescueWall" type="StaticBody2D" parent="Gameplay/Collision" unique_id=965044718]
 position = Vector2(1120, 620)
 collision_layer = 33
 collision_mask = 0
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SelfRescueWall" unique_id=1000833005]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SelfRescueWall" unique_id=633140774]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SelfRescueWall" unique_id=188492242]
-shape = SubResource("RectangleShape2D_ngsyf")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SelfRescueWall" unique_id=329315429]
+shape = SubResource("RectangleShape2D_si1x5")
 
-[node name="SelfRescueCatch" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1099402665]
+[node name="SelfRescueCatch" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1507483055]
 position = Vector2(1180, 900)
 collision_layer = 33
 collision_mask = 0
 metadata/catch_shelf = true
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SelfRescueCatch" unique_id=293484568]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SelfRescueCatch" unique_id=932715730]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SelfRescueCatch" unique_id=243040053]
-shape = SubResource("RectangleShape2D_baajp")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SelfRescueCatch" unique_id=1846954703]
+shape = SubResource("RectangleShape2D_hwf7y")
 one_way_collision = true
 one_way_collision_margin = 16.0
 
-[node name="ArchiveFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=2110112959]
+[node name="ArchiveFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=717343908]
 position = Vector2(180, 1224)
 collision_layer = 33
 collision_mask = 0
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ArchiveFloor" unique_id=80205664]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ArchiveFloor" unique_id=1572395519]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ArchiveFloor" unique_id=1512311827]
-shape = SubResource("RectangleShape2D_bknsk")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ArchiveFloor" unique_id=120396373]
+shape = SubResource("RectangleShape2D_gkdvc")
 one_way_collision = true
 one_way_collision_margin = 16.0
 
-[node name="ArchiveSkipFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=326436346]
+[node name="ArchiveSkipFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=211631701]
 position = Vector2(180, 1320)
 collision_layer = 33
 collision_mask = 0
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ArchiveSkipFloor" unique_id=1726224125]
-script = ExtResource("3_i0dvc")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ArchiveSkipFloor" unique_id=875801281]
+script = ExtResource("5_ksj8r")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ArchiveSkipFloor" unique_id=740475428]
-shape = SubResource("RectangleShape2D_hbmem")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ArchiveSkipFloor" unique_id=427104903]
+shape = SubResource("RectangleShape2D_ryiho")
 
-[node name="GrappleSurfaces" type="Node2D" parent="Gameplay" unique_id=2017608144]
+[node name="GrappleSurfaces" type="Node2D" parent="Gameplay" unique_id=1979259073]
 
-[node name="GripStoneLesson" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=78153990]
+[node name="GripStoneLesson" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=1891084048]
 position = Vector2(260, 260)
-script = ExtResource("3_i0dvc")
+script = ExtResource("5_ksj8r")
 Material = 0
 metadata/target_role = "tutorial"
 
-[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/GripStoneLesson" unique_id=561558055]
+[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/GripStoneLesson" unique_id=1716844160]
 collision_layer = 32
 collision_mask = 0
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/GripStoneLesson/TargetCollision" unique_id=1449892322]
-shape = SubResource("CircleShape2D_si1x5")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/GripStoneLesson/TargetCollision" unique_id=1417605725]
+shape = SubResource("CircleShape2D_cwl7k")
 
-[node name="DedicatedLessonAnchor" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=863819025]
+[node name="DedicatedLessonAnchor" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=578051586]
 position = Vector2(470, 330)
-script = ExtResource("3_i0dvc")
+script = ExtResource("5_ksj8r")
 metadata/target_role = "tutorial"
 
-[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/DedicatedLessonAnchor" unique_id=1541036343]
+[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/DedicatedLessonAnchor" unique_id=552631567]
 collision_layer = 32
 collision_mask = 0
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/DedicatedLessonAnchor/TargetCollision" unique_id=379811376]
-shape = SubResource("CircleShape2D_hwf7y")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/DedicatedLessonAnchor/TargetCollision" unique_id=1883878026]
+shape = SubResource("CircleShape2D_yx4c4")
 
-[node name="VisibleIceRejection" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=766956425]
+[node name="VisibleIceRejection" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=1674203720]
 position = Vector2(900, 720)
-script = ExtResource("3_i0dvc")
+script = ExtResource("5_ksj8r")
 Material = 3
 metadata/target_role = "tutorial"
 
-[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/VisibleIceRejection" unique_id=2020861070]
+[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/VisibleIceRejection" unique_id=288339965]
 collision_layer = 32
 collision_mask = 0
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/VisibleIceRejection/TargetCollision" unique_id=41638502]
-shape = SubResource("CircleShape2D_gkdvc")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/VisibleIceRejection/TargetCollision" unique_id=1616977821]
+shape = SubResource("CircleShape2D_q0jtb")
 
-[node name="TraversalContracts" type="Node2D" parent="Gameplay" unique_id=1253538495]
+[node name="TraversalContracts" type="Node2D" parent="Gameplay" unique_id=2043550436]
 
-[node name="descent_grip_lesson" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=766583233]
-script = ExtResource("4_5tc6c")
+[node name="descent_grip_lesson" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=185110917]
+script = ExtResource("6_6dwv4")
 SegmentId = &"descent_grip_lesson"
 Kind = 1
 RequiredAbilities = 3
@@ -609,158 +617,158 @@ LaunchZone = Rect2(100, 550, 140, 48)
 LandingZone = Rect2(590, 684, 260, 48)
 AssistTargetPath = NodePath("Gameplay/GrappleSurfaces/DedicatedLessonAnchor")
 
-[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/descent_grip_lesson" unique_id=588493315]
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/descent_grip_lesson" unique_id=1878385204]
 visible = false
 color = Color(0.36, 0.72, 0.62, 0.32)
 polygon = PackedVector2Array(100, 550, 240, 550, 240, 598, 100, 598)
 
-[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/descent_grip_lesson" unique_id=960353761]
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/descent_grip_lesson" unique_id=861468247]
 visible = false
 color = Color(0.82, 0.66, 0.32, 0.34)
 polygon = PackedVector2Array(590, 684, 850, 684, 850, 732, 590, 732)
 
-[node name="descent_ice_rejection" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=1095471549]
-script = ExtResource("4_5tc6c")
+[node name="descent_ice_rejection" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=954110326]
+script = ExtResource("6_6dwv4")
 SegmentId = &"descent_ice_rejection"
 RequiredAbilities = 1
 LaunchZone = Rect2(650, 684, 100, 48)
 LandingZone = Rect2(880, 914, 220, 48)
 
-[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/descent_ice_rejection" unique_id=1698267250]
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/descent_ice_rejection" unique_id=1156365901]
 visible = false
 color = Color(0.36, 0.72, 0.62, 0.32)
 polygon = PackedVector2Array(650, 684, 750, 684, 750, 732, 650, 732)
 
-[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/descent_ice_rejection" unique_id=2040082231]
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/descent_ice_rejection" unique_id=1691004444]
 visible = false
 color = Color(0.82, 0.66, 0.32, 0.34)
 polygon = PackedVector2Array(880, 914, 1100, 914, 1100, 962, 880, 962)
 
-[node name="RouteMarkers" type="Node2D" parent="Gameplay" unique_id=1275742937]
+[node name="RouteMarkers" type="Node2D" parent="Gameplay" unique_id=712092887]
 
-[node name="PreviousSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=1548254249]
+[node name="PreviousSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=1637718434]
 position = Vector2(2, 574)
 
-[node name="NextSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=823071488]
+[node name="NextSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=346667548]
 position = Vector2(1100, 1438)
 
-[node name="FallRecovery" type="Node2D" parent="Gameplay" unique_id=1500050482]
+[node name="FallRecovery" type="Node2D" parent="Gameplay" unique_id=1833781303]
 
-[node name="RecoveryVolume" type="Area2D" parent="Gameplay/FallRecovery" unique_id=1126519921]
+[node name="RecoveryVolume" type="Area2D" parent="Gameplay/FallRecovery" unique_id=1891487072]
 position = Vector2(502, 1432)
 collision_layer = 0
 collision_mask = 2
-script = ExtResource("5_52s6a")
+script = ExtResource("7_knjd3")
 RoomControllerPath = NodePath("../../../../../..")
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume" unique_id=1792325916]
-shape = SubResource("RectangleShape2D_ryiho")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume" unique_id=1950683132]
+shape = SubResource("RectangleShape2D_mhpcd")
 
-[node name="RecoveryVolume2" type="Area2D" parent="Gameplay/FallRecovery" unique_id=995994024]
+[node name="RecoveryVolume2" type="Area2D" parent="Gameplay/FallRecovery" unique_id=524865768]
 position = Vector2(1238, 1432)
 collision_layer = 0
 collision_mask = 2
-script = ExtResource("5_52s6a")
+script = ExtResource("7_knjd3")
 RoomControllerPath = NodePath("../../../../../..")
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume2" unique_id=147943531]
-shape = SubResource("RectangleShape2D_cwl7k")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume2" unique_id=1482043819]
+shape = SubResource("RectangleShape2D_5b6gf")
 
-[node name="RecoveryLanding" type="Marker2D" parent="Gameplay/FallRecovery" unique_id=1039157250]
+[node name="RecoveryLanding" type="Marker2D" parent="Gameplay/FallRecovery" unique_id=1956419393]
 position = Vector2(430, 820)
 
-[node name="OptionalPaths" type="Node2D" parent="Gameplay" unique_id=1726014549]
+[node name="OptionalPaths" type="Node2D" parent="Gameplay" unique_id=1240258586]
 
-[node name="ArchiveAlcove" type="Node2D" parent="Gameplay/OptionalPaths" unique_id=2059155]
+[node name="ArchiveAlcove" type="Node2D" parent="Gameplay/OptionalPaths" unique_id=313378734]
 
-[node name="PassStart" type="Marker2D" parent="Gameplay/OptionalPaths/ArchiveAlcove" unique_id=1173240767]
+[node name="PassStart" type="Marker2D" parent="Gameplay/OptionalPaths/ArchiveAlcove" unique_id=690364100]
 position = Vector2(60, 1172)
 
-[node name="PassEnd" type="Marker2D" parent="Gameplay/OptionalPaths/ArchiveAlcove" unique_id=862567677]
+[node name="PassEnd" type="Marker2D" parent="Gameplay/OptionalPaths/ArchiveAlcove" unique_id=1148089371]
 position = Vector2(300, 1172)
 
-[node name="SkipStart" type="Marker2D" parent="Gameplay/OptionalPaths/ArchiveAlcove" unique_id=685620012]
+[node name="SkipStart" type="Marker2D" parent="Gameplay/OptionalPaths/ArchiveAlcove" unique_id=1311422702]
 position = Vector2(60, 1274)
 
-[node name="SkipEnd" type="Marker2D" parent="Gameplay/OptionalPaths/ArchiveAlcove" unique_id=644923202]
+[node name="SkipEnd" type="Marker2D" parent="Gameplay/OptionalPaths/ArchiveAlcove" unique_id=2048574432]
 position = Vector2(300, 1274)
 
-[node name="Reward" type="Marker2D" parent="Gameplay/OptionalPaths/ArchiveAlcove" unique_id=1128058336]
+[node name="Reward" type="Marker2D" parent="Gameplay/OptionalPaths/ArchiveAlcove" unique_id=1563998283]
 position = Vector2(180, 1080)
 
-[node name="MicroScenes" type="Node2D" parent="Gameplay" unique_id=1617836436]
+[node name="MicroScenes" type="Node2D" parent="Gameplay" unique_id=1506758916]
 
-[node name="CraneShaft" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=1084764679]
+[node name="CraneShaft" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=986801589]
 position = Vector2(320, 250)
 metadata/local_bounds = Rect2(0, 0, 640, 500)
 metadata/optional_subarea = false
 
-[node name="FrostVent" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=771207800]
+[node name="FrostVent" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=830986928]
 position = Vector2(900, 580)
 metadata/local_bounds = Rect2(520, 360, 760, 440)
 metadata/optional_subarea = false
 
-[node name="BrokenLift" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=516286213]
+[node name="BrokenLift" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=1766548988]
 position = Vector2(790, 1100)
 metadata/local_bounds = Rect2(300, 760, 980, 680)
 metadata/optional_subarea = false
 
-[node name="ArchiveAlcove" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=1960994902]
+[node name="ArchiveAlcove" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=1133009700]
 position = Vector2(180, 1130)
 metadata/local_bounds = Rect2(0, 980, 360, 300)
 metadata/optional_subarea = true
 
-[node name="Mechanisms" type="Node2D" parent="Gameplay" unique_id=1977960362]
+[node name="Mechanisms" type="Node2D" parent="Gameplay" unique_id=352285467]
 
-[node name="Counterweight" type="Node2D" parent="Gameplay/Mechanisms" unique_id=460325694]
+[node name="Counterweight" type="Node2D" parent="Gameplay/Mechanisms" unique_id=1251590533]
 position = Vector2(360, 420)
-script = ExtResource("6_dyy7h")
+script = ExtResource("8_2s0ap")
 
-[node name="LinkedNode" type="Node2D" parent="Gameplay/Mechanisms/Counterweight" unique_id=1085073871]
+[node name="LinkedNode" type="Node2D" parent="Gameplay/Mechanisms/Counterweight" unique_id=1184811873]
 
-[node name="ReadableMechanism" type="Polygon2D" parent="Gameplay/Mechanisms/Counterweight/LinkedNode" unique_id=754421464]
+[node name="ReadableMechanism" type="Polygon2D" parent="Gameplay/Mechanisms/Counterweight/LinkedNode" unique_id=635700]
 color = Color(0.6039216, 0.4627451, 0.2509804, 1)
 polygon = PackedVector2Array(-36, -36, 36, -36, 36, 36, -36, 36)
 
-[node name="ThreadTarget" type="Node2D" parent="Gameplay/Mechanisms/Counterweight" unique_id=1691760570]
+[node name="ThreadTarget" type="Node2D" parent="Gameplay/Mechanisms/Counterweight" unique_id=1057078212]
 position = Vector2(0, -64)
-script = ExtResource("7_ksj8r")
+script = ExtResource("9_0gcx5")
 Kind = 3
 metadata/target_role = "mechanism"
 
-[node name="TargetCollision" type="Area2D" parent="Gameplay/Mechanisms/Counterweight/ThreadTarget" unique_id=1238799053]
+[node name="TargetCollision" type="Area2D" parent="Gameplay/Mechanisms/Counterweight/ThreadTarget" unique_id=642371439]
 collision_layer = 32
 collision_mask = 0
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/Counterweight/ThreadTarget/TargetCollision" unique_id=517629272]
-shape = SubResource("CircleShape2D_yx4c4")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/Counterweight/ThreadTarget/TargetCollision" unique_id=840828950]
+shape = SubResource("CircleShape2D_w4m1s")
 
-[node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/Mechanisms/Counterweight/ThreadTarget" unique_id=1804137962]
-script = ExtResource("8_6dwv4")
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/Mechanisms/Counterweight/ThreadTarget" unique_id=328920678]
+script = ExtResource("10_d2jc7")
 
-[node name="HiddenPanel" type="Node2D" parent="Gameplay/Mechanisms" unique_id=1124869399]
+[node name="HiddenPanel" type="Node2D" parent="Gameplay/Mechanisms" unique_id=578716205]
 position = Vector2(180, 1080)
-script = ExtResource("6_dyy7h")
+script = ExtResource("8_2s0ap")
 Kind = 2
 
-[node name="LinkedNode" type="Node2D" parent="Gameplay/Mechanisms/HiddenPanel" unique_id=1690744207]
+[node name="LinkedNode" type="Node2D" parent="Gameplay/Mechanisms/HiddenPanel" unique_id=516181408]
 
-[node name="ReadableMechanism" type="Polygon2D" parent="Gameplay/Mechanisms/HiddenPanel/LinkedNode" unique_id=1652366351]
+[node name="ReadableMechanism" type="Polygon2D" parent="Gameplay/Mechanisms/HiddenPanel/LinkedNode" unique_id=492460980]
 color = Color(0.42352942, 0.44705883, 0.3647059, 1)
 polygon = PackedVector2Array(-36, -36, 36, -36, 36, 36, -36, 36)
 
-[node name="ThreadTarget" type="Node2D" parent="Gameplay/Mechanisms/HiddenPanel" unique_id=696315663]
+[node name="ThreadTarget" type="Node2D" parent="Gameplay/Mechanisms/HiddenPanel" unique_id=505402797]
 position = Vector2(0, -64)
-script = ExtResource("7_ksj8r")
+script = ExtResource("9_0gcx5")
 Kind = 3
 metadata/target_role = "mechanism"
 
-[node name="TargetCollision" type="Area2D" parent="Gameplay/Mechanisms/HiddenPanel/ThreadTarget" unique_id=280806379]
+[node name="TargetCollision" type="Area2D" parent="Gameplay/Mechanisms/HiddenPanel/ThreadTarget" unique_id=1647143951]
 collision_layer = 32
 collision_mask = 0
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/HiddenPanel/ThreadTarget/TargetCollision" unique_id=1526312628]
-shape = SubResource("CircleShape2D_q0jtb")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/HiddenPanel/ThreadTarget/TargetCollision" unique_id=103161520]
+shape = SubResource("CircleShape2D_8kx3q")
 
-[node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/Mechanisms/HiddenPanel/ThreadTarget" unique_id=1830403652]
-script = ExtResource("8_6dwv4")
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/Mechanisms/HiddenPanel/ThreadTarget" unique_id=1021859751]
+script = ExtResource("10_d2jc7")

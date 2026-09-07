@@ -209,28 +209,28 @@ OptionButton/font_sizes/font_size = 18
 OptionButton/styles/normal = SubResource("StyleBoxFlat_0vp7c")
 Panel/styles/panel = SubResource("StyleBoxFlat_4npvm")
 
-[node name="PrologueLevel" type="Node2D" unique_id=380191725]
+[node name="PrologueLevel" type="Node2D" unique_id=233476241]
 script = ExtResource("1_diy8h")
 SeamlessWorldPath = NodePath("WorldRoot/Sectors")
 MilestoneCompletionExitId = &"p0_complete"
 MilestoneCompletionObjective = "P0 CORE SLICE COMPLETE"
 
-[node name="PlayerRoot" type="Node2D" parent="." unique_id=1551621818]
+[node name="PlayerRoot" type="Node2D" parent="." unique_id=117065993]
 
 [node name="Player" type="CharacterBody2D" parent="PlayerRoot" unique_id=1310385540 groups=["player"] instance=ExtResource("2_j4l0h")]
 collision_layer = 2
 
-[node name="WorldRoot" type="Node2D" parent="." unique_id=1876737830]
+[node name="WorldRoot" type="Node2D" parent="." unique_id=375801908]
 
-[node name="Sectors" type="Node2D" parent="WorldRoot" unique_id=1658558103]
+[node name="Sectors" type="Node2D" parent="WorldRoot" unique_id=1003772642]
 script = ExtResource("3_x7qoq")
 Definitions = Array[ExtResource("4_4ercc")]([SubResource("Resource_qs8ce"), SubResource("Resource_v2djg"), SubResource("Resource_iuekk"), SubResource("Resource_47x4m"), SubResource("Resource_l5aub")])
 
-[node name="Hud" type="CanvasLayer" parent="." unique_id=851025672]
+[node name="Hud" type="CanvasLayer" parent="." unique_id=1669062745]
 layer = 5
 script = ExtResource("10_be8f3")
 
-[node name="Panel" type="ColorRect" parent="Hud" unique_id=826972922]
+[node name="Panel" type="ColorRect" parent="Hud" unique_id=1378559189]
 modulate = Color(1, 1, 1, 0)
 offset_left = 18.0
 offset_top = 16.0
@@ -239,7 +239,7 @@ offset_bottom = 120.0
 mouse_filter = 2
 color = Color(0.025, 0.045, 0.075, 0.82)
 
-[node name="Health" type="Label" parent="Hud" unique_id=533153580]
+[node name="Health" type="Label" parent="Hud" unique_id=1332213681]
 modulate = Color(1, 1, 1, 0)
 offset_left = 32.0
 offset_top = 26.0
@@ -248,7 +248,7 @@ offset_bottom = 54.0
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "HEALTH 5/5"
 
-[node name="Thread" type="Label" parent="Hud" unique_id=2096409747]
+[node name="Thread" type="Label" parent="Hud" unique_id=1742047503]
 modulate = Color(1, 1, 1, 0)
 offset_left = 230.0
 offset_top = 26.0
@@ -256,7 +256,7 @@ offset_right = 420.0
 offset_bottom = 54.0
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 
-[node name="Objective" type="Label" parent="Hud" unique_id=1462696715]
+[node name="Objective" type="Label" parent="Hud" unique_id=1257607079]
 modulate = Color(1, 1, 1, 0)
 offset_left = 32.0
 offset_top = 57.0
@@ -265,20 +265,20 @@ offset_bottom = 85.0
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "WAKE AND FOLLOW THE BELLS"
 
-[node name="Guidance" type="Control" parent="Hud" unique_id=1580730240]
+[node name="Guidance" type="Control" parent="Hud" unique_id=743166338]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 
-[node name="VisualRoot" type="Control" parent="Hud/Guidance" unique_id=1028136977]
+[node name="VisualRoot" type="Control" parent="Hud/Guidance" unique_id=1747922844]
 anchors_preset = 0
 anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
 script = ExtResource("11_oasbt")
 
-[node name="Backdrop" type="ColorRect" parent="Hud/Guidance/VisualRoot" unique_id=850145651]
+[node name="Backdrop" type="ColorRect" parent="Hud/Guidance/VisualRoot" unique_id=1936964526]
 layout_mode = 0
 offset_left = 48.0
 offset_top = 156.0
@@ -287,7 +287,7 @@ offset_bottom = 244.0
 mouse_filter = 2
 color = Color(0.04, 0.065, 0.085, 0.88)
 
-[node name="TopRule" type="ColorRect" parent="Hud/Guidance/VisualRoot" unique_id=868741595]
+[node name="TopRule" type="ColorRect" parent="Hud/Guidance/VisualRoot" unique_id=1040335146]
 layout_mode = 0
 offset_left = 48.0
 offset_top = 156.0
@@ -296,7 +296,7 @@ offset_bottom = 158.0
 mouse_filter = 2
 color = Color(0.83137256, 0.65882355, 0.24705882, 1)
 
-[node name="Text" type="Label" parent="Hud/Guidance/VisualRoot" unique_id=1086707919]
+[node name="Text" type="Label" parent="Hud/Guidance/VisualRoot" unique_id=929183665]
 layout_mode = 0
 offset_left = 62.0
 offset_top = 166.0
@@ -306,7 +306,7 @@ theme_override_font_sizes/font_size = 17
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 autowrap_mode = 3
 
-[node name="Prompt" type="Label" parent="Hud" unique_id=2000487717]
+[node name="Prompt" type="Label" parent="Hud" unique_id=171891777]
 visible = false
 modulate = Color(1, 1, 1, 0)
 offset_left = 390.0
@@ -315,7 +315,7 @@ offset_right = 890.0
 offset_bottom = 660.0
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 
-[node name="Boss" type="Control" parent="Hud" unique_id=537966976]
+[node name="Boss" type="Control" parent="Hud" unique_id=1384026005]
 visible = false
 modulate = Color(1, 1, 1, 0)
 layout_mode = 3
@@ -325,26 +325,26 @@ offset_top = 196.0
 offset_right = 890.0
 offset_bottom = 286.0
 
-[node name="Name" type="Label" parent="Hud/Boss" unique_id=736837849]
+[node name="Name" type="Label" parent="Hud/Boss" unique_id=591200175]
 layout_mode = 0
 offset_right = 300.0
 offset_bottom = 28.0
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 
-[node name="Health" type="ProgressBar" parent="Hud/Boss" unique_id=2031691842]
+[node name="Health" type="ProgressBar" parent="Hud/Boss" unique_id=624723971]
 layout_mode = 0
 offset_top = 32.0
 offset_right = 500.0
 offset_bottom = 59.0
 
-[node name="State" type="Label" parent="Hud/Boss" unique_id=1687785890]
+[node name="State" type="Label" parent="Hud/Boss" unique_id=591034095]
 layout_mode = 0
 offset_top = 55.0
 offset_right = 300.0
 offset_bottom = 83.0
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 
-[node name="FormalHud" type="Control" parent="Hud" unique_id=1427184758]
+[node name="FormalHud" type="Control" parent="Hud" unique_id=846102791]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -352,53 +352,53 @@ anchor_bottom = 1.0
 mouse_filter = 2
 script = ExtResource("12_urn42")
 
-[node name="Health" type="Control" parent="Hud/FormalHud" unique_id=1530717077]
+[node name="Health" type="Control" parent="Hud/FormalHud" unique_id=1426374703]
 anchors_preset = 0
 
-[node name="Shards" type="HBoxContainer" parent="Hud/FormalHud/Health" unique_id=1346610326]
+[node name="Shards" type="HBoxContainer" parent="Hud/FormalHud/Health" unique_id=452766252]
 layout_mode = 0
 offset_top = 8.0
 offset_right = 190.0
 offset_bottom = 50.0
 theme_override_constants/separation = 5
 
-[node name="Shard1" type="Control" parent="Hud/FormalHud/Health/Shards" unique_id=1507465436]
+[node name="Shard1" type="Control" parent="Hud/FormalHud/Health/Shards" unique_id=1175210078]
 custom_minimum_size = Vector2(34, 42)
 layout_mode = 2
 mouse_filter = 2
 script = ExtResource("13_vkqox")
 
-[node name="Shard2" type="Control" parent="Hud/FormalHud/Health/Shards" unique_id=648377121]
+[node name="Shard2" type="Control" parent="Hud/FormalHud/Health/Shards" unique_id=268250950]
 custom_minimum_size = Vector2(34, 42)
 layout_mode = 2
 mouse_filter = 2
 script = ExtResource("13_vkqox")
 
-[node name="Shard3" type="Control" parent="Hud/FormalHud/Health/Shards" unique_id=1149041316]
+[node name="Shard3" type="Control" parent="Hud/FormalHud/Health/Shards" unique_id=423410704]
 custom_minimum_size = Vector2(34, 42)
 layout_mode = 2
 mouse_filter = 2
 script = ExtResource("13_vkqox")
 
-[node name="Shard4" type="Control" parent="Hud/FormalHud/Health/Shards" unique_id=1973670642]
+[node name="Shard4" type="Control" parent="Hud/FormalHud/Health/Shards" unique_id=1114146799]
 custom_minimum_size = Vector2(34, 42)
 layout_mode = 2
 mouse_filter = 2
 script = ExtResource("13_vkqox")
 
-[node name="Shard5" type="Control" parent="Hud/FormalHud/Health/Shards" unique_id=1454704738]
+[node name="Shard5" type="Control" parent="Hud/FormalHud/Health/Shards" unique_id=1969065143]
 custom_minimum_size = Vector2(34, 42)
 layout_mode = 2
 mouse_filter = 2
 script = ExtResource("13_vkqox")
 
-[node name="ThreadSpool" type="Control" parent="Hud/FormalHud" unique_id=1678468458]
+[node name="ThreadSpool" type="Control" parent="Hud/FormalHud" unique_id=1188039965]
 visible = false
 anchors_preset = 0
 mouse_filter = 2
 script = ExtResource("14_k4nd0")
 
-[node name="State" type="Label" parent="Hud/FormalHud/ThreadSpool" unique_id=184356704]
+[node name="State" type="Label" parent="Hud/FormalHud/ThreadSpool" unique_id=1235300125]
 layout_mode = 0
 offset_right = 1.0
 offset_bottom = 23.0
@@ -407,25 +407,25 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="ModeSelector" type="Control" parent="Hud/FormalHud" unique_id=927712222]
+[node name="ModeSelector" type="Control" parent="Hud/FormalHud" unique_id=1211149166]
 anchors_preset = 0
 mouse_filter = 2
 script = ExtResource("15_igg8j")
 
-[node name="Attack" type="ColorRect" parent="Hud/FormalHud/ModeSelector" unique_id=1107288431]
+[node name="Attack" type="ColorRect" parent="Hud/FormalHud/ModeSelector" unique_id=2062821487]
 layout_mode = 0
 offset_right = 94.0
 offset_bottom = 32.0
 color = Color(0.0627451, 0.101960786, 0.13333334, 1)
 
-[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/ModeSelector/Attack" unique_id=1847005055]
+[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/ModeSelector/Attack" unique_id=962120132]
 layout_mode = 0
 offset_right = 94.0
 offset_bottom = 2.0
 mouse_filter = 2
 color = Color(0.3529412, 0.45490196, 0.5019608, 1)
 
-[node name="Label" type="Label" parent="Hud/FormalHud/ModeSelector/Attack" unique_id=1437021495]
+[node name="Label" type="Label" parent="Hud/FormalHud/ModeSelector/Attack" unique_id=1469299830]
 layout_mode = 0
 offset_left = 8.0
 offset_top = 5.0
@@ -435,7 +435,7 @@ theme_override_font_sizes/font_size = 13
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 horizontal_alignment = 1
 
-[node name="SelectedMarker" type="Label" parent="Hud/FormalHud/ModeSelector/Attack" unique_id=1010436367]
+[node name="SelectedMarker" type="Label" parent="Hud/FormalHud/ModeSelector/Attack" unique_id=1927248564]
 layout_mode = 0
 offset_left = 70.0
 offset_top = 4.0
@@ -446,21 +446,21 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "◆"
 horizontal_alignment = 1
 
-[node name="Grapple" type="ColorRect" parent="Hud/FormalHud/ModeSelector" unique_id=362063659]
+[node name="Grapple" type="ColorRect" parent="Hud/FormalHud/ModeSelector" unique_id=2024020945]
 layout_mode = 0
 offset_left = 102.0
 offset_right = 196.0
 offset_bottom = 32.0
 color = Color(0.0627451, 0.101960786, 0.13333334, 1)
 
-[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/ModeSelector/Grapple" unique_id=155901873]
+[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/ModeSelector/Grapple" unique_id=150588206]
 layout_mode = 0
 offset_right = 94.0
 offset_bottom = 2.0
 mouse_filter = 2
 color = Color(0.3529412, 0.45490196, 0.5019608, 1)
 
-[node name="Label" type="Label" parent="Hud/FormalHud/ModeSelector/Grapple" unique_id=686493962]
+[node name="Label" type="Label" parent="Hud/FormalHud/ModeSelector/Grapple" unique_id=1800622992]
 layout_mode = 0
 offset_left = 8.0
 offset_top = 5.0
@@ -470,7 +470,7 @@ theme_override_font_sizes/font_size = 13
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 horizontal_alignment = 1
 
-[node name="SelectedMarker" type="Label" parent="Hud/FormalHud/ModeSelector/Grapple" unique_id=1141656214]
+[node name="SelectedMarker" type="Label" parent="Hud/FormalHud/ModeSelector/Grapple" unique_id=1763605216]
 visible = false
 layout_mode = 0
 offset_left = 70.0
@@ -482,25 +482,25 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "◆"
 horizontal_alignment = 1
 
-[node name="Loadout" type="Control" parent="Hud/FormalHud" unique_id=2015592710]
+[node name="Loadout" type="Control" parent="Hud/FormalHud" unique_id=1978231216]
 anchors_preset = 0
 mouse_filter = 2
 script = ExtResource("16_xt2fl")
 
-[node name="Slot1" type="ColorRect" parent="Hud/FormalHud/Loadout" unique_id=286190491]
+[node name="Slot1" type="ColorRect" parent="Hud/FormalHud/Loadout" unique_id=1745668534]
 layout_mode = 0
 offset_right = 46.0
 offset_bottom = 32.0
 color = Color(0.050980393, 0.078431375, 0.105882354, 1)
 
-[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Loadout/Slot1" unique_id=842002973]
+[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Loadout/Slot1" unique_id=249930682]
 layout_mode = 0
 offset_right = 46.0
 offset_bottom = 2.0
 mouse_filter = 2
 color = Color(0.29411766, 0.36078432, 0.38431373, 1)
 
-[node name="Label" type="Label" parent="Hud/FormalHud/Loadout/Slot1" unique_id=1285251269]
+[node name="Label" type="Label" parent="Hud/FormalHud/Loadout/Slot1" unique_id=680907183]
 layout_mode = 0
 offset_left = 5.0
 offset_top = 5.0
@@ -510,7 +510,7 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "1"
 horizontal_alignment = 1
 
-[node name="SelectedMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot1" unique_id=1347302914]
+[node name="SelectedMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot1" unique_id=1564099275]
 layout_mode = 0
 offset_left = 25.0
 offset_top = 5.0
@@ -522,21 +522,21 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "◆"
 horizontal_alignment = 1
 
-[node name="Slot2" type="ColorRect" parent="Hud/FormalHud/Loadout" unique_id=1516722885]
+[node name="Slot2" type="ColorRect" parent="Hud/FormalHud/Loadout" unique_id=275016479]
 layout_mode = 0
 offset_left = 50.0
 offset_right = 96.0
 offset_bottom = 32.0
 color = Color(0.050980393, 0.078431375, 0.105882354, 1)
 
-[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Loadout/Slot2" unique_id=2036848972]
+[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Loadout/Slot2" unique_id=1807369866]
 layout_mode = 0
 offset_right = 46.0
 offset_bottom = 2.0
 mouse_filter = 2
 color = Color(0.29411766, 0.36078432, 0.38431373, 1)
 
-[node name="Label" type="Label" parent="Hud/FormalHud/Loadout/Slot2" unique_id=195894533]
+[node name="Label" type="Label" parent="Hud/FormalHud/Loadout/Slot2" unique_id=813657451]
 layout_mode = 0
 offset_left = 5.0
 offset_top = 5.0
@@ -546,7 +546,7 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "2"
 horizontal_alignment = 1
 
-[node name="SelectedMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot2" unique_id=348687271]
+[node name="SelectedMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot2" unique_id=1163848493]
 visible = false
 layout_mode = 0
 offset_left = 25.0
@@ -559,7 +559,7 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "◆"
 horizontal_alignment = 1
 
-[node name="EmptyMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot2" unique_id=1006924501]
+[node name="EmptyMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot2" unique_id=1521148616]
 layout_mode = 0
 offset_left = 15.0
 offset_top = 4.0
@@ -570,21 +570,21 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "□"
 horizontal_alignment = 1
 
-[node name="Slot3" type="ColorRect" parent="Hud/FormalHud/Loadout" unique_id=2028783469]
+[node name="Slot3" type="ColorRect" parent="Hud/FormalHud/Loadout" unique_id=642693801]
 layout_mode = 0
 offset_left = 100.0
 offset_right = 146.0
 offset_bottom = 32.0
 color = Color(0.050980393, 0.078431375, 0.105882354, 1)
 
-[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Loadout/Slot3" unique_id=560963179]
+[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Loadout/Slot3" unique_id=1062095944]
 layout_mode = 0
 offset_right = 46.0
 offset_bottom = 2.0
 mouse_filter = 2
 color = Color(0.29411766, 0.36078432, 0.38431373, 1)
 
-[node name="Label" type="Label" parent="Hud/FormalHud/Loadout/Slot3" unique_id=925360802]
+[node name="Label" type="Label" parent="Hud/FormalHud/Loadout/Slot3" unique_id=998930769]
 layout_mode = 0
 offset_left = 5.0
 offset_top = 5.0
@@ -594,7 +594,7 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "3"
 horizontal_alignment = 1
 
-[node name="SelectedMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot3" unique_id=1000902825]
+[node name="SelectedMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot3" unique_id=118708503]
 visible = false
 layout_mode = 0
 offset_left = 25.0
@@ -607,7 +607,7 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "◆"
 horizontal_alignment = 1
 
-[node name="EmptyMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot3" unique_id=303288602]
+[node name="EmptyMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot3" unique_id=1806129689]
 layout_mode = 0
 offset_left = 15.0
 offset_top = 4.0
@@ -618,21 +618,21 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "□"
 horizontal_alignment = 1
 
-[node name="Slot4" type="ColorRect" parent="Hud/FormalHud/Loadout" unique_id=1025329385]
+[node name="Slot4" type="ColorRect" parent="Hud/FormalHud/Loadout" unique_id=942488177]
 layout_mode = 0
 offset_left = 150.0
 offset_right = 196.0
 offset_bottom = 32.0
 color = Color(0.050980393, 0.078431375, 0.105882354, 1)
 
-[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Loadout/Slot4" unique_id=382853125]
+[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Loadout/Slot4" unique_id=1431496053]
 layout_mode = 0
 offset_right = 46.0
 offset_bottom = 2.0
 mouse_filter = 2
 color = Color(0.29411766, 0.36078432, 0.38431373, 1)
 
-[node name="Label" type="Label" parent="Hud/FormalHud/Loadout/Slot4" unique_id=1520129788]
+[node name="Label" type="Label" parent="Hud/FormalHud/Loadout/Slot4" unique_id=1154830590]
 layout_mode = 0
 offset_left = 5.0
 offset_top = 5.0
@@ -642,7 +642,7 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "4"
 horizontal_alignment = 1
 
-[node name="SelectedMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot4" unique_id=674105236]
+[node name="SelectedMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot4" unique_id=1677722362]
 visible = false
 layout_mode = 0
 offset_left = 25.0
@@ -655,7 +655,7 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "◆"
 horizontal_alignment = 1
 
-[node name="EmptyMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot4" unique_id=1661462583]
+[node name="EmptyMarker" type="Label" parent="Hud/FormalHud/Loadout/Slot4" unique_id=772833465]
 layout_mode = 0
 offset_left = 15.0
 offset_top = 4.0
@@ -666,7 +666,7 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "□"
 horizontal_alignment = 1
 
-[node name="RejectionMarker" type="Label" parent="Hud/FormalHud/Loadout" unique_id=1322734135]
+[node name="RejectionMarker" type="Label" parent="Hud/FormalHud/Loadout" unique_id=195536218]
 visible = false
 layout_mode = 0
 offset_left = 178.0
@@ -679,18 +679,18 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "!"
 horizontal_alignment = 1
 
-[node name="ResourceCluster" type="Control" parent="Hud/FormalHud" unique_id=1889071096]
+[node name="ResourceCluster" type="Control" parent="Hud/FormalHud" unique_id=1830598170]
 anchors_preset = 0
 mouse_filter = 2
 script = ExtResource("17_ups4x")
 
-[node name="EnergyLabel" type="Label" parent="Hud/FormalHud/ResourceCluster" unique_id=113323204]
+[node name="EnergyLabel" type="Label" parent="Hud/FormalHud/ResourceCluster" unique_id=1939484175]
 layout_mode = 0
 offset_right = 48.0
 offset_bottom = 26.0
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 
-[node name="Energy" type="ProgressBar" parent="Hud/FormalHud/ResourceCluster" unique_id=2003933637]
+[node name="Energy" type="ProgressBar" parent="Hud/FormalHud/ResourceCluster" unique_id=1771502235]
 layout_mode = 0
 offset_left = 50.0
 offset_top = 6.0
@@ -700,14 +700,14 @@ max_value = 1.0
 value = 1.0
 show_percentage = false
 
-[node name="HeatLabel" type="Label" parent="Hud/FormalHud/ResourceCluster" unique_id=2123501298]
+[node name="HeatLabel" type="Label" parent="Hud/FormalHud/ResourceCluster" unique_id=1708018479]
 layout_mode = 0
 offset_top = 36.0
 offset_right = 48.0
 offset_bottom = 62.0
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 
-[node name="Heat" type="ProgressBar" parent="Hud/FormalHud/ResourceCluster" unique_id=2097473752]
+[node name="Heat" type="ProgressBar" parent="Hud/FormalHud/ResourceCluster" unique_id=656769289]
 layout_mode = 0
 offset_left = 50.0
 offset_top = 42.0
@@ -716,7 +716,7 @@ offset_bottom = 69.0
 max_value = 1.0
 show_percentage = false
 
-[node name="OverheatMarker" type="Label" parent="Hud/FormalHud/ResourceCluster/Heat" unique_id=2123854246]
+[node name="OverheatMarker" type="Label" parent="Hud/FormalHud/ResourceCluster/Heat" unique_id=839545581]
 visible = false
 layout_mode = 0
 offset_left = 112.0
@@ -729,7 +729,7 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "!"
 horizontal_alignment = 1
 
-[node name="AimReticle" type="Control" parent="Hud/FormalHud" unique_id=987218531]
+[node name="AimReticle" type="Control" parent="Hud/FormalHud" unique_id=902752968]
 z_index = 100
 anchors_preset = 0
 offset_right = 64.0
@@ -737,18 +737,18 @@ offset_bottom = 64.0
 mouse_filter = 2
 script = ExtResource("18_hmkoa")
 
-[node name="ObjectiveRibbon" type="ColorRect" parent="Hud/FormalHud" unique_id=1355537733]
+[node name="ObjectiveRibbon" type="ColorRect" parent="Hud/FormalHud" unique_id=1511637209]
 layout_mode = 0
 color = Color(0.0627451, 0.101960786, 0.13333334, 1)
 
-[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/ObjectiveRibbon" unique_id=674733342]
+[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/ObjectiveRibbon" unique_id=1450343297]
 layout_mode = 0
 offset_right = 352.0
 offset_bottom = 2.0
 mouse_filter = 2
 color = Color(0.6039216, 0.48235294, 0.20784314, 1)
 
-[node name="Text" type="Label" parent="Hud/FormalHud/ObjectiveRibbon" unique_id=1342885413]
+[node name="Text" type="Label" parent="Hud/FormalHud/ObjectiveRibbon" unique_id=1860785546]
 layout_mode = 0
 offset_left = 14.0
 offset_top = 2.0
@@ -759,19 +759,19 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 text = "跟随钟声醒来"
 vertical_alignment = 1
 
-[node name="Prompt" type="ColorRect" parent="Hud/FormalHud" unique_id=1354199079]
+[node name="Prompt" type="ColorRect" parent="Hud/FormalHud" unique_id=929561532]
 visible = false
 layout_mode = 0
 color = Color(0.0627451, 0.101960786, 0.13333334, 1)
 
-[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Prompt" unique_id=1378185686]
+[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Prompt" unique_id=732077937]
 layout_mode = 0
 offset_right = 390.0
 offset_bottom = 2.0
 mouse_filter = 2
 color = Color(0.6039216, 0.48235294, 0.20784314, 1)
 
-[node name="Glyph" type="Label" parent="Hud/FormalHud/Prompt" unique_id=2143868253]
+[node name="Glyph" type="Label" parent="Hud/FormalHud/Prompt" unique_id=1895634938]
 layout_mode = 0
 offset_left = 12.0
 offset_top = 8.0
@@ -782,7 +782,7 @@ theme_override_colors/font_color = Color(0.61960787, 0.85882354, 0.8235294, 1)
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="Text" type="Label" parent="Hud/FormalHud/Prompt" unique_id=572360549]
+[node name="Text" type="Label" parent="Hud/FormalHud/Prompt" unique_id=195574615]
 layout_mode = 0
 offset_left = 78.0
 offset_top = 4.0
@@ -793,19 +793,19 @@ theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 vertical_alignment = 1
 autowrap_mode = 3
 
-[node name="Boss" type="ColorRect" parent="Hud/FormalHud" unique_id=1987866366]
+[node name="Boss" type="ColorRect" parent="Hud/FormalHud" unique_id=1953107569]
 visible = false
 layout_mode = 0
 color = Color(0.050980393, 0.078431375, 0.105882354, 1)
 
-[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Boss" unique_id=1494211393]
+[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Boss" unique_id=274413877]
 layout_mode = 0
 offset_right = 640.0
 offset_bottom = 2.0
 mouse_filter = 2
 color = Color(0.5568628, 0.28627452, 0.22352941, 1)
 
-[node name="Name" type="Label" parent="Hud/FormalHud/Boss" unique_id=1873896100]
+[node name="Name" type="Label" parent="Hud/FormalHud/Boss" unique_id=1302623663]
 layout_mode = 0
 offset_left = 18.0
 offset_top = 3.0
@@ -814,7 +814,7 @@ offset_bottom = 26.0
 theme_override_font_sizes/font_size = 17
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 
-[node name="Health" type="ProgressBar" parent="Hud/FormalHud/Boss" unique_id=161689247]
+[node name="Health" type="ProgressBar" parent="Hud/FormalHud/Boss" unique_id=220583990]
 layout_mode = 0
 offset_left = 18.0
 offset_top = 31.0
@@ -824,7 +824,7 @@ max_value = 18.0
 value = 18.0
 show_percentage = false
 
-[node name="State" type="Label" parent="Hud/FormalHud/Boss" unique_id=1045894589]
+[node name="State" type="Label" parent="Hud/FormalHud/Boss" unique_id=579842966]
 layout_mode = 0
 offset_left = 340.0
 offset_top = 3.0
@@ -834,20 +834,20 @@ theme_override_font_sizes/font_size = 14
 theme_override_colors/font_color = Color(0.83137256, 0.65882355, 0.24705882, 1)
 horizontal_alignment = 2
 
-[node name="Recovery" type="Control" parent="Hud/FormalHud" unique_id=1039196779]
+[node name="Recovery" type="Control" parent="Hud/FormalHud" unique_id=949617612]
 visible = false
 anchors_preset = 0
 anchor_right = 1.0
 anchor_bottom = 1.0
 script = ExtResource("19_xh2t1")
 
-[node name="Veil" type="ColorRect" parent="Hud/FormalHud/Recovery" unique_id=1944634116]
+[node name="Veil" type="ColorRect" parent="Hud/FormalHud/Recovery" unique_id=596128318]
 layout_mode = 0
 anchor_right = 1.0
 anchor_bottom = 1.0
 color = Color(0.025, 0.04, 0.055, 0.82)
 
-[node name="Title" type="Label" parent="Hud/FormalHud/Recovery" unique_id=781201769]
+[node name="Title" type="Label" parent="Hud/FormalHud/Recovery" unique_id=1608593786]
 layout_mode = 0
 anchor_left = 0.5
 anchor_top = 0.5
@@ -862,7 +862,7 @@ theme_override_colors/font_color = Color(0.83137256, 0.65882355, 0.24705882, 1)
 text = "墓灯重燃"
 horizontal_alignment = 1
 
-[node name="Reason" type="Label" parent="Hud/FormalHud/Recovery" unique_id=865239141]
+[node name="Reason" type="Label" parent="Hud/FormalHud/Recovery" unique_id=1462901926]
 layout_mode = 0
 anchor_left = 0.5
 anchor_top = 0.5
@@ -875,20 +875,20 @@ offset_bottom = 25.0
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 horizontal_alignment = 1
 
-[node name="Completion" type="Control" parent="Hud/FormalHud" unique_id=1161624660]
+[node name="Completion" type="Control" parent="Hud/FormalHud" unique_id=1306562014]
 visible = false
 anchors_preset = 0
 anchor_right = 1.0
 anchor_bottom = 1.0
 script = ExtResource("20_5bl3l")
 
-[node name="Veil" type="ColorRect" parent="Hud/FormalHud/Completion" unique_id=624575181]
+[node name="Veil" type="ColorRect" parent="Hud/FormalHud/Completion" unique_id=1588465448]
 layout_mode = 0
 anchor_right = 1.0
 anchor_bottom = 1.0
 color = Color(0.02, 0.035, 0.05, 0.94)
 
-[node name="Panel" type="ColorRect" parent="Hud/FormalHud/Completion" unique_id=1251203321]
+[node name="Panel" type="ColorRect" parent="Hud/FormalHud/Completion" unique_id=1940345073]
 layout_mode = 0
 anchor_left = 0.5
 anchor_top = 0.5
@@ -900,14 +900,14 @@ offset_right = 250.0
 offset_bottom = 260.0
 color = Color(0.0627451, 0.101960786, 0.13333334, 1)
 
-[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Completion/Panel" unique_id=1636538293]
+[node name="TopRule" type="ColorRect" parent="Hud/FormalHud/Completion/Panel" unique_id=842875139]
 layout_mode = 0
 offset_right = 500.0
 offset_bottom = 2.0
 mouse_filter = 2
 color = Color(0.83137256, 0.65882355, 0.24705882, 1)
 
-[node name="Title" type="Label" parent="Hud/FormalHud/Completion/Panel" unique_id=453730902]
+[node name="Title" type="Label" parent="Hud/FormalHud/Completion/Panel" unique_id=537177304]
 layout_mode = 0
 offset_left = 40.0
 offset_top = 34.0
@@ -918,7 +918,7 @@ theme_override_colors/font_color = Color(0.83137256, 0.65882355, 0.24705882, 1)
 text = "无名钟楼 · 序章完成"
 horizontal_alignment = 1
 
-[node name="Subtitle" type="Label" parent="Hud/FormalHud/Completion/Panel" unique_id=1313616785]
+[node name="Subtitle" type="Label" parent="Hud/FormalHud/Completion/Panel" unique_id=1755441939]
 layout_mode = 0
 offset_left = 40.0
 offset_top = 88.0
@@ -928,7 +928,7 @@ theme_override_colors/font_color = Color(0.7176471, 0.6666667, 0.53333336, 1)
 text = "最后的守墓人仍在钟声深处"
 horizontal_alignment = 1
 
-[node name="Stats" type="Label" parent="Hud/FormalHud/Completion/Panel" unique_id=1123988627]
+[node name="Stats" type="Label" parent="Hud/FormalHud/Completion/Panel" unique_id=1688162762]
 layout_mode = 0
 offset_left = 70.0
 offset_top = 146.0
@@ -937,7 +937,7 @@ offset_bottom = 336.0
 theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 
-[node name="ReturnToTitle" type="Button" parent="Hud/FormalHud/Completion/Panel" unique_id=1268213249]
+[node name="ReturnToTitle" type="Button" parent="Hud/FormalHud/Completion/Panel" unique_id=1150793535]
 layout_mode = 0
 offset_left = 70.0
 offset_top = 376.0
@@ -945,7 +945,7 @@ offset_right = 240.0
 offset_bottom = 420.0
 text = "返回标题"
 
-[node name="Replay" type="Button" parent="Hud/FormalHud/Completion/Panel" unique_id=719943335]
+[node name="Replay" type="Button" parent="Hud/FormalHud/Completion/Panel" unique_id=1735014123]
 layout_mode = 0
 offset_left = 260.0
 offset_top = 376.0
@@ -953,20 +953,20 @@ offset_right = 430.0
 offset_bottom = 420.0
 text = "再次游玩"
 
-[node name="Fade" type="CanvasLayer" parent="." unique_id=580882459]
+[node name="Fade" type="CanvasLayer" parent="." unique_id=737427072]
 layer = 10
 
-[node name="Completion" type="Node" parent="." unique_id=1196743274]
+[node name="Completion" type="Node" parent="." unique_id=1495353310]
 script = ExtResource("21_3bto5")
 
-[node name="Guidance" type="Node" parent="." unique_id=2042579059]
+[node name="Guidance" type="Node" parent="." unique_id=1619310012]
 script = ExtResource("22_osonk")
 
-[node name="PauseMenu" type="CanvasLayer" parent="." unique_id=1586021470]
+[node name="PauseMenu" type="CanvasLayer" parent="." unique_id=429469793]
 layer = 20
 script = ExtResource("23_nsf3m")
 
-[node name="Panel" type="ColorRect" parent="PauseMenu" unique_id=1592772229]
+[node name="Panel" type="ColorRect" parent="PauseMenu" unique_id=1672329028]
 visible = false
 anchors_preset = 8
 anchor_left = 0.5
@@ -980,14 +980,14 @@ offset_bottom = 240.0
 theme = SubResource("Theme_844f6")
 color = Color(0.0627451, 0.09411765, 0.1254902, 1)
 
-[node name="TopRule" type="ColorRect" parent="PauseMenu/Panel" unique_id=1807402595]
+[node name="TopRule" type="ColorRect" parent="PauseMenu/Panel" unique_id=2111224329]
 layout_mode = 0
 offset_right = 720.0
 offset_bottom = 3.0
 mouse_filter = 2
 color = Color(0.83137256, 0.65882355, 0.24705882, 1)
 
-[node name="Title" type="Label" parent="PauseMenu/Panel" unique_id=2031105742]
+[node name="Title" type="Label" parent="PauseMenu/Panel" unique_id=615722140]
 layout_mode = 0
 offset_left = 36.0
 offset_top = 24.0
@@ -998,7 +998,7 @@ theme_override_colors/font_color = Color(0.83137256, 0.65882355, 0.24705882, 1)
 text = "无名钟楼 · 暂停"
 horizontal_alignment = 1
 
-[node name="Subtitle" type="Label" parent="PauseMenu/Panel" unique_id=1426063139]
+[node name="Subtitle" type="Label" parent="PauseMenu/Panel" unique_id=331856013]
 layout_mode = 0
 offset_left = 36.0
 offset_top = 66.0
@@ -1008,7 +1008,7 @@ theme_override_colors/font_color = Color(0.7176471, 0.6666667, 0.53333336, 1)
 text = "钟声仍在等待"
 horizontal_alignment = 1
 
-[node name="Resume" type="Button" parent="PauseMenu/Panel" unique_id=1572362536]
+[node name="Resume" type="Button" parent="PauseMenu/Panel" unique_id=985185597]
 layout_mode = 0
 offset_left = 36.0
 offset_top = 112.0
@@ -1016,7 +1016,7 @@ offset_right = 186.0
 offset_bottom = 156.0
 text = "继续"
 
-[node name="ShowControls" type="Button" parent="PauseMenu/Panel" unique_id=1440538936]
+[node name="ShowControls" type="Button" parent="PauseMenu/Panel" unique_id=551797967]
 layout_mode = 0
 offset_left = 196.0
 offset_top = 112.0
@@ -1024,7 +1024,7 @@ offset_right = 346.0
 offset_bottom = 156.0
 text = "操作说明"
 
-[node name="ReturnToCheckpoint" type="Button" parent="PauseMenu/Panel" unique_id=319151083]
+[node name="ReturnToCheckpoint" type="Button" parent="PauseMenu/Panel" unique_id=1145740211]
 layout_mode = 0
 offset_left = 356.0
 offset_top = 112.0
@@ -1032,7 +1032,7 @@ offset_right = 526.0
 offset_bottom = 156.0
 text = "返回墓灯"
 
-[node name="QuitToDesktop" type="Button" parent="PauseMenu/Panel" unique_id=134362739]
+[node name="QuitToDesktop" type="Button" parent="PauseMenu/Panel" unique_id=1920216479]
 layout_mode = 0
 offset_left = 536.0
 offset_top = 112.0
@@ -1040,7 +1040,7 @@ offset_right = 684.0
 offset_bottom = 156.0
 text = "退出"
 
-[node name="GuidanceToggle" type="Button" parent="PauseMenu/Panel" unique_id=744901022]
+[node name="GuidanceToggle" type="Button" parent="PauseMenu/Panel" unique_id=1185779716]
 layout_mode = 0
 offset_left = 36.0
 offset_top = 168.0
@@ -1048,7 +1048,7 @@ offset_right = 226.0
 offset_bottom = 212.0
 text = "第一关指导：开"
 
-[node name="ControlsWell" type="ColorRect" parent="PauseMenu/Panel" unique_id=1986865324]
+[node name="ControlsWell" type="ColorRect" parent="PauseMenu/Panel" unique_id=711354585]
 layout_mode = 0
 offset_left = 36.0
 offset_top = 224.0
@@ -1057,7 +1057,7 @@ offset_bottom = 430.0
 mouse_filter = 2
 color = Color(0.043137256, 0.06666667, 0.09411765, 1)
 
-[node name="Controls" type="Label" parent="PauseMenu/Panel" unique_id=656019209]
+[node name="Controls" type="Label" parent="PauseMenu/Panel" unique_id=1508875612]
 layout_mode = 0
 offset_left = 56.0
 offset_top = 238.0
@@ -1066,39 +1066,39 @@ offset_bottom = 416.0
 theme_override_font_sizes/font_size = 16
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 
-[node name="Audio" type="Node" parent="." unique_id=2105216415]
+[node name="Audio" type="Node" parent="." unique_id=1393536647]
 process_mode = 3
 script = ExtResource("24_tjox6")
 
-[node name="MusicA" type="AudioStreamPlayer" parent="Audio" unique_id=1084168054]
+[node name="MusicA" type="AudioStreamPlayer" parent="Audio" unique_id=753400895]
 process_mode = 3
 bus = &"Music"
 
-[node name="MusicB" type="AudioStreamPlayer" parent="Audio" unique_id=649805952]
+[node name="MusicB" type="AudioStreamPlayer" parent="Audio" unique_id=409951524]
 process_mode = 3
 bus = &"Music"
 
-[node name="Ambience" type="AudioStreamPlayer" parent="Audio" unique_id=1023745019]
+[node name="Ambience" type="AudioStreamPlayer" parent="Audio" unique_id=106158034]
 process_mode = 3
 bus = &"Ambience"
 
-[node name="Sfx0" type="AudioStreamPlayer" parent="Audio" unique_id=1113384200]
+[node name="Sfx0" type="AudioStreamPlayer" parent="Audio" unique_id=205352119]
 process_mode = 3
 bus = &"SFX"
 
-[node name="Sfx1" type="AudioStreamPlayer" parent="Audio" unique_id=1679479577]
+[node name="Sfx1" type="AudioStreamPlayer" parent="Audio" unique_id=587854463]
 process_mode = 3
 bus = &"SFX"
 
-[node name="Sfx2" type="AudioStreamPlayer" parent="Audio" unique_id=243725269]
+[node name="Sfx2" type="AudioStreamPlayer" parent="Audio" unique_id=161893900]
 process_mode = 3
 bus = &"SFX"
 
-[node name="Sfx3" type="AudioStreamPlayer" parent="Audio" unique_id=1053719454]
+[node name="Sfx3" type="AudioStreamPlayer" parent="Audio" unique_id=645837856]
 process_mode = 3
 bus = &"SFX"
 
-[node name="UI" type="AudioStreamPlayer" parent="Audio" unique_id=1747017456]
+[node name="UI" type="AudioStreamPlayer" parent="Audio" unique_id=2050990312]
 process_mode = 3
 bus = &"UI"
 
@@ -1109,8 +1109,8 @@ script = ExtResource("26_b6mra")
 layer = 50
 script = ExtResource("28_8yiwd")
 
-[node name="GameFlow" type="Node" parent="." unique_id=2073054582]
+[node name="GameFlow" type="Node" parent="." unique_id=569746127]
 script = ExtResource("29_agme3")
 
-[node name="PlaytestRecorder" type="Node" parent="." unique_id=1828662688]
+[node name="PlaytestRecorder" type="Node" parent="." unique_id=1000331524]
 script = ExtResource("30_njnpm")

@@ -1,5 +1,5 @@
-Knight Prologue 2026.09.08-r1
-Base revision: bac0358865ee6e98a854d0fbd56c15cfad8a366e
-Candidate: retained dense-canyon scenes, combat HUD, door visibility and scenery revision.
+Knight Prologue 2026.09.08-r2
+Base revision: 719af81d9f7880a0035976427e3957b0270e9510
+Candidate: material-specific terrain and grapple-target skins; unchanged gameplay configuration.
 Launch: Play-Knight.cmd
 Status: development playtest candidate; player acceptance is not complete.

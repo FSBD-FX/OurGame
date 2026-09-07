@@ -7,6 +7,7 @@ using Knight.Enemies;
 using Knight.Enemies.Laborer;
 using Knight.Enemies.Moth;
 using Knight.Mechanisms;
+using Knight.Presentation;
 using Knight.Prologue;
 using Knight.Prologue.Mechanisms;
 using Knight.Prologue.Seamless;
@@ -499,15 +500,11 @@ public static class CanyonContentBuilder
         if (catchShelf) body.SetMeta("catch_shelf", true);
         root.GetNode("Gameplay/Collision").AddChild(body);
 
-        Color fill = material switch
+        var visual = new CanyonPlatformVisual
         {
-            GrappleSurfaceMaterial.TempleMetal => new Color("58686e"),
-            GrappleSurfaceMaterial.Ice => new Color("537f94"),
-            GrappleSurfaceMaterial.Forbidden => new Color("554853"),
-            _ when catchShelf => new Color("4e786e"),
-            _ => new Color("40565a")
+            Name = name, Position = center, SkinSize = size,
+            SurfaceMaterial = material, CatchShelf = catchShelf
         };
-        Polygon2D visual = RectPolygon(name, center, size, fill);
         visual.AddChild(RectPolygon("ReadableEdge", new Vector2(0, -size.Y / 2f + 3),
             new Vector2(size.X, 6), material == GrappleSurfaceMaterial.Ice
                 ? new Color("a8d8e8")
@@ -542,16 +539,10 @@ public static class CanyonContentBuilder
         });
         surface.AddChild(area);
         root.GetNode("Gameplay/GrappleSurfaces").AddChild(surface);
-        Color color = material switch
+        root.GetNode("VisualRoot/GameplayReadable").AddChild(new CanyonAnchorVisual
         {
-            GrappleSurfaceMaterial.DedicatedAnchor => new Color("d2ad5c"),
-            GrappleSurfaceMaterial.GripStone => new Color("76b59c"),
-            GrappleSurfaceMaterial.TempleMetal => new Color("9dd3d2"),
-            GrappleSurfaceMaterial.Ice => new Color("91cde8"),
-            _ => new Color("6f6974")
-        };
-        root.GetNode("VisualRoot/GameplayReadable").AddChild(CirclePolygon(name, position,
-            radius + 5f, color));
+            Name = name, Position = position, SurfaceMaterial = material, Radius = radius
+        });
         return surface;
     }
 

@@ -1,10 +1,10 @@
 {
   "format": 1,
-  "version": "2026.09.08-r1",
+  "version": "2026.09.08-r2",
   "packagingRevision": "github-filtered-archive1",
   "status": "Historical development candidate; not final player acceptance.",
-  "originalSourceCommit": "719af81d9f7880a0035976427e3957b0270e9510",
-  "originalLocalZipSha256": "28e8877f2fd812b44bd640c297aafca055d6cd4fe6df645b3d5292ff61bcb61b",
+  "originalSourceCommit": "1da26b6bd4732ef1967dc0a01de0b726c5b8938f",
+  "originalLocalZipSha256": "07136fc7483d85fc6ca89f0305f08964d17e7e1a000b3de8cc31f96836acdb38",
   "archiveCommitPolicy": "The GitHub tag identifies a separate filtered export commit, not the original source commit or its private history.",
   "exclusions": [
     "original README and all original docs",
@@ -35,8 +35,8 @@
     },
     {
       "path": "VERSION.txt",
-      "sha256": "8060638ef0c9ddb131278942d0b97d061828933dda67bb6b637f6bb1465dbc9d",
-      "bytes": 281
+      "sha256": "d21a8c17a5a4959cc9dd9f0d6fc91e7d24a64d7f3c14032ea0d6bfedba1571a7",
+      "bytes": 287
     },
     {
       "path": "addons/beehave/LICENSE",
@@ -3370,8 +3370,8 @@
     },
     {
       "path": "scenes/prologue/PrologueLevel.tscn",
-      "sha256": "4557d343c42b00b4ec4ea29b09b8fbb47c134e50eb361b208b64b7924d53f424",
-      "bytes": 37778
+      "sha256": "a2e49ff5783a3170e05254f5cc2da2cd773a07f119eb3e1894529a8ac8321ce5",
+      "bytes": 37765
     },
     {
       "path": "scenes/prologue/rooms/AwakeningCourtyard.tscn",
@@ -3405,28 +3405,28 @@
     },
     {
       "path": "scenes/prologue/sectors/CanyonAscent.tscn",
-      "sha256": "9424085ed61147abafa0873054351a05ff1c195306eebcb6afe1af6796d0a240",
-      "bytes": 39203
+      "sha256": "5f95b72ff8cd722a444def3a5a80a6ff508270f6d6ed8e28201dc098d1e89a32",
+      "bytes": 37013
     },
     {
       "path": "scenes/prologue/sectors/CanyonBasin.tscn",
-      "sha256": "66e23ed2e76859d205c6760aaf51697edb6b2f08bbb3876c6430ec525da6dc02",
-      "bytes": 24077
+      "sha256": "c2130c414dfd90307eefa22e864c7376d534bb1a65bf59871cdcf17e8934554b",
+      "bytes": 23373
     },
     {
       "path": "scenes/prologue/sectors/CanyonDescent.tscn",
-      "sha256": "2c6850dcefe51781a9cebf3360e893fb4a1a3be3aa86f2700c0d2a4a86f6903d",
-      "bytes": 35019
+      "sha256": "cfb5bd5f95d744bc62e4e077679f88deaab4afa09d550c0fae716b06acd89762",
+      "bytes": 33008
     },
     {
       "path": "scenes/prologue/sectors/CanyonEntrance.tscn",
-      "sha256": "010982926dfba42397485d85738c3d952b95a7e9447e1904c5aab1a0884989f8",
-      "bytes": 12958
+      "sha256": "fecac08f297ae242f155b8722b66b131c393bd7885feef4d55c9736cfb86474c",
+      "bytes": 12496
     },
     {
       "path": "scenes/prologue/sectors/LostTemple.tscn",
-      "sha256": "a63279fac62a0446416dff83981ab01fe1f945447ae521acaf52fef29541d6c3",
-      "bytes": 25268
+      "sha256": "67a648ab988458baa18ea7ab92f68fc852fe48535b3c6b876790a29ebfbbc6fd",
+      "bytes": 24290
     },
     {
       "path": "scenes/prototype/PrototypeRoom.tscn",
@@ -4514,9 +4514,34 @@
       "bytes": 21
     },
     {
+      "path": "scripts/presentation/CanyonAnchorVisual.cs",
+      "sha256": "8f0c1d10cd47b98079694e9e2e3c608573854e6c5b1eb2e401f5053bdffb7f22",
+      "bytes": 7312
+    },
+    {
+      "path": "scripts/presentation/CanyonAnchorVisual.cs.uid",
+      "sha256": "c7288e97f6d56e0307728d52e2ed3a96ecd87dc32a325aa99c3712f1620ab0bd",
+      "bytes": 21
+    },
+    {
       "path": "scripts/presentation/CanyonBackdropVisual.cs",
       "sha256": "b16f8590796a58ce076a0779b8444145f03c3d2e53d9e05be9a8a7e1c4ada3aa",
       "bytes": 13308
+    },
+    {
+      "path": "scripts/presentation/CanyonBackdropVisual.cs.uid",
+      "sha256": "142a177fbb9abb3b0c3bc67dd27cfa217d864ef5d42619beaf29f455b872bf94",
+      "bytes": 21
+    },
+    {
+      "path": "scripts/presentation/CanyonPlatformVisual.cs",
+      "sha256": "abbc251141d2d5d453f76a82efc4e49070ca0d793c1622534a3038b95e765842",
+      "bytes": 5392
+    },
+    {
+      "path": "scripts/presentation/CanyonPlatformVisual.cs.uid",
+      "sha256": "63c8a4bdfe4c64d9bb4e3eb1a7d356dc6e1d69517241a28cf2f30d68c471070b",
+      "bytes": 21
     },
     {
       "path": "scripts/presentation/EnemyFormalVisualPart.cs",
@@ -5684,6 +5709,21 @@
       "bytes": 647
     },
     {
+      "path": "tests/RunBossDoorVisibilityTests.cs.uid",
+      "sha256": "5dd42589952533531625782f7010131695d56bdbaeed93732d12bcf2b6eefdf5",
+      "bytes": 20
+    },
+    {
+      "path": "tests/RunCanyonMaterialSkinTests.cs",
+      "sha256": "79d32a22f22a850ea40cdf5ed7f67f8a28663406529e3e6573a8ae3dd12118ad",
+      "bytes": 496
+    },
+    {
+      "path": "tests/RunCanyonMaterialSkinTests.cs.uid",
+      "sha256": "503d2d7add12895145ce1ec35420f475a5e9f43f85a1ee4457c953e3dcdbf0a5",
+      "bytes": 20
+    },
+    {
       "path": "tests/RunEnvironmentTests.cs",
       "sha256": "8fd4104b3a2fc70c0dd157e69ff8a179cbc6ccdbaa4f36daa62a75ee37257775",
       "bytes": 553
@@ -5715,8 +5755,8 @@
     },
     {
       "path": "tests/RunPrologueTests.cs",
-      "sha256": "5fe4ff0f5e3e590d6d601758039c5c7f930ca29e06ed8f736cf581393cd78cf8",
-      "bytes": 24863
+      "sha256": "b27045fa470598f15ee9957fc7132d63bf42b5a60d469bfd917c017bc0e5af82",
+      "bytes": 24925
     },
     {
       "path": "tests/RunPrologueTests.cs.uid",
@@ -6007,6 +6047,11 @@
       "path": "tests/integration/BossDoorVisibilityTests.cs",
       "sha256": "4a4d2e8e486cb33769e9ad1a5fb7f436ae8d99111ebea92f8e4f32587db0183a",
       "bytes": 3140
+    },
+    {
+      "path": "tests/integration/BossDoorVisibilityTests.cs.uid",
+      "sha256": "57a90551f5b0251fbe562dceb796a9c683594f05e42ec10198f9f09446653610",
+      "bytes": 20
     },
     {
       "path": "tests/integration/CanyonClawMechanismTests.cs",
@@ -6624,6 +6669,16 @@
       "bytes": 21
     },
     {
+      "path": "tests/presentation/CanyonMaterialSkinCapture.cs",
+      "sha256": "73155cb6fcfa883f3b54abb36f72b5980eef1ee64fe1c550b86fc6608bdabb21",
+      "bytes": 5575
+    },
+    {
+      "path": "tests/presentation/CanyonMaterialSkinCapture.cs.uid",
+      "sha256": "9be9e4e5ebc86b550b32df5ced9d67dbb85ffead430540a325ee3cb5a3db3d28",
+      "bytes": 21
+    },
+    {
       "path": "tests/presentation/EnemyFormalPresentation.cs",
       "sha256": "5be244f8b877aae461fe4dcacbc7e41c74273162c6603f6c8ccf4ac65766abfa",
       "bytes": 4227
@@ -6852,6 +6907,16 @@
       "path": "tests/unit/BossSceneStructureTests.cs.uid",
       "sha256": "de0e4bd9cd10cf6a53a38a64f31b19044141d06dfb4727aa2294cbaa87ac9627",
       "bytes": 20
+    },
+    {
+      "path": "tests/unit/CanyonMaterialSkinTests.cs",
+      "sha256": "7086d082b5f140ba3ef3c9d05dc276348b5c82eddf940626aabd5fba90ee9677",
+      "bytes": 5424
+    },
+    {
+      "path": "tests/unit/CanyonMaterialSkinTests.cs.uid",
+      "sha256": "8e09d09922c15fcacbb2d4aa551ac4afb0f13b431c64862c325a199635fa7178",
+      "bytes": 21
     },
     {
       "path": "tests/unit/EncounterDefinitionTests.cs",
@@ -7107,6 +7172,11 @@
       "path": "tests/unit/PrologueEnergyHeatStyleTests.cs",
       "sha256": "e4ee335bbcff70d89b2cb55ff76f6c2b78362a10c3c84128ea7effcbef2eb03e",
       "bytes": 8306
+    },
+    {
+      "path": "tests/unit/PrologueEnergyHeatStyleTests.cs.uid",
+      "sha256": "ac4e9fdd7dca114170bac3b644cd505aa5125771d3e98196f7d21856ae6e649e",
+      "bytes": 21
     },
     {
       "path": "tests/unit/PrologueGuidanceModelTests.cs",
@@ -7655,8 +7725,8 @@
     },
     {
       "path": "tools/build/prologue/CanyonContentBuilder.cs",
-      "sha256": "da49fed562bdb19aa6f5ba1afefd3a8069fed7f5d46768f6803c77b236e701cc",
-      "bytes": 32678
+      "sha256": "9815aa9ff64ecd94adbbae0ba8e246a6cb2824eb482ad50597e45b6c53ff367d",
+      "bytes": 32167
     },
     {
       "path": "tools/build/prologue/CanyonContentBuilder.cs.uid",

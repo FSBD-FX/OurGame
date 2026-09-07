@@ -122,6 +122,7 @@ public partial class RunPrologueTests : SceneTree
                 "res://scenes/prologue/PrologueLevel.tscn") ??
                 throw new InvalidOperationException("Task 7 main prologue scene is missing.");
             PrologueCanyonStructureTests.Run(_postMainSceneKeepAlive);
+            CanyonMaterialSkinTests.Run(fromBuilder: false);
             await PrologueCanyonTraversalTests.Run(tree);
             ProloguePlaytestSessionTests.Run();
             ProloguePlaytestEvidenceGrantTests.Run();
