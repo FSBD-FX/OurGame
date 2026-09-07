@@ -1,0 +1,91 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/RustShellSquire.cs" id="1_q4u6u"]
+[ext_resource type="Script" path="res://scripts/combat/HealthComponent.cs" id="2_rvte5"]
+[ext_resource type="Script" path="res://scripts/combat/Hurtbox.cs" id="3_x6d37"]
+[ext_resource type="Script" path="res://scripts/combat/Hitbox.cs" id="4_s1vkv"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="5_q7sol"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="11_task6"]
+[ext_resource type="Script" path="res://scripts/presentation/RustShellPresentationCoordinator.cs" id="6_k54vo"]
+[ext_resource type="Script" path="res://scripts/config/PresentationProfile.cs" id="7_r5pyq"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/RustShellFormalVisual.tscn" id="8_ykloc"]
+[ext_resource type="Script" path="res://scripts/presentation/RustShellFormalVisual.cs" id="9_lo075"]
+[ext_resource type="Script" path="res://scripts/presentation/AttackTelegraphVisual.cs" id="10_attack"]
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_wvhn8"]
+radius = 18.0
+height = 64.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_kim24"]
+size = Vector2(26, 18)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_task6"]
+radius = 18.0
+
+[sub_resource type="Resource" id="Resource_8q0u2"]
+script = ExtResource("7_r5pyq")
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_semno"]
+radius = 18.0
+height = 64.0
+
+[node name="RustShellSquire" type="CharacterBody2D" unique_id=2145753522]
+collision_layer = 4
+script = ExtResource("1_q4u6u")
+
+[node name="Health" type="Node" parent="." unique_id=6603122]
+script = ExtResource("2_rvte5")
+MaxHealth = 3
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=351913009]
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("3_x6d37")
+
+[node name="HurtboxCollider" type="CollisionShape2D" parent="Hurtbox" unique_id=811526739]
+shape = SubResource("CapsuleShape2D_wvhn8")
+
+[node name="AttackHitbox" type="Area2D" parent="." unique_id=1256028283]
+collision_layer = 16
+collision_mask = 2
+monitoring = false
+monitorable = false
+script = ExtResource("4_s1vkv")
+Knockback = 190.0
+
+[node name="AttackCollider" type="CollisionShape2D" parent="AttackHitbox" unique_id=1617499558]
+shape = SubResource("RectangleShape2D_kim24")
+
+[node name="ThreadTarget" type="Node2D" parent="." unique_id=2141009303]
+script = ExtResource("5_q7sol")
+Kind = 1
+Material = 1
+
+[node name="TargetCollision" type="Area2D" parent="ThreadTarget"]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="ThreadTarget/TargetCollision"]
+shape = SubResource("CircleShape2D_task6")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="ThreadTarget"]
+script = ExtResource("11_task6")
+
+[node name="Presentation" type="Node" parent="." unique_id=513998298]
+script = ExtResource("6_k54vo")
+Profile = SubResource("Resource_8q0u2")
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=1879846835]
+
+[node name="Formal" type="Node2D" parent="VisualRoot" unique_id=1291524085 instance=ExtResource("8_ykloc")]
+script = ExtResource("9_lo075")
+
+[node name="AttackTelegraph" type="Node2D" parent="VisualRoot"]
+z_index = 6
+script = ExtResource("10_attack")
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=229042426]
+z_index = 10
+
+[node name="BodyCollider" type="CollisionShape2D" parent="." unique_id=2099102367]
+shape = SubResource("CapsuleShape2D_semno")

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "source": "Knight local production",
+  "license": "Project-owned",
+  "palette": {
+    "ink": "#0B1118",
+    "brass": "#D4A83F",
+    "bone": "#E8DFC6",
+    "cyan": "#72D9D1",
+    "danger": "#8E4939"
+  },
+  "safeAreaPixels": 48,
+  "referenceResolution": [1280, 720]
+}

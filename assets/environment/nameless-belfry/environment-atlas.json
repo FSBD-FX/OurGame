@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "basis": [1280, 720],
+  "layers": ["Far", "Back", "Mid", "Platforms", "Props", "Front", "Atmosphere"],
+  "motifs": ["stone", "broken-platform", "beam", "gear", "chain", "pipe", "railing", "cloth", "bell"],
+  "palette": ["#09131c", "#263a3e", "#34554f", "#72593c", "#ae813f", "#57415d", "#69cfc6", "#d7bb6c"]
+}

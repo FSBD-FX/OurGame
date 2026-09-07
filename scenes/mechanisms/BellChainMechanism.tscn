@@ -1,0 +1,56 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/mechanisms/BellChainMechanism.cs" id="1_p5h3r"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="2_gtsss"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="task6_adapter"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/BellChainVisual.tscn" id="3_ayo70"]
+[ext_resource type="Script" path="res://scripts/presentation/PrologueMechanismVisual.cs" id="4_idq1b"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/ShortcutDoorVisual.tscn" id="5_dnitl"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_qfwqh"]
+radius = 28.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_xodws"]
+size = Vector2(50, 180)
+
+[node name="BellChain" type="Node2D" unique_id=608206241]
+script = ExtResource("1_p5h3r")
+
+[node name="ThreadTarget" type="Node2D" parent="." unique_id=400970473]
+position = Vector2(0, -80)
+script = ExtResource("2_gtsss")
+Kind = 3
+FallbackAimAssistRange = 260.0
+Material = 1
+
+[node name="TargetCollision" type="Area2D" parent="ThreadTarget" unique_id=675617007]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="ThreadTarget/TargetCollision" unique_id=1629186668]
+shape = SubResource("CircleShape2D_qfwqh")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="ThreadTarget"]
+script = ExtResource("task6_adapter")
+
+[node name="Door" type="StaticBody2D" parent="." unique_id=786610067]
+position = Vector2(150, 0)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Door" unique_id=914426355]
+shape = SubResource("RectangleShape2D_xodws")
+
+[node name="Presentation" type="Node" parent="." unique_id=1848682694]
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=1962483395]
+
+[node name="Formal" type="Node2D" parent="VisualRoot" unique_id=969129313 instance=ExtResource("3_ayo70")]
+script = ExtResource("4_idq1b")
+Kind = 2
+
+[node name="Door" type="Node2D" parent="VisualRoot" unique_id=1160585646 instance=ExtResource("5_dnitl")]
+position = Vector2(150, 0)
+script = ExtResource("4_idq1b")
+Kind = 3
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=273916900]

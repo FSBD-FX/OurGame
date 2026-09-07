@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/presentation/PrologueMechanismVisual.cs" id="1_tcs1b"]
+
+[node name="BellChainVisual" type="Node2D" unique_id=969129313]
+script = ExtResource("1_tcs1b")
+Kind = 2
+
+[node name="TargetMarker" type="Marker2D" parent="." unique_id=656706462]
+position = Vector2(0, -80)

@@ -1,0 +1,25 @@
+.godot/
+.superpowers/
+.vs/
+.idea/
+.worktrees/
+bin/
+obj/
+__pycache__/
+*.py[cod]
+*.tmp
+*.log
+screenshots/prototype/
+screenshots/p0/
+screenshots/p1/
+screenshots/prologue/
+screenshots/boss-retry/
+screenshots/review/
+screenshots/.gdignore
+
+# Local development runtimes and downloaded archives.
+tools/runtime/
+
+# Local builds and Steam upload staging.
+builds/
+steam_build/

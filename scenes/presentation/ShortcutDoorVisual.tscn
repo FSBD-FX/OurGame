@@ -1,0 +1,9 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/presentation/PrologueMechanismVisual.cs" id="1_g5emm"]
+
+[node name="ShortcutDoorVisual" type="Node2D" unique_id=1160585646]
+script = ExtResource("1_g5emm")
+Kind = 3
+
+[node name="TargetMarker" type="Marker2D" parent="." unique_id=667306935]

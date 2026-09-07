@@ -1,0 +1,229 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/world/PrototypeRoomController.cs" id="1_sg0ar"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="2_5b0xq"]
+[ext_resource type="PackedScene" path="res://scenes/player/Player.tscn" id="3_fjffh"]
+[ext_resource type="PackedScene" path="res://scenes/enemies/RustShellSquire.tscn" id="4_xqigd"]
+[ext_resource type="Script" path="res://scripts/enemies/RustShellSquire.cs" id="5_iohus"]
+[ext_resource type="Script" path="res://scripts/combat/HealthComponent.cs" id="6_87qtq"]
+[ext_resource type="Script" path="res://scripts/combat/Hurtbox.cs" id="7_6wgki"]
+[ext_resource type="Script" path="res://scripts/world/KillZone.cs" id="8_7ltfn"]
+[ext_resource type="Script" path="res://scripts/world/PrototypeHud.cs" id="9_2auoh"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_cs7yb"]
+size = Vector2(310, 30)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_u5kcr"]
+size = Vector2(120, 30)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ythe0"]
+size = Vector2(120, 30)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_t6cn6"]
+size = Vector2(320, 30)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_skkmu"]
+size = Vector2(180, 24)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_nknac"]
+radius = 22.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_mbpmj"]
+radius = 18.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ydham"]
+size = Vector2(40, 90)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_13qms"]
+size = Vector2(1800, 80)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_i6xi5"]
+size = Vector2(34, 100)
+
+[node name="PrototypeRoom" type="Node2D" unique_id=1987420879]
+script = ExtResource("1_sg0ar")
+
+[node name="Backdrop" type="Node2D" parent="." unique_id=763607686]
+z_index = -10
+
+[node name="NightWall" type="Polygon2D" parent="Backdrop" unique_id=778985757]
+color = Color(0.06666667, 0.09411765, 0.15294118, 1)
+polygon = PackedVector2Array(-900, -500, 900, -500, 900, 700, -900, 700)
+
+[node name="TowerSilhouette" type="Polygon2D" parent="Backdrop" unique_id=1313918008]
+color = Color(0.11372549, 0.16078432, 0.22352941, 1)
+polygon = PackedVector2Array(210, -420, 340, -420, 340, 240, 210, 240)
+
+[node name="Geometry" type="Node2D" parent="." unique_id=1166128571]
+
+[node name="SpawnPlatform" type="StaticBody2D" parent="Geometry" unique_id=555964652]
+position = Vector2(-405, 250)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/SpawnPlatform" unique_id=1513863337]
+shape = SubResource("RectangleShape2D_cs7yb")
+
+[node name="Visual" type="Polygon2D" parent="Geometry/SpawnPlatform" unique_id=2062514915]
+color = Color(0.16078432, 0.27450982, 0.23529412, 1)
+polygon = PackedVector2Array(-155, -15, 155, -15, 155, 15, -155, 15)
+
+[node name="ReadabilityRim" type="Polygon2D" parent="Geometry/SpawnPlatform" unique_id=1333564529]
+color = Color(0.62352943, 0.76862746, 0.5529412, 1)
+polygon = PackedVector2Array(-155, -15, 155, -15, 155, -11, -155, -11)
+
+[node name="StepOne" type="StaticBody2D" parent="Geometry" unique_id=423564995]
+position = Vector2(-120, 170)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/StepOne" unique_id=1159508292]
+shape = SubResource("RectangleShape2D_u5kcr")
+
+[node name="Visual" type="Polygon2D" parent="Geometry/StepOne" unique_id=1882055177]
+color = Color(0.16078432, 0.27450982, 0.23529412, 1)
+polygon = PackedVector2Array(-60, -15, 60, -15, 60, 15, -60, 15)
+
+[node name="ReadabilityRim" type="Polygon2D" parent="Geometry/StepOne" unique_id=1215496003]
+color = Color(0.62352943, 0.76862746, 0.5529412, 1)
+polygon = PackedVector2Array(-60, -15, 60, -15, 60, -11, -60, -11)
+
+[node name="StepTwo" type="StaticBody2D" parent="Geometry" unique_id=250377173]
+position = Vector2(80, 80)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/StepTwo" unique_id=1529542217]
+shape = SubResource("RectangleShape2D_ythe0")
+
+[node name="Visual" type="Polygon2D" parent="Geometry/StepTwo" unique_id=2023490710]
+color = Color(0.16078432, 0.27450982, 0.23529412, 1)
+polygon = PackedVector2Array(-60, -15, 60, -15, 60, 15, -60, 15)
+
+[node name="ReadabilityRim" type="Polygon2D" parent="Geometry/StepTwo" unique_id=94569011]
+color = Color(0.62352943, 0.76862746, 0.5529412, 1)
+polygon = PackedVector2Array(-60, -15, 60, -15, 60, -11, -60, -11)
+
+[node name="LandingPlatform" type="StaticBody2D" parent="Geometry" unique_id=475379831]
+position = Vector2(520, 80)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/LandingPlatform" unique_id=1441563618]
+shape = SubResource("RectangleShape2D_t6cn6")
+
+[node name="Visual" type="Polygon2D" parent="Geometry/LandingPlatform" unique_id=732783876]
+color = Color(0.16078432, 0.27450982, 0.23529412, 1)
+polygon = PackedVector2Array(-160, -15, 160, -15, 160, 15, -160, 15)
+
+[node name="ReadabilityRim" type="Polygon2D" parent="Geometry/LandingPlatform" unique_id=239529706]
+color = Color(0.62352943, 0.76862746, 0.5529412, 1)
+polygon = PackedVector2Array(-160, -15, 160, -15, 160, -11, -160, -11)
+
+[node name="LowCeiling" type="StaticBody2D" parent="Geometry" unique_id=1183346330]
+position = Vector2(440, -40)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/LowCeiling" unique_id=1812465887]
+shape = SubResource("RectangleShape2D_skkmu")
+
+[node name="Visual" type="Polygon2D" parent="Geometry/LowCeiling" unique_id=821997095]
+color = Color(0.16078432, 0.27450982, 0.23529412, 1)
+polygon = PackedVector2Array(-90, -12, 90, -12, 90, 12, -90, 12)
+
+[node name="ReadabilityRim" type="Polygon2D" parent="Geometry/LowCeiling" unique_id=818606940]
+color = Color(0.62352943, 0.76862746, 0.5529412, 1)
+polygon = PackedVector2Array(-90, -12, 90, -12, 90, -8, -90, -8)
+
+[node name="ThreadAnchor" type="Node2D" parent="Geometry" unique_id=1791691641]
+position = Vector2(260, -80)
+script = ExtResource("2_5b0xq")
+
+[node name="TargetCollision" type="Area2D" parent="Geometry/ThreadAnchor" unique_id=1927664390]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/ThreadAnchor/TargetCollision" unique_id=1172801673]
+shape = SubResource("CircleShape2D_nknac")
+
+[node name="AnchorVisual" type="Polygon2D" parent="Geometry/ThreadAnchor" unique_id=548369392]
+color = Color(0.41568628, 0.8392157, 0.9098039, 1)
+polygon = PackedVector2Array(0, -25, 20, 0, 0, 25, -20, 0)
+
+[node name="Player" type="CharacterBody2D" parent="." unique_id=2118885039 groups=["player"] instance=ExtResource("3_fjffh")]
+position = Vector2(-480, 198)
+collision_layer = 2
+
+[node name="Actors" type="Node2D" parent="." unique_id=2083837629]
+
+[node name="RustShellSquire" type="CharacterBody2D" parent="Actors" unique_id=1977147949 groups=["resettable_enemies"] instance=ExtResource("4_xqigd")]
+position = Vector2(520, 28)
+collision_layer = 4
+script = ExtResource("5_iohus")
+
+[node name="BellTarget" type="Node2D" parent="." unique_id=288913669]
+position = Vector2(450, -92)
+
+[node name="Health" type="Node" parent="BellTarget" unique_id=878702291]
+script = ExtResource("6_87qtq")
+MaxHealth = 999
+InvulnerabilitySeconds = 0.0
+
+[node name="Hurtbox" type="Area2D" parent="BellTarget" unique_id=866792201]
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("7_6wgki")
+
+[node name="Collision" type="CollisionShape2D" parent="BellTarget/Hurtbox" unique_id=581869674]
+shape = SubResource("CircleShape2D_mbpmj")
+
+[node name="BellVisual" type="Polygon2D" parent="BellTarget" unique_id=219872511]
+color = Color(0.8509804, 0.6431373, 0.25490198, 1)
+polygon = PackedVector2Array(-18, -16, 18, -16, 25, 15, -25, 15)
+
+[node name="Checkpoint" type="Area2D" parent="." unique_id=5182228]
+position = Vector2(120, 20)
+collision_layer = 0
+collision_mask = 2
+
+[node name="Collision" type="CollisionShape2D" parent="Checkpoint" unique_id=687245710]
+shape = SubResource("RectangleShape2D_ydham")
+
+[node name="BeaconVisual" type="Polygon2D" parent="Checkpoint" unique_id=1000958355]
+color = Color(0.9529412, 0.85490197, 0.45882353, 1)
+polygon = PackedVector2Array(0, -46, 14, -20, 0, 0, -14, -20)
+
+[node name="KillZone" type="Area2D" parent="." unique_id=2114731266]
+position = Vector2(0, 560)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("8_7ltfn")
+
+[node name="Collision" type="CollisionShape2D" parent="KillZone" unique_id=449315790]
+shape = SubResource("RectangleShape2D_13qms")
+
+[node name="ExitMarker" type="Area2D" parent="." unique_id=1314406918]
+position = Vector2(640, 20)
+collision_layer = 0
+collision_mask = 2
+
+[node name="Collision" type="CollisionShape2D" parent="ExitMarker" unique_id=1992340326]
+shape = SubResource("RectangleShape2D_i6xi5")
+
+[node name="ExitVisual" type="Polygon2D" parent="ExitMarker" unique_id=1652029636]
+color = Color(0.49019608, 0.8862745, 0.6431373, 1)
+polygon = PackedVector2Array(-12, -50, 12, -50, 12, 50, -12, 50)
+
+[node name="Hud" type="CanvasLayer" parent="." unique_id=565037618]
+layer = 2
+script = ExtResource("9_2auoh")
+
+[node name="Panel" type="ColorRect" parent="Hud" unique_id=755714204]
+offset_left = 18.0
+offset_top = 16.0
+offset_right = 698.0
+offset_bottom = 58.0
+color = Color(0.03, 0.06, 0.1, 0.82)
+
+[node name="Status" type="Label" parent="Hud" unique_id=1199507143]
+offset_left = 30.0
+offset_top = 24.0
+offset_right = 680.0
+offset_bottom = 52.0
+theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)

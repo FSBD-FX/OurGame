@@ -1,0 +1,124 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/player/PlayerInputReader.cs" id="1_v5i4m"]
+[ext_resource type="Script" path="res://scripts/player/PlayerActionModeController.cs" id="2_p1lr0"]
+[ext_resource type="Script" path="res://scripts/player/PlayerMotor.cs" id="3_ro0t8"]
+[ext_resource type="Script" path="res://scripts/config/PlayerTuning.cs" id="4_8nn5r"]
+[ext_resource type="Script" path="res://scripts/combat/HealthComponent.cs" id="5_kvwax"]
+[ext_resource type="Script" path="res://scripts/player/PlayerGuardedDamageReceiver.cs" id="6_x3qp0"]
+[ext_resource type="Script" path="res://scripts/combat/Hurtbox.cs" id="7_76i7i"]
+[ext_resource type="Script" path="res://scripts/player/PlayerCombat.cs" id="8_mndc6"]
+[ext_resource type="Script" path="res://scripts/combat/Hitbox.cs" id="9_1hh02"]
+[ext_resource type="Script" path="res://scripts/abilities/MechanicalClawController.cs" id="10_5ttev"]
+[ext_resource type="Script" path="res://scripts/player/PlayerShieldController.cs" id="12_qsmrd"]
+[ext_resource type="Script" path="res://scripts/player/PlayerEnergyController.cs" id="13_jtlb7"]
+[ext_resource type="Script" path="res://scripts/config/PlayerEnergyTuning.cs" id="14_ye1dr"]
+[ext_resource type="Script" path="res://scripts/vfx/ThreadLineVisual.cs" id="15_bvphr"]
+[ext_resource type="Script" path="res://scripts/presentation/PlayerPresentationCoordinator.cs" id="16_05p8n"]
+[ext_resource type="Script" path="res://scripts/config/PresentationProfile.cs" id="17_eac1a"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/PlayerFormalVisual.tscn" id="18_ijyjs"]
+[ext_resource type="Script" path="res://scripts/presentation/PlayerFormalVisual.cs" id="19_a4b0l"]
+[ext_resource type="Script" path="res://scripts/vfx/ThreadShuttleVisual.cs" id="20_u3hyo"]
+[ext_resource type="Script" path="res://scripts/presentation/PlayerShieldPlaceholderVisual.cs" id="21_pysui"]
+
+[sub_resource type="Resource" id="Resource_4ntn1"]
+script = ExtResource("4_8nn5r")
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_gtkor"]
+radius = 20.0
+height = 72.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wslmf"]
+size = Vector2(36, 28)
+
+[sub_resource type="Resource" id="Resource_n65jb"]
+script = ExtResource("14_ye1dr")
+
+[sub_resource type="Resource" id="Resource_lf4f6"]
+script = ExtResource("17_eac1a")
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_q4eru"]
+radius = 20.0
+height = 72.0
+
+[node name="Player" type="CharacterBody2D" unique_id=1310385540]
+collision_layer = 2
+
+[node name="Input" type="Node" parent="." unique_id=1209724837]
+process_physics_priority = -300
+script = ExtResource("1_v5i4m")
+
+[node name="ActionModes" type="Node" parent="." unique_id=737938943]
+process_physics_priority = -200
+script = ExtResource("2_p1lr0")
+
+[node name="MechanicalClaw" type="Node" parent="." unique_id=1137518833]
+process_physics_priority = -100
+script = ExtResource("10_5ttev")
+
+[node name="Motor" type="Node" parent="." unique_id=1893601021]
+script = ExtResource("3_ro0t8")
+Tuning = SubResource("Resource_4ntn1")
+
+[node name="Health" type="Node" parent="." unique_id=843826530]
+script = ExtResource("5_kvwax")
+
+[node name="GuardedDamage" type="Node" parent="." unique_id=1193005412]
+script = ExtResource("6_x3qp0")
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=818718318]
+collision_layer = 2
+collision_mask = 0
+script = ExtResource("7_76i7i")
+DamageReceiverPath = NodePath("../GuardedDamage")
+
+[node name="HurtboxCollider" type="CollisionShape2D" parent="Hurtbox" unique_id=1908570381]
+shape = SubResource("CapsuleShape2D_gtkor")
+
+[node name="Combat" type="Node2D" parent="." unique_id=81537847]
+script = ExtResource("8_mndc6")
+Tuning = SubResource("Resource_4ntn1")
+
+[node name="AttackHitbox" type="Area2D" parent="Combat" unique_id=1288814100]
+collision_layer = 8
+collision_mask = 4
+monitoring = false
+monitorable = false
+script = ExtResource("9_1hh02")
+
+[node name="AttackCollider" type="CollisionShape2D" parent="Combat/AttackHitbox" unique_id=1645636511]
+shape = SubResource("RectangleShape2D_wslmf")
+
+[node name="Shield" type="Node" parent="." unique_id=1105538331]
+script = ExtResource("12_qsmrd")
+
+[node name="Energy" type="Node" parent="." unique_id=1678291184]
+script = ExtResource("13_jtlb7")
+Tuning = SubResource("Resource_n65jb")
+
+[node name="Presentation" type="Node" parent="." unique_id=1426590452]
+script = ExtResource("16_05p8n")
+Profile = SubResource("Resource_lf4f6")
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=1992686597]
+
+[node name="Formal" type="Node2D" parent="VisualRoot" unique_id=1983593310 instance=ExtResource("18_ijyjs")]
+script = ExtResource("19_a4b0l")
+
+[node name="MechanicalClaw" type="Node2D" parent="VisualRoot" unique_id=1978202230]
+script = ExtResource("20_u3hyo")
+
+[node name="Line" type="Line2D" parent="VisualRoot/MechanicalClaw"]
+z_index = -1
+script = ExtResource("15_bvphr")
+
+[node name="Shield" type="Node2D" parent="VisualRoot" unique_id=257228520]
+z_index = 4
+script = ExtResource("21_pysui")
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=1917483935]
+
+[node name="BodyCollider" type="CollisionShape2D" parent="." unique_id=918387277]
+shape = SubResource("CapsuleShape2D_q4eru")
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=351484337]
