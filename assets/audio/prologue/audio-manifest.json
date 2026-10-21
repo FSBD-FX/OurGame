@@ -1,0 +1,873 @@
+{
+  "version": 1,
+  "sampleRate": 48000,
+  "source": "Knight local procedural synthesis",
+  "license": "Project-owned",
+  "seed": 1263421767,
+  "generator": "tools/audio/render_knight_audio.py",
+  "buses": [
+    "Master",
+    "Music",
+    "SFX",
+    "Ambience",
+    "UI"
+  ],
+  "music": {
+    "Exploration": [
+      "res://assets/audio/prologue/music/exploration.wav"
+    ],
+    "BossPhaseOne": [
+      "res://assets/audio/prologue/music/boss-pulse.wav"
+    ],
+    "BossPhaseTwo": [
+      "res://assets/audio/prologue/music/boss-pulse.wav",
+      "res://assets/audio/prologue/music/boss-bells.wav"
+    ]
+  },
+  "ambience": {
+    "AwakeningCourtyard": "res://assets/audio/prologue/ambience/courtyard.wav",
+    "BrokenToothCorridor": "res://assets/audio/prologue/ambience/corridor.wav",
+    "UpperPendulum": "res://assets/audio/prologue/ambience/upper-wind.wav",
+    "LowerBuriedMachinery": "res://assets/audio/prologue/ambience/lower-machinery.wav",
+    "BellChainMechanism": "res://assets/audio/prologue/ambience/bell-chain.wav",
+    "FallenBellkeeperArena": "res://assets/audio/prologue/ambience/boss-room.wav"
+  },
+  "cues": {
+    "PlayerAttack": [
+      "res://assets/audio/prologue/sfx/player/attack-1.wav",
+      "res://assets/audio/prologue/sfx/player/attack-2.wav"
+    ],
+    "PlayerHit": [
+      "res://assets/audio/prologue/sfx/player/hit-1.wav",
+      "res://assets/audio/prologue/sfx/player/hit-2.wav"
+    ],
+    "PlayerHurt": [
+      "res://assets/audio/prologue/sfx/player/hurt.wav"
+    ],
+    "PlayerDash": [
+      "res://assets/audio/prologue/sfx/player/dash.wav"
+    ],
+    "PlayerDownstrike": [
+      "res://assets/audio/prologue/sfx/player/downstrike.wav"
+    ],
+    "ThreadFire": [
+      "res://assets/audio/prologue/sfx/thread/fire-1.wav",
+      "res://assets/audio/prologue/sfx/thread/fire-2.wav"
+    ],
+    "ThreadHit": [
+      "res://assets/audio/prologue/sfx/thread/hit.wav"
+    ],
+    "ThreadFail": [
+      "res://assets/audio/prologue/sfx/thread/fail.wav"
+    ],
+    "ThreadPreview": [
+      "res://assets/audio/prologue/sfx/thread/preview.wav"
+    ],
+    "ThreadWindup": [
+      "res://assets/audio/prologue/sfx/thread/windup.wav"
+    ],
+    "ThreadTravel": [
+      "res://assets/audio/prologue/sfx/thread/travel.wav"
+    ],
+    "ThreadLatch": [
+      "res://assets/audio/prologue/sfx/thread/latch.wav"
+    ],
+    "ThreadTension": [
+      "res://assets/audio/prologue/sfx/thread/tension.wav"
+    ],
+    "RustShellAttack": [
+      "res://assets/audio/prologue/sfx/enemies/rust-attack.wav"
+    ],
+    "RustShellTelegraph": [
+      "res://assets/audio/prologue/sfx/enemies/rust-telegraph.wav"
+    ],
+    "RustShellRecovery": [
+      "res://assets/audio/prologue/sfx/enemies/rust-recovery.wav"
+    ],
+    "RustShellHurt": [
+      "res://assets/audio/prologue/sfx/enemies/rust-hurt.wav"
+    ],
+    "RustShellDeath": [
+      "res://assets/audio/prologue/sfx/enemies/rust-death.wav"
+    ],
+    "MothDive": [
+      "res://assets/audio/prologue/sfx/enemies/moth-dive.wav"
+    ],
+    "MothTelegraph": [
+      "res://assets/audio/prologue/sfx/enemies/moth-telegraph.wav"
+    ],
+    "MothRecovery": [
+      "res://assets/audio/prologue/sfx/enemies/moth-recovery.wav"
+    ],
+    "MothHurt": [
+      "res://assets/audio/prologue/sfx/enemies/moth-hurt.wav"
+    ],
+    "MothDeath": [
+      "res://assets/audio/prologue/sfx/enemies/moth-death.wav"
+    ],
+    "LaborerAttack": [
+      "res://assets/audio/prologue/sfx/enemies/laborer-attack.wav"
+    ],
+    "LaborerTelegraph": [
+      "res://assets/audio/prologue/sfx/enemies/laborer-telegraph.wav"
+    ],
+    "LaborerRecovery": [
+      "res://assets/audio/prologue/sfx/enemies/laborer-recovery.wav"
+    ],
+    "LaborerGuard": [
+      "res://assets/audio/prologue/sfx/enemies/laborer-guard.wav"
+    ],
+    "LaborerHurt": [
+      "res://assets/audio/prologue/sfx/enemies/laborer-hurt.wav"
+    ],
+    "LaborerDeath": [
+      "res://assets/audio/prologue/sfx/enemies/laborer-death.wav"
+    ],
+    "BossIntro": [
+      "res://assets/audio/prologue/sfx/boss/intro.wav"
+    ],
+    "BossAttack": [
+      "res://assets/audio/prologue/sfx/boss/attack.wav"
+    ],
+    "BossSweepTelegraph": [
+      "res://assets/audio/prologue/sfx/boss/sweep-telegraph.wav"
+    ],
+    "BossLeapTelegraph": [
+      "res://assets/audio/prologue/sfx/boss/leap-telegraph.wav"
+    ],
+    "BossGroundWaveTelegraph": [
+      "res://assets/audio/prologue/sfx/boss/ground-wave-telegraph.wav"
+    ],
+    "BossHammerTelegraph": [
+      "res://assets/audio/prologue/sfx/boss/hammer-telegraph.wav"
+    ],
+    "BossRecovery": [
+      "res://assets/audio/prologue/sfx/boss/recovery.wav"
+    ],
+    "BossTransition": [
+      "res://assets/audio/prologue/sfx/boss/transition.wav"
+    ],
+    "BossHammer": [
+      "res://assets/audio/prologue/sfx/boss/hammer.wav"
+    ],
+    "BossExposed": [
+      "res://assets/audio/prologue/sfx/boss/exposed.wav"
+    ],
+    "BossDefeat": [
+      "res://assets/audio/prologue/sfx/boss/defeat.wav"
+    ],
+    "Checkpoint": [
+      "res://assets/audio/prologue/sfx/world/checkpoint.wav"
+    ],
+    "Shortcut": [
+      "res://assets/audio/prologue/sfx/world/shortcut.wav"
+    ],
+    "UiMove": [
+      "res://assets/audio/prologue/sfx/ui/move.wav"
+    ],
+    "UiConfirm": [
+      "res://assets/audio/prologue/sfx/ui/confirm.wav"
+    ],
+    "UiBack": [
+      "res://assets/audio/prologue/sfx/ui/back.wav"
+    ],
+    "RecoveryStart": [
+      "res://assets/audio/prologue/sfx/world/recovery-start.wav"
+    ],
+    "RecoveryEnd": [
+      "res://assets/audio/prologue/sfx/world/recovery-end.wav"
+    ],
+    "Completion": [
+      "res://assets/audio/prologue/sfx/world/completion.wav"
+    ],
+    "ModeAttack": [
+      "res://assets/audio/prologue/sfx/mode/attack.wav"
+    ],
+    "ModeGrapple": [
+      "res://assets/audio/prologue/sfx/mode/grapple.wav"
+    ],
+    "EmptySlot": [
+      "res://assets/audio/prologue/sfx/mode/empty-slot.wav"
+    ],
+    "EnergyEmpty": [
+      "res://assets/audio/prologue/sfx/mode/energy-empty.wav"
+    ],
+    "ShieldRaise": [
+      "res://assets/audio/prologue/sfx/shield/raise.wav"
+    ],
+    "ShieldBlock": [
+      "res://assets/audio/prologue/sfx/shield/block.wav"
+    ],
+    "ShieldHeavyBreak": [
+      "res://assets/audio/prologue/sfx/shield/heavy-break.wav"
+    ],
+    "ShieldOverheat": [
+      "res://assets/audio/prologue/sfx/shield/overheat.wav"
+    ],
+    "ShieldReady": [
+      "res://assets/audio/prologue/sfx/shield/ready.wav"
+    ],
+    "ClawFire": [
+      "res://assets/audio/prologue/sfx/claw/fire.wav"
+    ],
+    "ClawTravel": [
+      "res://assets/audio/prologue/sfx/claw/travel.wav"
+    ],
+    "ClawLatch": [
+      "res://assets/audio/prologue/sfx/claw/latch.wav"
+    ],
+    "ClawTension": [
+      "res://assets/audio/prologue/sfx/claw/tension.wav"
+    ],
+    "ClawRelease": [
+      "res://assets/audio/prologue/sfx/claw/release.wav"
+    ],
+    "ClawIceSlip": [
+      "res://assets/audio/prologue/sfx/claw/ice-slip.wav"
+    ],
+    "ClawFail": [
+      "res://assets/audio/prologue/sfx/claw/fail.wav"
+    ]
+  },
+  "fileMetadata": {
+    "res://assets/audio/prologue/ambience/bell-chain.wav": {
+      "path": "res://assets/audio/prologue/ambience/bell-chain.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 3.0,
+      "family": "ambience",
+      "peakDbfs": -16.7457,
+      "sha256": "1d6c35bc71eec34f438fa8910cefaa1f636bf06112cf9141a0e6b9e9025a05c8"
+    },
+    "res://assets/audio/prologue/ambience/boss-room.wav": {
+      "path": "res://assets/audio/prologue/ambience/boss-room.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 3.0,
+      "family": "ambience",
+      "peakDbfs": -18.0531,
+      "sha256": "223eee0057fa43b86a06f8f3fe78420f0307478bf6c00583343081482b6e913c"
+    },
+    "res://assets/audio/prologue/ambience/corridor.wav": {
+      "path": "res://assets/audio/prologue/ambience/corridor.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 3.0,
+      "family": "ambience",
+      "peakDbfs": -17.2483,
+      "sha256": "d2d66650066e1d5cfb74fe62b443e6e047292086fd5c815b6b062387550cb9f3"
+    },
+    "res://assets/audio/prologue/ambience/courtyard.wav": {
+      "path": "res://assets/audio/prologue/ambience/courtyard.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 3.0,
+      "family": "ambience",
+      "peakDbfs": -17.8437,
+      "sha256": "40c1f3c03ef871181346b61dae740120e29a95aecffc92d8bbfd27684b0c9206"
+    },
+    "res://assets/audio/prologue/ambience/lower-machinery.wav": {
+      "path": "res://assets/audio/prologue/ambience/lower-machinery.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 3.0,
+      "family": "ambience",
+      "peakDbfs": -15.5315,
+      "sha256": "b74d41a63bf4bcb913842b7e1444077f395af462bb823272cd4e8ada9fa89f3e"
+    },
+    "res://assets/audio/prologue/ambience/upper-wind.wav": {
+      "path": "res://assets/audio/prologue/ambience/upper-wind.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 3.0,
+      "family": "ambience",
+      "peakDbfs": -16.3607,
+      "sha256": "9669bc8c624867010399d4001a5447beeb65d43302570bd9655fe3fc469cfa27"
+    },
+    "res://assets/audio/prologue/music/boss-bells.wav": {
+      "path": "res://assets/audio/prologue/music/boss-bells.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 4.0,
+      "family": "music",
+      "peakDbfs": -13.9627,
+      "sha256": "17fd4e92106d5a43859ca29f0f909df666e2243369183ffaff26bab8c02b7d73"
+    },
+    "res://assets/audio/prologue/music/boss-pulse.wav": {
+      "path": "res://assets/audio/prologue/music/boss-pulse.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 4.0,
+      "family": "music",
+      "peakDbfs": -8.6194,
+      "sha256": "66419bd26f02f1af38c074cffe225559241c3128cc2d97bc34d40347e492fe8e"
+    },
+    "res://assets/audio/prologue/music/exploration.wav": {
+      "path": "res://assets/audio/prologue/music/exploration.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 4.0,
+      "family": "music",
+      "peakDbfs": -14.6021,
+      "sha256": "67b1759927e8cdd273492bb3bf99c70c17091f9b96a92093673155209e930618"
+    },
+    "res://assets/audio/prologue/sfx/boss/attack.wav": {
+      "path": "res://assets/audio/prologue/sfx/boss/attack.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.42,
+      "family": "boss-combat",
+      "peakDbfs": -5.1922,
+      "sha256": "b191a8382f4bffd043dfd9903712fd67b52e3ef8e82134eaca129c633443670e"
+    },
+    "res://assets/audio/prologue/sfx/boss/defeat.wav": {
+      "path": "res://assets/audio/prologue/sfx/boss/defeat.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 1.1,
+      "family": "boss-combat",
+      "peakDbfs": -2.3277,
+      "sha256": "6241d499fa62e58d416490f9741cb6bb8a0e726ed5e5e9db73e8ab426708250f"
+    },
+    "res://assets/audio/prologue/sfx/boss/exposed.wav": {
+      "path": "res://assets/audio/prologue/sfx/boss/exposed.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.62,
+      "family": "boss-combat",
+      "peakDbfs": -5.6952,
+      "sha256": "8c559a7ad4bc5cffea1979ed49081248d4a3f7e36f4c273eb3578f0488b98595"
+    },
+    "res://assets/audio/prologue/sfx/boss/ground-wave-telegraph.wav": {
+      "path": "res://assets/audio/prologue/sfx/boss/ground-wave-telegraph.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.7,
+      "family": "danger-warning",
+      "peakDbfs": -3.4421,
+      "sha256": "71072bea04dad7b14e19c269491d2e9f13370771533501bce5782dadc8fa6746",
+      "dominantFrequencyHz": 40,
+      "rmsDbfs": -10.1237,
+      "first100MsRmsDbfs": -12.7811,
+      "recognizableOnsetMs": 50.0
+    },
+    "res://assets/audio/prologue/sfx/boss/hammer-telegraph.wav": {
+      "path": "res://assets/audio/prologue/sfx/boss/hammer-telegraph.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.64,
+      "family": "danger-warning",
+      "peakDbfs": -1.1659,
+      "sha256": "2e0606f5ad52dfbac73dbf8e6ce39fabeade6a6b2432c064e1312be789948a26",
+      "dominantFrequencyHz": 50,
+      "rmsDbfs": -13.5818,
+      "first100MsRmsDbfs": -10.6713,
+      "recognizableOnsetMs": 0.0
+    },
+    "res://assets/audio/prologue/sfx/boss/hammer.wav": {
+      "path": "res://assets/audio/prologue/sfx/boss/hammer.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.55,
+      "family": "boss-combat",
+      "peakDbfs": -5.3067,
+      "sha256": "ff119b290d920ef361784bcb4ea13c51b6c8290389f41104c22fcebf21f2a6d3"
+    },
+    "res://assets/audio/prologue/sfx/boss/intro.wav": {
+      "path": "res://assets/audio/prologue/sfx/boss/intro.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.9,
+      "family": "boss-combat",
+      "peakDbfs": -6.0246,
+      "sha256": "aa5b9e83c156b394bf863e43ce192cb34b4dd002510b05c40feafaf1b8feb399"
+    },
+    "res://assets/audio/prologue/sfx/boss/leap-telegraph.wav": {
+      "path": "res://assets/audio/prologue/sfx/boss/leap-telegraph.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.62,
+      "family": "danger-warning",
+      "peakDbfs": -3.5524,
+      "sha256": "af5f3e84b8c8147f0642ab4a65a26af6ba4f2dc9b634499ccbbdd54912d0b8b8",
+      "dominantFrequencyHz": 80,
+      "rmsDbfs": -9.6312,
+      "first100MsRmsDbfs": -8.4252,
+      "recognizableOnsetMs": 10.0
+    },
+    "res://assets/audio/prologue/sfx/boss/recovery.wav": {
+      "path": "res://assets/audio/prologue/sfx/boss/recovery.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.34,
+      "family": "boss-combat",
+      "peakDbfs": -9.4769,
+      "sha256": "bab4b2ab3c2ea483e4e026379015657b3b04d81964f2ee1cacf55e6440dbc89d"
+    },
+    "res://assets/audio/prologue/sfx/boss/sweep-telegraph.wav": {
+      "path": "res://assets/audio/prologue/sfx/boss/sweep-telegraph.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.579979,
+      "family": "danger-warning",
+      "peakDbfs": -4.7346,
+      "sha256": "fd982a64d1779b1ac243bcb6638ad14245907dfedcd14a22e33a10028322f966",
+      "dominantFrequencyHz": 110,
+      "rmsDbfs": -10.1448,
+      "first100MsRmsDbfs": -9.0065,
+      "recognizableOnsetMs": 0.0
+    },
+    "res://assets/audio/prologue/sfx/boss/transition.wav": {
+      "path": "res://assets/audio/prologue/sfx/boss/transition.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.85,
+      "family": "boss-combat",
+      "peakDbfs": -4.7323,
+      "sha256": "d93c0057910ba3aad3c1347c54f49116a21a857d3bd45d6f2c6636b71401d119"
+    },
+    "res://assets/audio/prologue/sfx/claw/fail.wav": {
+      "path": "res://assets/audio/prologue/sfx/claw/fail.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.24,
+      "family": "claw-feedback",
+      "peakDbfs": -5.2279,
+      "sha256": "c64523894580c2459718e0a4bb3501b5994e7de6f8445ddf14dbe2bcb62fd7ba"
+    },
+    "res://assets/audio/prologue/sfx/claw/fire.wav": {
+      "path": "res://assets/audio/prologue/sfx/claw/fire.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.18,
+      "family": "claw-feedback",
+      "peakDbfs": -4.7437,
+      "sha256": "65df6012442c3cbd2ce606ef951cdb29f43ac7ce4cd62d7df4f488d92ed5bd07"
+    },
+    "res://assets/audio/prologue/sfx/claw/ice-slip.wav": {
+      "path": "res://assets/audio/prologue/sfx/claw/ice-slip.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.28,
+      "family": "claw-feedback",
+      "peakDbfs": -4.7515,
+      "sha256": "98f448d01605265926e038e2a8c92b5b9bb6052443038ae57b6c2465df035757"
+    },
+    "res://assets/audio/prologue/sfx/claw/latch.wav": {
+      "path": "res://assets/audio/prologue/sfx/claw/latch.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.18,
+      "family": "claw-feedback",
+      "peakDbfs": -4.8547,
+      "sha256": "536b451e7c0973cbda2b4c45d565f39f38738d1710ad7c3a500966932dafe5cd"
+    },
+    "res://assets/audio/prologue/sfx/claw/release.wav": {
+      "path": "res://assets/audio/prologue/sfx/claw/release.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.2,
+      "family": "claw-feedback",
+      "peakDbfs": -4.7547,
+      "sha256": "af5407a25f54fa793258cff70f748ac5cf60c8c40025012c134b565984de16c3"
+    },
+    "res://assets/audio/prologue/sfx/claw/tension.wav": {
+      "path": "res://assets/audio/prologue/sfx/claw/tension.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.26,
+      "family": "claw-feedback",
+      "peakDbfs": -6.1577,
+      "sha256": "c93f4911689701d709606f898f4b9ab1e7cf6b4e123220283f3f21d690e6f68c"
+    },
+    "res://assets/audio/prologue/sfx/claw/travel.wav": {
+      "path": "res://assets/audio/prologue/sfx/claw/travel.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.22,
+      "family": "claw-feedback",
+      "peakDbfs": -4.752,
+      "sha256": "fb4de7f39c05e3fa53d813a0cf18b93928d7f62436dfeca84c3ae10fddfd9693"
+    },
+    "res://assets/audio/prologue/sfx/enemies/laborer-attack.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/laborer-attack.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.36,
+      "family": "enemy-combat",
+      "peakDbfs": -5.0597,
+      "sha256": "3bea11d21f99de7572a21106426f406b04d20a1599196a582125893c9636a085"
+    },
+    "res://assets/audio/prologue/sfx/enemies/laborer-death.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/laborer-death.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.579979,
+      "family": "enemy-combat",
+      "peakDbfs": -4.7556,
+      "sha256": "3083e515eb730605ec5f6e905c52692299a4f46d1b6ec81649577af649fb339e"
+    },
+    "res://assets/audio/prologue/sfx/enemies/laborer-guard.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/laborer-guard.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.42,
+      "family": "enemy-combat",
+      "peakDbfs": -6.1152,
+      "sha256": "a52bf6546650046cfd5e26deeeb027ee8c89f171a55353a95310ab90fcbda048"
+    },
+    "res://assets/audio/prologue/sfx/enemies/laborer-hurt.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/laborer-hurt.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.25,
+      "family": "enemy-combat",
+      "peakDbfs": -4.954,
+      "sha256": "3c637610a27e776eb99a0002506c8f3daa1f93ad771c9db8ad438585a8f16270"
+    },
+    "res://assets/audio/prologue/sfx/enemies/laborer-recovery.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/laborer-recovery.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.3,
+      "family": "enemy-combat",
+      "peakDbfs": -8.5085,
+      "sha256": "f6fff67945cdcc5ab3ddb9e5c6fa30822ca227e1a4b88472de759e2199f252d9"
+    },
+    "res://assets/audio/prologue/sfx/enemies/laborer-telegraph.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/laborer-telegraph.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.52,
+      "family": "danger-warning",
+      "peakDbfs": -1.3945,
+      "sha256": "d57523212d43c7812f301f303debcb20b8b65ffea3e9b85bc7498e3f5af471cf",
+      "dominantFrequencyHz": 70,
+      "rmsDbfs": -14.2489,
+      "first100MsRmsDbfs": -11.1872,
+      "recognizableOnsetMs": 0.0
+    },
+    "res://assets/audio/prologue/sfx/enemies/moth-death.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/moth-death.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.46,
+      "family": "enemy-combat",
+      "peakDbfs": -4.7671,
+      "sha256": "09a2be503f4f0b07e6b88e4ac0f89278b19e764a227163bd4f826bb3868ed50d"
+    },
+    "res://assets/audio/prologue/sfx/enemies/moth-dive.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/moth-dive.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.32,
+      "family": "enemy-combat",
+      "peakDbfs": -4.741,
+      "sha256": "8251e4f5959e8b7da6a47612c8e9f575c8dc4035c3c68af57c1978b39bc5d30d"
+    },
+    "res://assets/audio/prologue/sfx/enemies/moth-hurt.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/moth-hurt.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.2,
+      "family": "enemy-combat",
+      "peakDbfs": -4.7373,
+      "sha256": "07d27dfe6e4527a830643c4c8b9dc8a39e26edda13a53acad23db6cca169063e"
+    },
+    "res://assets/audio/prologue/sfx/enemies/moth-recovery.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/moth-recovery.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.28,
+      "family": "enemy-combat",
+      "peakDbfs": -8.5403,
+      "sha256": "0d3751c01b8a91e8b3ae756fa37262f36eb70af6890c820363c12d4c64d27421"
+    },
+    "res://assets/audio/prologue/sfx/enemies/moth-telegraph.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/moth-telegraph.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.46,
+      "family": "danger-warning",
+      "peakDbfs": -3.1192,
+      "sha256": "4644b3e86fbb141ab9497d8532347124cbd00b1830c2a3382a70cbe049e234b8",
+      "dominantFrequencyHz": 190,
+      "rmsDbfs": -12.6099,
+      "first100MsRmsDbfs": -11.8823,
+      "recognizableOnsetMs": 30.0
+    },
+    "res://assets/audio/prologue/sfx/enemies/rust-attack.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/rust-attack.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.3,
+      "family": "enemy-combat",
+      "peakDbfs": -5.0081,
+      "sha256": "c8dfb29c94cbc2464f70282edd519fa213c75dff2ebcba83f4f3c87dc81d21aa"
+    },
+    "res://assets/audio/prologue/sfx/enemies/rust-death.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/rust-death.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.48,
+      "family": "enemy-combat",
+      "peakDbfs": -4.7533,
+      "sha256": "dc2f9445f5ed4b9beadd56e10463eb9d367a0f8ae89e80c02c5e26bae6a30519"
+    },
+    "res://assets/audio/prologue/sfx/enemies/rust-hurt.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/rust-hurt.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.22,
+      "family": "enemy-combat",
+      "peakDbfs": -5.2468,
+      "sha256": "edb3a0e037ab72222e05d199003f409200d2291221727efe261265d83b77ddeb"
+    },
+    "res://assets/audio/prologue/sfx/enemies/rust-recovery.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/rust-recovery.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.24,
+      "family": "enemy-combat",
+      "peakDbfs": -8.671,
+      "sha256": "99d32d4cee3beec15a785a697aeed58c29304c8bd50417f27e8966a20a585385"
+    },
+    "res://assets/audio/prologue/sfx/enemies/rust-telegraph.wav": {
+      "path": "res://assets/audio/prologue/sfx/enemies/rust-telegraph.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.42,
+      "family": "danger-warning",
+      "peakDbfs": -4.2513,
+      "sha256": "bea0c8754db798634e068b9fc1d6f458ede03f1d9ae48f8f95b414823a3e64ec",
+      "dominantFrequencyHz": 190,
+      "rmsDbfs": -11.766,
+      "first100MsRmsDbfs": -10.6114,
+      "recognizableOnsetMs": 10.0
+    },
+    "res://assets/audio/prologue/sfx/mode/attack.wav": {
+      "path": "res://assets/audio/prologue/sfx/mode/attack.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.18,
+      "family": "mode-feedback",
+      "peakDbfs": -5.856,
+      "sha256": "24366e004730a1f08170514ea1eaa1265031723882883ce4a93eeb24ae0c3f6b"
+    },
+    "res://assets/audio/prologue/sfx/mode/empty-slot.wav": {
+      "path": "res://assets/audio/prologue/sfx/mode/empty-slot.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.16,
+      "family": "mode-feedback",
+      "peakDbfs": -5.0341,
+      "sha256": "0ed298ec14788efb23ddbfb5c4d1f9eabf3ea28ce5f386680283a28e3b0ac484"
+    },
+    "res://assets/audio/prologue/sfx/mode/energy-empty.wav": {
+      "path": "res://assets/audio/prologue/sfx/mode/energy-empty.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.22,
+      "family": "mode-feedback",
+      "peakDbfs": -4.7332,
+      "sha256": "feca0375606f43c67d61ff69cafec3561035540bd0314213af5970c2b8e8779d"
+    },
+    "res://assets/audio/prologue/sfx/mode/grapple.wav": {
+      "path": "res://assets/audio/prologue/sfx/mode/grapple.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.2,
+      "family": "mode-feedback",
+      "peakDbfs": -6.0368,
+      "sha256": "66451b04e48974e23c08090339050c1afd1c3cd6ddfba2c86f5bd099566685a0"
+    },
+    "res://assets/audio/prologue/sfx/player/attack-1.wav": {
+      "path": "res://assets/audio/prologue/sfx/player/attack-1.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.16,
+      "family": "player-combat",
+      "peakDbfs": -4.7419,
+      "sha256": "01bd25f62d6f9c0a061c3978c98c28a56cb311b6667187c74e342087064478a5"
+    },
+    "res://assets/audio/prologue/sfx/player/attack-2.wav": {
+      "path": "res://assets/audio/prologue/sfx/player/attack-2.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.17,
+      "family": "player-combat",
+      "peakDbfs": -4.7419,
+      "sha256": "ea25c6a8b8d23b4e1f885c0d590ae5945219fe76d8b5a627064746daefc960cb"
+    },
+    "res://assets/audio/prologue/sfx/player/dash.wav": {
+      "path": "res://assets/audio/prologue/sfx/player/dash.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.2,
+      "family": "player-combat",
+      "peakDbfs": -4.7588,
+      "sha256": "99558ce5fc24aa2c4eac9b6d5a007c4df5bc52246878fc3812b67bc0d2e80ae8"
+    },
+    "res://assets/audio/prologue/sfx/player/downstrike.wav": {
+      "path": "res://assets/audio/prologue/sfx/player/downstrike.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.3,
+      "family": "player-combat",
+      "peakDbfs": -4.7552,
+      "sha256": "2347b66be49de57c6275a1dc6f47d7b0681d3a12b7b2459a3e00ee8c9a03b44d"
+    },
+    "res://assets/audio/prologue/sfx/player/hit-1.wav": {
+      "path": "res://assets/audio/prologue/sfx/player/hit-1.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.22,
+      "family": "player-combat",
+      "peakDbfs": -5.0973,
+      "sha256": "1eb95a97fb372862291413b4f28205249057ff292d90c3eda90e632ab9458bd1"
+    },
+    "res://assets/audio/prologue/sfx/player/hit-2.wav": {
+      "path": "res://assets/audio/prologue/sfx/player/hit-2.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.24,
+      "family": "player-combat",
+      "peakDbfs": -5.0573,
+      "sha256": "16a39e28cab0bb5d0e17ddcda9816bd6bf1236fcdf3e9689075f02cd27fa1f06"
+    },
+    "res://assets/audio/prologue/sfx/player/hurt.wav": {
+      "path": "res://assets/audio/prologue/sfx/player/hurt.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.28,
+      "family": "player-combat",
+      "peakDbfs": -4.746,
+      "sha256": "a86e0e7b893e99ef389198bb3d086fdf30db700dfd23f5d01fd09e47643ff0a8"
+    },
+    "res://assets/audio/prologue/sfx/shield/block.wav": {
+      "path": "res://assets/audio/prologue/sfx/shield/block.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.16,
+      "family": "shield-feedback",
+      "peakDbfs": -5.0006,
+      "sha256": "a03a8445375fbea5f867229d010474148b232352917adaa1bac8fbc2c38f41aa"
+    },
+    "res://assets/audio/prologue/sfx/shield/heavy-break.wav": {
+      "path": "res://assets/audio/prologue/sfx/shield/heavy-break.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.32,
+      "family": "shield-feedback",
+      "peakDbfs": -5.0232,
+      "sha256": "0fb5fbf4cf5c2ad667e842fe027b8ec5357e132dafd4b79ab09ac7fd1d117262"
+    },
+    "res://assets/audio/prologue/sfx/shield/overheat.wav": {
+      "path": "res://assets/audio/prologue/sfx/shield/overheat.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.42,
+      "family": "shield-feedback",
+      "peakDbfs": -4.7428,
+      "sha256": "792f5f00d4535065d37996bf2353a9d192dd258a22e3a3b37b38a549fcf0f447"
+    },
+    "res://assets/audio/prologue/sfx/shield/raise.wav": {
+      "path": "res://assets/audio/prologue/sfx/shield/raise.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.2,
+      "family": "shield-feedback",
+      "peakDbfs": -4.7465,
+      "sha256": "93f32c563769e21996d6c828ee95982d738c417453f015d5d87f4512f543868f"
+    },
+    "res://assets/audio/prologue/sfx/shield/ready.wav": {
+      "path": "res://assets/audio/prologue/sfx/shield/ready.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.24,
+      "family": "shield-feedback",
+      "peakDbfs": -5.8305,
+      "sha256": "16122ed61e72c3ba20c05eed3b00c805e8fee631ba4638d6b75d03b9c80e9045"
+    },
+    "res://assets/audio/prologue/sfx/thread/fail.wav": {
+      "path": "res://assets/audio/prologue/sfx/thread/fail.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.2,
+      "family": "mechanical-thread",
+      "peakDbfs": -4.7387,
+      "sha256": "aa6e0de8387fed7a9c1f7265ced288cf1b1996cdcc9083177c724f1cba55904b"
+    },
+    "res://assets/audio/prologue/sfx/thread/fire-1.wav": {
+      "path": "res://assets/audio/prologue/sfx/thread/fire-1.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.22,
+      "family": "mechanical-thread",
+      "peakDbfs": -4.7378,
+      "sha256": "f98df91fbc183b9de012dad16e2741a2ae36196da8ad796fb129841b0ed360b3"
+    },
+    "res://assets/audio/prologue/sfx/thread/fire-2.wav": {
+      "path": "res://assets/audio/prologue/sfx/thread/fire-2.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.24,
+      "family": "mechanical-thread",
+      "peakDbfs": -4.7378,
+      "sha256": "b1969494ed4587e5c6cacbc727313f7a50a7e304d1a6bb69a00b2c8baaf3b3bb"
+    },
+    "res://assets/audio/prologue/sfx/thread/hit.wav": {
+      "path": "res://assets/audio/prologue/sfx/thread/hit.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.34,
+      "family": "mechanical-thread",
+      "peakDbfs": -5.75,
+      "sha256": "80f4b327497e942d7d2fb2c2ab8112fa5b0cb98fee7dce79bfc3d950e11e7d49"
+    },
+    "res://assets/audio/prologue/sfx/thread/latch.wav": {
+      "path": "res://assets/audio/prologue/sfx/thread/latch.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.16,
+      "family": "mechanical-thread",
+      "peakDbfs": -4.8673,
+      "sha256": "c5f4ac208e9916cfbebf9ab7ef993a5f04c7269db1713cdb6b4ee73a1c1a6cc0"
+    },
+    "res://assets/audio/prologue/sfx/thread/preview.wav": {
+      "path": "res://assets/audio/prologue/sfx/thread/preview.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.18,
+      "family": "mechanical-thread",
+      "peakDbfs": -6.0527,
+      "sha256": "8149cb58110a72575304bdbaf6af599ab6773978a230a81de52aa5df2584f236"
+    },
+    "res://assets/audio/prologue/sfx/thread/tension.wav": {
+      "path": "res://assets/audio/prologue/sfx/thread/tension.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.34,
+      "family": "mechanical-thread",
+      "peakDbfs": -5.5815,
+      "sha256": "bddf468a366dd9ced79f5061a94d71a396c79eb7b2bb7aa6e1f30c9c3af7048c"
+    },
+    "res://assets/audio/prologue/sfx/thread/travel.wav": {
+      "path": "res://assets/audio/prologue/sfx/thread/travel.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.28,
+      "family": "mechanical-thread",
+      "peakDbfs": -4.7488,
+      "sha256": "cc3f147fd8f4314517c6603fa8226f49b6385d4a602480a5979a0442770607a3"
+    },
+    "res://assets/audio/prologue/sfx/thread/windup.wav": {
+      "path": "res://assets/audio/prologue/sfx/thread/windup.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.16,
+      "family": "mechanical-thread",
+      "peakDbfs": -4.7327,
+      "sha256": "e89cd0b61ac703bfae8b09eb262d435f69312cc2ecd7e0d87ffe4cc6eb0ef8e9"
+    },
+    "res://assets/audio/prologue/sfx/ui/back.wav": {
+      "path": "res://assets/audio/prologue/sfx/ui/back.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.12,
+      "family": "ui",
+      "peakDbfs": -4.7391,
+      "sha256": "c3faac41d62e4fb703258c0caeea377176590402df15a5b866e4abbf5504be7d",
+      "dominantFrequencyHz": 460
+    },
+    "res://assets/audio/prologue/sfx/ui/confirm.wav": {
+      "path": "res://assets/audio/prologue/sfx/ui/confirm.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.14,
+      "family": "ui",
+      "peakDbfs": -6.0788,
+      "sha256": "c6c7afe089a03885111867e6b9e09b7349b4dbdff59f215b41a105c29ab6998b",
+      "dominantFrequencyHz": 880
+    },
+    "res://assets/audio/prologue/sfx/ui/move.wav": {
+      "path": "res://assets/audio/prologue/sfx/ui/move.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.08,
+      "family": "ui",
+      "peakDbfs": -6.6155,
+      "sha256": "aae716dd8732dd14b3a782fd71f6d508cfe3db0cfcfe434688b817d48cfd01b2",
+      "dominantFrequencyHz": 660
+    },
+    "res://assets/audio/prologue/sfx/world/checkpoint.wav": {
+      "path": "res://assets/audio/prologue/sfx/world/checkpoint.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.72,
+      "family": "world",
+      "peakDbfs": -5.6946,
+      "sha256": "139ccc9ee66b5b8dee281a3e88703bf3211678fe9fecbd1e66c6b174376ff766"
+    },
+    "res://assets/audio/prologue/sfx/world/completion.wav": {
+      "path": "res://assets/audio/prologue/sfx/world/completion.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 1.2,
+      "family": "world",
+      "peakDbfs": -4.3618,
+      "sha256": "62f707fd52daab8c11b67b629b1861caa3f2f7fc6c6c16575263f2e1246edcb5"
+    },
+    "res://assets/audio/prologue/sfx/world/recovery-end.wav": {
+      "path": "res://assets/audio/prologue/sfx/world/recovery-end.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.579979,
+      "family": "world",
+      "peakDbfs": -5.7407,
+      "sha256": "97748c59ab97d148a3a03d35d699742a5736c6b9a5c3b2730eaff15ce1057c90"
+    },
+    "res://assets/audio/prologue/sfx/world/recovery-start.wav": {
+      "path": "res://assets/audio/prologue/sfx/world/recovery-start.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.52,
+      "family": "world",
+      "peakDbfs": -4.7474,
+      "sha256": "ea9023ccc05b68b65b59f1d5cf10f9790c2ddbb5d84b814b9b454e20d829d74d"
+    },
+    "res://assets/audio/prologue/sfx/world/shortcut.wav": {
+      "path": "res://assets/audio/prologue/sfx/world/shortcut.wav",
+      "sampleRate": 48000,
+      "durationSeconds": 0.64,
+      "family": "world",
+      "peakDbfs": -5.8784,
+      "sha256": "15d01cbe407470cfa21ef2b14d150f90dd09e20e5d416474401ce7fa5f55d851"
+    }
+  }
+}

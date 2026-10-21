@@ -1,0 +1,9 @@
+<Project Sdk="Godot.NET.Sdk/4.7.1">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <RootNamespace>Knight</RootNamespace>
+    <!-- Keep editor/playtest builds responsive; override with -p:Optimize=false for precise source stepping. -->
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+</Project>

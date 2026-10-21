@@ -1,0 +1,94 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/moth/GraveLampMoth.cs" id="1_iethn"]
+[ext_resource type="Script" path="res://scripts/config/EnemyArchetypeTuning.cs" id="2_1hh1j"]
+[ext_resource type="Script" path="res://scripts/combat/HealthComponent.cs" id="3_ghr2c"]
+[ext_resource type="Script" path="res://scripts/combat/Hurtbox.cs" id="4_03p7o"]
+[ext_resource type="Script" path="res://scripts/combat/Hitbox.cs" id="5_xkcxt"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="6_mjhq4"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="task6_adapter"]
+[ext_resource type="Script" path="res://scripts/enemies/moth/GraveLampMothPresentationCoordinator.cs" id="7_7mdn3"]
+[ext_resource type="Script" path="res://scripts/config/PresentationProfile.cs" id="8_igl0r"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/GraveLampMothFormalVisual.tscn" id="9_lbubt"]
+[ext_resource type="Script" path="res://scripts/presentation/GraveLampMothFormalVisual.cs" id="10_ckofk"]
+[ext_resource type="Script" path="res://scripts/presentation/AttackTelegraphVisual.cs" id="11_attack"]
+
+[sub_resource type="Resource" id="Resource_0ci4r"]
+script = ExtResource("2_1hh1j")
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_k7yj1"]
+radius = 18.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_y4tfj"]
+radius = 22.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_task6_target"]
+radius = 24.0
+
+[sub_resource type="Resource" id="Resource_r14kb"]
+script = ExtResource("8_igl0r")
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_heeay"]
+radius = 16.0
+
+[node name="GraveLampMoth" type="CharacterBody2D" unique_id=2016497533]
+collision_layer = 4
+script = ExtResource("1_iethn")
+Tuning = SubResource("Resource_0ci4r")
+
+[node name="Health" type="Node" parent="." unique_id=1827947080]
+script = ExtResource("3_ghr2c")
+MaxHealth = 2
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=1968006012]
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("4_03p7o")
+
+[node name="HurtboxCollider" type="CollisionShape2D" parent="Hurtbox" unique_id=1930754036]
+shape = SubResource("CircleShape2D_k7yj1")
+
+[node name="AttackHitbox" type="Area2D" parent="." unique_id=944409947]
+collision_layer = 16
+collision_mask = 2
+monitoring = false
+monitorable = false
+script = ExtResource("5_xkcxt")
+Knockback = 180.0
+
+[node name="AttackCollider" type="CollisionShape2D" parent="AttackHitbox" unique_id=1706456687]
+shape = SubResource("CircleShape2D_y4tfj")
+
+[node name="ThreadTarget" type="Node2D" parent="." unique_id=954301812]
+script = ExtResource("6_mjhq4")
+Kind = 1
+Material = 1
+
+[node name="TargetCollision" type="Area2D" parent="ThreadTarget"]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="ThreadTarget/TargetCollision"]
+shape = SubResource("CircleShape2D_task6_target")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="ThreadTarget"]
+script = ExtResource("task6_adapter")
+
+[node name="Presentation" type="Node" parent="." unique_id=458975762]
+script = ExtResource("7_7mdn3")
+Profile = SubResource("Resource_r14kb")
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=600510460]
+
+[node name="Formal" type="Node2D" parent="VisualRoot" unique_id=2032676640 instance=ExtResource("9_lbubt")]
+script = ExtResource("10_ckofk")
+
+[node name="AttackTelegraph" type="Node2D" parent="VisualRoot"]
+z_index = 6
+script = ExtResource("11_attack")
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=1145682655]
+z_index = 10
+
+[node name="BodyCollider" type="CollisionShape2D" parent="." unique_id=261873055]
+shape = SubResource("CircleShape2D_heeay")

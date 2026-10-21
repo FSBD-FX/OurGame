@@ -1,0 +1,519 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/prologue/PrologueRoom.cs" id="1_22een"]
+[ext_resource type="Script" path="res://scripts/config/RoomPresentationProfile.cs" id="2_7htuv"]
+[ext_resource type="Script" path="res://scripts/abilities/GrappleSurface2D.cs" id="task6_surface"]
+[ext_resource type="Script" path="res://scripts/presentation/RoomFormalVisual.cs" id="3_s4nb1"]
+[ext_resource type="Script" path="res://scripts/presentation/ForegroundOccluder.cs" id="4_lkhf2"]
+[ext_resource type="Script" path="res://scripts/prologue/traversal/TraversalSegment2D.cs" id="5_fxkk4"]
+[ext_resource type="Script" path="res://scripts/prologue/RoomExit.cs" id="6_tw7fo"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/ShortcutDoorVisual.tscn" id="7_yfeki"]
+[ext_resource type="Script" path="res://scripts/presentation/PrologueMechanismVisual.cs" id="8_m5d4o"]
+[ext_resource type="Script" path="res://scripts/prologue/CheckpointTrigger.cs" id="9_ecdhy"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/GraveLampVisual.tscn" id="10_h2gpb"]
+[ext_resource type="Script" path="res://scripts/boss/BossArenaController.cs" id="11_agrog"]
+[ext_resource type="PackedScene" path="res://scenes/boss/FallenBellkeeper.tscn" id="12_s2ugr"]
+[ext_resource type="Script" path="res://scripts/world/KillZone.cs" id="13_h8wlm"]
+
+[sub_resource type="Resource" id="Resource_qv4mn"]
+script = ExtResource("2_7htuv")
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_task6_surface"]
+radius = 25.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_bm40a"]
+size = Vector2(1800, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_22two"]
+size = Vector2(260, 24)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_vbshq"]
+size = Vector2(260, 24)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_7ghav"]
+size = Vector2(48, 112)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_gct62"]
+size = Vector2(40, 190)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_23cli"]
+size = Vector2(40, 190)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_kt38g"]
+size = Vector2(90, 180)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_77g3e"]
+size = Vector2(52, 104)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wdkj2"]
+size = Vector2(2200, 120)
+
+[node name="FallenBellkeeperArena" type="Node2D" unique_id=1673328288]
+script = ExtResource("1_22een")
+RoomId = 5
+CameraBounds = Rect2(-640, -360, 1920, 720)
+PresentationProfile = SubResource("Resource_qv4mn")
+
+[node name="Presentation" type="Node2D" parent="." unique_id=285355745]
+z_index = -20
+
+[node name="VisualRoot" type="Node2D" parent="Presentation" unique_id=1889005456]
+
+[node name="Placeholder" type="Node2D" parent="Presentation/VisualRoot" unique_id=442449826]
+visible = false
+
+[node name="Backdrop" type="Polygon2D" parent="Presentation/VisualRoot/Placeholder" unique_id=108532985]
+color = Color(0.0627451, 0.05882353, 0.09411765, 1)
+polygon = PackedVector2Array(-640, -360, 1280, -360, 1280, 360, -640, 360)
+
+[node name="TowerSilhouette" type="Polygon2D" parent="Presentation/VisualRoot/Placeholder" unique_id=623369646]
+color = Color(0.1882353, 0.14509805, 0.21176471, 1)
+polygon = PackedVector2Array(-220, -360, 10, -360, 100, 360, -380, 360)
+
+[node name="RoomLabel" type="Label" parent="Presentation/VisualRoot/Placeholder" unique_id=800109959]
+visible = false
+modulate = Color(0.75, 0.82, 0.76, 0.4)
+offset_left = -598.0
+offset_top = -324.0
+offset_right = -598.0
+offset_bottom = -324.0
+text = "THE FALLEN BELLKEEPER"
+
+[node name="Geometry" type="Node2D" parent="." unique_id=1589327320]
+
+[node name="ArenaFloor" type="StaticBody2D" parent="Geometry" unique_id=2145636521]
+position = Vector2(260, 290)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/ArenaFloor" unique_id=1800914387]
+shape = SubResource("RectangleShape2D_bm40a")
+
+[node name="Body" type="Polygon2D" parent="Geometry/ArenaFloor" unique_id=2094890232]
+visible = false
+color = Color(0.33333334, 0.27058825, 0.36078432, 1)
+polygon = PackedVector2Array(-900, -20, 900, -20, 900, 20, -900, 20)
+
+[node name="Rim" type="Polygon2D" parent="Geometry/ArenaFloor" unique_id=946126541]
+visible = false
+position = Vector2(0, -17)
+color = Color(0.7176471, 0.8235294, 0.6117647, 1)
+polygon = PackedVector2Array(-900, -3, 900, -3, 900, 3, -900, 3)
+
+[node name="LeftDais" type="StaticBody2D" parent="Geometry" unique_id=1231303968]
+position = Vector2(-360, 190)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/LeftDais" unique_id=2141270516]
+shape = SubResource("RectangleShape2D_22two")
+
+[node name="Body" type="Polygon2D" parent="Geometry/LeftDais" unique_id=912468401]
+visible = false
+color = Color(0.40392157, 0.32156864, 0.40784314, 1)
+polygon = PackedVector2Array(-130, -12, 130, -12, 130, 12, -130, 12)
+
+[node name="Rim" type="Polygon2D" parent="Geometry/LeftDais" unique_id=2051625251]
+visible = false
+position = Vector2(0, -9)
+color = Color(0.7176471, 0.8235294, 0.6117647, 1)
+polygon = PackedVector2Array(-130, -3, 130, -3, 130, 3, -130, 3)
+
+[node name="RightDais" type="StaticBody2D" parent="Geometry" unique_id=1297930618]
+position = Vector2(900, 190)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/RightDais" unique_id=903171511]
+shape = SubResource("RectangleShape2D_vbshq")
+
+[node name="Body" type="Polygon2D" parent="Geometry/RightDais" unique_id=1077563565]
+visible = false
+color = Color(0.40392157, 0.32156864, 0.40784314, 1)
+polygon = PackedVector2Array(-130, -12, 130, -12, 130, 12, -130, 12)
+
+[node name="Rim" type="Polygon2D" parent="Geometry/RightDais" unique_id=702294900]
+visible = false
+position = Vector2(0, -9)
+color = Color(0.7176471, 0.8235294, 0.6117647, 1)
+polygon = PackedVector2Array(-130, -3, 130, -3, 130, 3, -130, 3)
+
+[node name="Forbidden" type="Node2D" parent="Geometry"]
+position = Vector2(450, -100)
+script = ExtResource("task6_surface")
+Material = 4
+
+[node name="TargetCollision" type="Area2D" parent="Geometry/Forbidden"]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/Forbidden/TargetCollision"]
+shape = SubResource("CircleShape2D_task6_surface")
+
+[node name="Art" type="Node2D" parent="." unique_id=1646407643]
+z_index = -1
+script = ExtResource("3_s4nb1")
+RoomKey = "fallen-bellkeeper-arena"
+Room = 5
+LandmarkId = "backlit-broken-bell"
+
+[node name="Far" type="Node2D" parent="Art" unique_id=983694848]
+z_index = -30
+metadata/depth_role = "far"
+
+[node name="Backdrop" type="Polygon2D" parent="Art/Far" unique_id=420378080]
+position = Vector2(320, 0)
+color = Color(0.043137256, 0.039215688, 0.06666667, 1)
+polygon = PackedVector2Array(-960, -360, 960, -360, 960, 360, -960, 360)
+
+[node name="Back" type="Node2D" parent="Art" unique_id=2066740523]
+z_index = -24
+metadata/depth_role = "far"
+
+[node name="ArenaApse" type="Polygon2D" parent="Art/Back" unique_id=281079595]
+position = Vector2(320, 0)
+color = Color(0.14839216, 0.14490196, 0.16933334, 1)
+polygon = PackedVector2Array(-960, -360, 960, -360, 960, 360, -960, 360)
+
+[node name="BellBacklight" type="Polygon2D" parent="Art/Back" unique_id=2141279977]
+position = Vector2(530, -75)
+color = Color(0.47411767, 0.3744314, 0.20666668, 1)
+polygon = PackedVector2Array(225, 0, 221.58174, 39.070843, 211.43083, 76.95454, 194.85571, 112.5, 172.36, 144.62721, 144.6272, 172.36002, 112.49999, 194.85573, 76.954506, 211.43085, 39.070824, 221.58176, -9.835062e-06, 225, -39.070866, 221.58174, -76.95455, 211.43083, -112.500015, 194.85571, -144.62721, 172.36, -172.36005, 144.62718, -194.85571, 112.500015, -211.43085, 76.9545, -221.58176, 39.070812, -225, -1.9670124e-05, -221.58174, -39.07085, -211.43083, -76.95459, -194.85568, -112.50004, -172.35997, -144.62724, -144.6272, -172.36003, -112.49998, -194.85573, -76.95451, -211.43085, -39.07083, -221.58176, 2.683098e-06, -225, 39.070942, -221.58173, 76.95452, -211.43083, 112.49998, -194.85573, 144.6272, -172.36002, 172.36005, -144.62717, 194.85576, -112.49995, 211.43085, -76.95448, 221.58176, -39.070793)
+
+[node name="BrokenRoof" type="Polygon2D" parent="Art/Back" unique_id=917244002]
+position = Vector2(320, -305)
+color = Color(0.12464941, 0.121717654, 0.14224, 1)
+polygon = PackedVector2Array(-960, -55, 960, -55, 960, 55, -960, 55)
+
+[node name="Mid" type="Node2D" parent="Art" unique_id=564538434]
+z_index = -16
+metadata/depth_role = "mid"
+
+[node name="StructuralRib1" type="Polygon2D" parent="Art/Mid" unique_id=2103656748]
+position = Vector2(-430, 0)
+color = Color(0.2931765, 0.2371765, 0.30635297, 1)
+polygon = PackedVector2Array(-15, -266.4, 15, -266.4, 15, 266.4, -15, 266.4)
+
+[node name="StructuralRib2" type="Polygon2D" parent="Art/Mid" unique_id=39649623]
+position = Vector2(70, 0)
+color = Color(0.2931765, 0.2371765, 0.30635297, 1)
+polygon = PackedVector2Array(-9, -266.4, 9, -266.4, 9, 266.4, -9, 266.4)
+
+[node name="StructuralRib3" type="Polygon2D" parent="Art/Mid" unique_id=351788965]
+position = Vector2(570, 0)
+color = Color(0.2931765, 0.2371765, 0.30635297, 1)
+polygon = PackedVector2Array(-15, -266.4, 15, -266.4, 15, 266.4, -15, 266.4)
+
+[node name="StructuralRib4" type="Polygon2D" parent="Art/Mid" unique_id=64325495]
+position = Vector2(1070, 0)
+color = Color(0.2931765, 0.2371765, 0.30635297, 1)
+polygon = PackedVector2Array(-9, -266.4, 9, -266.4, 9, 266.4, -9, 266.4)
+
+[node name="Landmark" type="Node2D" parent="Art/Mid" unique_id=1199440250]
+metadata/landmark_id = "backlit-broken-bell"
+
+[node name="Backlight" type="Polygon2D" parent="Art/Mid/Landmark" unique_id=469014558]
+position = Vector2(530, -72)
+color = Color(0.55058825, 0.43482357, 0.24000001, 1)
+polygon = PackedVector2Array(190, 0, 186.3492, 37.06716, 175.53711, 72.709854, 157.97922, 105.55835, 134.35028, 134.35028, 105.558334, 157.97923, 72.709854, 175.53711, 37.067146, 186.34921, -8.305164e-06, 190, -37.06716, 186.3492, -72.70987, 175.53711, -105.55837, 157.97922, -134.35028, 134.35028, -157.97923, 105.558334, -175.53712, 72.70982, -186.34921, 37.067158, -190, -1.6610327e-05, -186.3492, -37.067192, -175.53711, -72.709854, -157.97922, -105.55836, -134.35027, -134.35031, -105.558304, -157.97926, -72.70979, -175.53714, -37.067173, -186.3492, 2.2657273e-06, -190, 37.067177, -186.3492, 72.709885, -175.5371, 105.55838, -157.9792, 134.35033, -134.35023, 157.97922, -105.55836, 175.53712, -72.709854, 186.34921, -37.067146)
+
+[node name="BrokenBellLeft" type="Polygon2D" parent="Art/Mid/Landmark" unique_id=1235622394]
+color = Color(0.2931765, 0.2371765, 0.30635297, 1)
+polygon = PackedVector2Array(380, 23, 438, -172, 512, -217, 496, 28)
+
+[node name="BrokenBellRight" type="Polygon2D" parent="Art/Mid/Landmark" unique_id=1404237076]
+color = Color(0.2579953, 0.20871532, 0.26959062, 1)
+polygon = PackedVector2Array(548, -214, 630, -164, 685, 26, 572, 28)
+
+[node name="Platforms" type="Node2D" parent="Art" unique_id=188197991]
+z_index = -4
+metadata/depth_role = "play"
+
+[node name="ArenaFloor" type="Polygon2D" parent="Art/Platforms" unique_id=489609233]
+position = Vector2(260, 290)
+color = Color(0.34901962, 0.28235295, 0.3647059, 1)
+polygon = PackedVector2Array(-900, -20, 900, -20, 900, 20, -900, 20)
+
+[node name="LitEdge" type="Polygon2D" parent="Art/Platforms/ArenaFloor" unique_id=1598006892]
+position = Vector2(0, -16)
+color = Color(0.82117647, 0.6989804, 0.49333334, 1)
+polygon = PackedVector2Array(-900, -4, 900, -4, 900, 4, -900, 4)
+
+[node name="LeftDais" type="Polygon2D" parent="Art/Platforms" unique_id=1848662256]
+position = Vector2(-360, 190)
+color = Color(0.34901962, 0.28235295, 0.3647059, 1)
+polygon = PackedVector2Array(-130, -12, 130, -12, 130, 12, -130, 12)
+
+[node name="LitEdge" type="Polygon2D" parent="Art/Platforms/LeftDais" unique_id=42189179]
+position = Vector2(0, -8)
+color = Color(0.82117647, 0.6989804, 0.49333334, 1)
+polygon = PackedVector2Array(-130, -4, 130, -4, 130, 4, -130, 4)
+
+[node name="RightDais" type="Polygon2D" parent="Art/Platforms" unique_id=1728876403]
+position = Vector2(900, 190)
+color = Color(0.34901962, 0.28235295, 0.3647059, 1)
+polygon = PackedVector2Array(-130, -12, 130, -12, 130, 12, -130, 12)
+
+[node name="LitEdge" type="Polygon2D" parent="Art/Platforms/RightDais" unique_id=723459315]
+position = Vector2(0, -8)
+color = Color(0.82117647, 0.6989804, 0.49333334, 1)
+polygon = PackedVector2Array(-130, -4, 130, -4, 130, 4, -130, 4)
+
+[node name="Props" type="Node2D" parent="Art" unique_id=225399629]
+z_index = -2
+metadata/depth_role = "play"
+
+[node name="Suspension1" type="Line2D" parent="Art/Props" unique_id=1000746428]
+position = Vector2(-450, -360)
+points = PackedVector2Array(0, 0, 0, 70)
+width = 4.0
+default_color = Color(0.82117647, 0.6989804, 0.49333334, 0.62)
+
+[node name="Fitting1" type="Polygon2D" parent="Art/Props" unique_id=557396899]
+position = Vector2(-450, -272)
+color = Color(0.2931765, 0.2371765, 0.30635297, 0.8)
+polygon = PackedVector2Array(15, 0, 12.990381, 7.5, 7.4999995, 12.990381, -6.556708e-07, 15, -7.500001, 12.990381, -12.990382, 7.499997, -15, -1.3113416e-06, -12.990379, -7.500003, -7.4999986, -12.990381, 1.7887321e-07, -15, 7.5000052, -12.990378, 12.990383, -7.499996)
+
+[node name="Suspension2" type="Line2D" parent="Art/Props" unique_id=993437055]
+position = Vector2(-65, -360)
+points = PackedVector2Array(0, 0, 0, 112)
+width = 2.0
+default_color = Color(0.82117647, 0.6989804, 0.49333334, 0.62)
+
+[node name="Suspension3" type="Line2D" parent="Art/Props" unique_id=520258124]
+position = Vector2(320, -360)
+points = PackedVector2Array(0, 0, 0, 154)
+width = 4.0
+default_color = Color(0.82117647, 0.6989804, 0.49333334, 0.62)
+
+[node name="Fitting3" type="Polygon2D" parent="Art/Props" unique_id=1767492410]
+position = Vector2(320, -188)
+color = Color(0.2931765, 0.2371765, 0.30635297, 0.8)
+polygon = PackedVector2Array(23, 0, 19.918585, 11.5, 11.499999, 19.918585, -1.0053619e-06, 23, -11.500001, 19.918585, -19.918587, 11.499996, -23, -2.0107238e-06, -19.918581, -11.500004, -11.499998, -19.918585, 2.7427225e-07, -23, 11.500009, -19.91858, 19.918589, -11.499994)
+
+[node name="Suspension4" type="Line2D" parent="Art/Props" unique_id=755119879]
+position = Vector2(705, -360)
+points = PackedVector2Array(0, 0, 0, 70)
+width = 2.0
+default_color = Color(0.82117647, 0.6989804, 0.49333334, 0.62)
+
+[node name="Suspension5" type="Line2D" parent="Art/Props" unique_id=862703801]
+position = Vector2(1090, -360)
+points = PackedVector2Array(0, 0, 0, 112)
+width = 4.0
+default_color = Color(0.82117647, 0.6989804, 0.49333334, 0.62)
+
+[node name="Fitting5" type="Polygon2D" parent="Art/Props" unique_id=1123548589]
+position = Vector2(1090, -230)
+color = Color(0.2931765, 0.2371765, 0.30635297, 0.8)
+polygon = PackedVector2Array(19, 0, 16.454483, 9.5, 9.499999, 16.454483, -8.305164e-07, 19, -9.500001, 16.454483, -16.454485, 9.499996, -19, -1.6610328e-06, -16.45448, -9.500004, -9.499998, -16.454483, 2.2657274e-07, -19, 9.500007, -16.45448, 16.454485, -9.499995)
+
+[node name="Front" type="Node2D" parent="Art" unique_id=1503237305]
+z_index = 12
+metadata/depth_role = "front"
+
+[node name="LeftForeground" type="Node2D" parent="Art/Front" unique_id=2019717419]
+position = Vector2(-550, 0)
+script = ExtResource("4_lkhf2")
+
+[node name="Arch" type="Polygon2D" parent="Art/Front/LeftForeground" unique_id=894142904]
+color = Color(0.14839216, 0.14490196, 0.16933334, 1)
+polygon = PackedVector2Array(-90, -360, 90, -360, 195, 360, -90, 360)
+
+[node name="RightForeground" type="Node2D" parent="Art/Front" unique_id=683169708]
+position = Vector2(1190, 0)
+script = ExtResource("4_lkhf2")
+
+[node name="Arch" type="Polygon2D" parent="Art/Front/RightForeground" unique_id=294554587]
+color = Color(0.14839216, 0.14490196, 0.16933334, 1)
+polygon = PackedVector2Array(-90, -360, 90, -360, -15, 360, -90, 360)
+
+[node name="Atmosphere" type="Node2D" parent="Art" unique_id=977834639]
+z_index = -8
+metadata/depth_role = "atmosphere"
+metadata/deterministic_seed = 216
+metadata/atmosphere_kind = "BellAsh"
+
+[node name="Dust1" type="Polygon2D" parent="Art/Atmosphere" unique_id=1298442281]
+position = Vector2(-19, -13)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(1.5, 0, 1.0606601, 1.0606601, -6.556708e-08, 1.5, -1.0606601, 1.0606601, -1.5, -1.3113416e-07, -1.06066, -1.0606604, 1.788732e-08, -1.5, 1.0606605, -1.0606598)
+
+[node name="Dust2" type="Polygon2D" parent="Art/Atmosphere" unique_id=1401822604]
+position = Vector2(118, 70)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(2.5, 0, 1.767767, 1.767767, -1.09278474e-07, 2.5, -1.767767, 1.767767, -2.5, -2.1855695e-07, -1.7677666, -1.7677672, 2.9812202e-08, -2.5, 1.7677675, -1.7677664)
+
+[node name="Dust3" type="Polygon2D" parent="Art/Atmosphere" unique_id=661005239]
+position = Vector2(255, 153)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(3.5, 0, 2.4748738, 2.4748738, -1.5298986e-07, 3.5, -2.4748738, 2.4748738, -3.5, -3.059797e-07, -2.4748733, -2.474874, 4.173708e-08, -3.5, 2.4748745, -2.4748728)
+
+[node name="Dust4" type="Polygon2D" parent="Art/Atmosphere" unique_id=1095734544]
+position = Vector2(392, 236)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(1.5, 0, 1.0606601, 1.0606601, -6.556708e-08, 1.5, -1.0606601, 1.0606601, -1.5, -1.3113416e-07, -1.06066, -1.0606604, 1.788732e-08, -1.5, 1.0606605, -1.0606598)
+
+[node name="Dust5" type="Polygon2D" parent="Art/Atmosphere" unique_id=2129093950]
+position = Vector2(529, -291)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(2.5, 0, 1.767767, 1.767767, -1.09278474e-07, 2.5, -1.767767, 1.767767, -2.5, -2.1855695e-07, -1.7677666, -1.7677672, 2.9812202e-08, -2.5, 1.7677675, -1.7677664)
+
+[node name="Dust6" type="Polygon2D" parent="Art/Atmosphere" unique_id=749156087]
+position = Vector2(666, -208)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(3.5, 0, 2.4748738, 2.4748738, -1.5298986e-07, 3.5, -2.4748738, 2.4748738, -3.5, -3.059797e-07, -2.4748733, -2.474874, 4.173708e-08, -3.5, 2.4748745, -2.4748728)
+
+[node name="Dust7" type="Polygon2D" parent="Art/Atmosphere" unique_id=2069256877]
+position = Vector2(803, -125)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(1.5, 0, 1.0606601, 1.0606601, -6.556708e-08, 1.5, -1.0606601, 1.0606601, -1.5, -1.3113416e-07, -1.06066, -1.0606604, 1.788732e-08, -1.5, 1.0606605, -1.0606598)
+
+[node name="Dust8" type="Polygon2D" parent="Art/Atmosphere" unique_id=1589194191]
+position = Vector2(940, -42)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(2.5, 0, 1.767767, 1.767767, -1.09278474e-07, 2.5, -1.767767, 1.767767, -2.5, -2.1855695e-07, -1.7677666, -1.7677672, 2.9812202e-08, -2.5, 1.7677675, -1.7677664)
+
+[node name="Dust9" type="Polygon2D" parent="Art/Atmosphere" unique_id=503771934]
+position = Vector2(1077, 41)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(3.5, 0, 2.4748738, 2.4748738, -1.5298986e-07, 3.5, -2.4748738, 2.4748738, -3.5, -3.059797e-07, -2.4748733, -2.474874, 4.173708e-08, -3.5, 2.4748745, -2.4748728)
+
+[node name="Dust10" type="Polygon2D" parent="Art/Atmosphere" unique_id=1765617616]
+position = Vector2(1214, 124)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(1.5, 0, 1.0606601, 1.0606601, -6.556708e-08, 1.5, -1.0606601, 1.0606601, -1.5, -1.3113416e-07, -1.06066, -1.0606604, 1.788732e-08, -1.5, 1.0606605, -1.0606598)
+
+[node name="Dust11" type="Polygon2D" parent="Art/Atmosphere" unique_id=1114407802]
+position = Vector2(-459, 207)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(2.5, 0, 1.767767, 1.767767, -1.09278474e-07, 2.5, -1.767767, 1.767767, -2.5, -2.1855695e-07, -1.7677666, -1.7677672, 2.9812202e-08, -2.5, 1.7677675, -1.7677664)
+
+[node name="Dust12" type="Polygon2D" parent="Art/Atmosphere" unique_id=1474804243]
+position = Vector2(-322, 290)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(3.5, 0, 2.4748738, 2.4748738, -1.5298986e-07, 3.5, -2.4748738, 2.4748738, -3.5, -3.059797e-07, -2.4748733, -2.474874, 4.173708e-08, -3.5, 2.4748745, -2.4748728)
+
+[node name="Dust13" type="Polygon2D" parent="Art/Atmosphere" unique_id=1050231289]
+position = Vector2(-185, -237)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(1.5, 0, 1.0606601, 1.0606601, -6.556708e-08, 1.5, -1.0606601, 1.0606601, -1.5, -1.3113416e-07, -1.06066, -1.0606604, 1.788732e-08, -1.5, 1.0606605, -1.0606598)
+
+[node name="Dust14" type="Polygon2D" parent="Art/Atmosphere" unique_id=1267096445]
+position = Vector2(-48, -154)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(2.5, 0, 1.767767, 1.767767, -1.09278474e-07, 2.5, -1.767767, 1.767767, -2.5, -2.1855695e-07, -1.7677666, -1.7677672, 2.9812202e-08, -2.5, 1.7677675, -1.7677664)
+
+[node name="Dust15" type="Polygon2D" parent="Art/Atmosphere" unique_id=9750890]
+position = Vector2(89, -71)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(3.5, 0, 2.4748738, 2.4748738, -1.5298986e-07, 3.5, -2.4748738, 2.4748738, -3.5, -3.059797e-07, -2.4748733, -2.474874, 4.173708e-08, -3.5, 2.4748745, -2.4748728)
+
+[node name="Dust16" type="Polygon2D" parent="Art/Atmosphere" unique_id=1427507232]
+position = Vector2(226, 12)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(1.5, 0, 1.0606601, 1.0606601, -6.556708e-08, 1.5, -1.0606601, 1.0606601, -1.5, -1.3113416e-07, -1.06066, -1.0606604, 1.788732e-08, -1.5, 1.0606605, -1.0606598)
+
+[node name="Dust17" type="Polygon2D" parent="Art/Atmosphere" unique_id=1998770471]
+position = Vector2(363, 95)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(2.5, 0, 1.767767, 1.767767, -1.09278474e-07, 2.5, -1.767767, 1.767767, -2.5, -2.1855695e-07, -1.7677666, -1.7677672, 2.9812202e-08, -2.5, 1.7677675, -1.7677664)
+
+[node name="Dust18" type="Polygon2D" parent="Art/Atmosphere" unique_id=116918433]
+position = Vector2(500, 178)
+color = Color(0.8070588, 0.6752157, 0.45333335, 0.24)
+polygon = PackedVector2Array(3.5, 0, 2.4748738, 2.4748738, -1.5298986e-07, 3.5, -2.4748738, 2.4748738, -3.5, -3.059797e-07, -2.4748733, -2.474874, 4.173708e-08, -3.5, 2.4748745, -2.4748728)
+
+[node name="TraversalContracts" type="Node2D" parent="." unique_id=226709948]
+
+[node name="retry_to_arena_floor" type="Node2D" parent="TraversalContracts" unique_id=612960470]
+script = ExtResource("5_fxkk4")
+SegmentId = &"retry_to_arena_floor"
+RequiredAbilities = 1
+LaunchZone = Rect2(-374, 130, 96, 48)
+LandingZone = Rect2(-182, 222, 96, 48)
+
+[node name="Entrances" type="Node2D" parent="." unique_id=1611408144]
+
+[node name="from_mechanism" type="Marker2D" parent="Entrances" unique_id=753672388]
+position = Vector2(-500, 138)
+
+[node name="boss_retry" type="Marker2D" parent="Entrances" unique_id=1336194614]
+position = Vector2(-320, 138)
+
+[node name="after_boss" type="Marker2D" parent="Entrances" unique_id=1024432799]
+position = Vector2(900, 138)
+
+[node name="Exits" type="Node2D" parent="." unique_id=1874330285]
+
+[node name="BossComplete" type="Area2D" parent="Exits" unique_id=1786388854]
+position = Vector2(1110, 218)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("6_tw7fo")
+ExitId = &"boss_complete"
+
+[node name="Collision" type="CollisionShape2D" parent="Exits/BossComplete" unique_id=196785142]
+shape = SubResource("RectangleShape2D_7ghav")
+
+[node name="Readability" type="Polygon2D" parent="Exits/BossComplete" unique_id=1406745676]
+color = Color(0.9019608, 0.7921569, 0.45490196, 1)
+polygon = PackedVector2Array(-9, -48, 9, -48, 9, 48, -9, 48)
+
+[node name="Doors" type="Node2D" parent="." unique_id=1521217747]
+
+[node name="Entry" type="StaticBody2D" parent="Doors" unique_id=61786530]
+position = Vector2(-130, 198)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Doors/Entry" unique_id=495938835]
+shape = SubResource("RectangleShape2D_gct62")
+
+[node name="Visual" type="Node2D" parent="Doors/Entry" unique_id=1160585646 instance=ExtResource("7_yfeki")]
+script = ExtResource("8_m5d4o")
+Kind = 3
+
+[node name="Exit" type="StaticBody2D" parent="Doors" unique_id=1855801622]
+position = Vector2(1010, 198)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Doors/Exit" unique_id=1279944003]
+shape = SubResource("RectangleShape2D_23cli")
+
+[node name="Visual" type="Node2D" parent="Doors/Exit" unique_id=961360900 instance=ExtResource("7_yfeki")]
+script = ExtResource("8_m5d4o")
+Kind = 3
+
+[node name="BossRoot" type="Node2D" parent="." unique_id=1860785697]
+
+[node name="ActivationTrigger" type="Area2D" parent="." unique_id=1555420152]
+position = Vector2(-70, 180)
+collision_layer = 0
+collision_mask = 2
+
+[node name="Collision" type="CollisionShape2D" parent="ActivationTrigger" unique_id=1874328041]
+shape = SubResource("RectangleShape2D_kt38g")
+
+[node name="BossCheckpoint" type="Area2D" parent="." unique_id=394083619]
+position = Vector2(-320, 138)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("9_ecdhy")
+EntranceId = &"boss_retry"
+
+[node name="Collision" type="CollisionShape2D" parent="BossCheckpoint" unique_id=456391047]
+shape = SubResource("RectangleShape2D_77g3e")
+
+[node name="Visual" type="Node2D" parent="BossCheckpoint" unique_id=1473887049 instance=ExtResource("10_h2gpb")]
+position = Vector2(0, -22)
+script = ExtResource("8_m5d4o")
+
+[node name="BossArenaController" type="Node" parent="." unique_id=1754158017]
+script = ExtResource("11_agrog")
+BossScene = ExtResource("12_s2ugr")
+
+[node name="KillZone" type="Area2D" parent="." unique_id=1488821328]
+position = Vector2(380, 560)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("13_h8wlm")
+
+[node name="Collision" type="CollisionShape2D" parent="KillZone" unique_id=905174062]
+shape = SubResource("RectangleShape2D_wdkj2")

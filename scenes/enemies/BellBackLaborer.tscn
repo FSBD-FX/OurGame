@@ -1,0 +1,102 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/laborer/BellBackLaborer.cs" id="1_60nd6"]
+[ext_resource type="Script" path="res://scripts/config/BellBackLaborerTuning.cs" id="2_tuning"]
+[ext_resource type="Script" path="res://scripts/combat/HealthComponent.cs" id="2_2r06i"]
+[ext_resource type="Script" path="res://scripts/combat/ArmoredDamageReceiver.cs" id="3_nmhbx"]
+[ext_resource type="Script" path="res://scripts/combat/Hurtbox.cs" id="4_i2pkc"]
+[ext_resource type="Script" path="res://scripts/combat/Hitbox.cs" id="5_vsqo4"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="6_k5xa1"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="task6_adapter"]
+[ext_resource type="Script" path="res://scripts/enemies/laborer/BellBackLaborerPresentationCoordinator.cs" id="7_vj0ns"]
+[ext_resource type="Script" path="res://scripts/config/PresentationProfile.cs" id="8_ytjwd"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/BellBackLaborerFormalVisual.tscn" id="9_ir6s0"]
+[ext_resource type="Script" path="res://scripts/presentation/BellBackLaborerFormalVisual.cs" id="10_chr2o"]
+[ext_resource type="Script" path="res://scripts/presentation/AttackTelegraphVisual.cs" id="12_attack"]
+
+[sub_resource type="Resource" id="Resource_attack_tuning"]
+script = ExtResource("2_tuning")
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_c7jti"]
+radius = 28.0
+height = 84.0
+
+[sub_resource type="ConvexPolygonShape2D" id="ConvexPolygonShape2D_hmkn7"]
+points = PackedVector2Array(0, 0, 39.999996, -69.282036, 69.28203, -40, 80, 0, 69.28203, 40, 39.999996, 69.282036)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_3ubcu"]
+radius = 32.0
+
+[sub_resource type="Resource" id="Resource_41uwp"]
+script = ExtResource("8_ytjwd")
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_l37mu"]
+radius = 28.0
+height = 84.0
+
+[node name="BellBackLaborer" type="CharacterBody2D" unique_id=2144333716]
+collision_layer = 4
+script = ExtResource("1_60nd6")
+Tuning = SubResource("Resource_attack_tuning")
+
+[node name="Health" type="Node" parent="." unique_id=1233286296]
+script = ExtResource("2_2r06i")
+MaxHealth = 6
+InvulnerabilitySeconds = 0.0
+
+[node name="Armor" type="Node" parent="." unique_id=1326368687]
+script = ExtResource("3_nmhbx")
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=1614787218]
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("4_i2pkc")
+DamageReceiverPath = NodePath("../Armor")
+
+[node name="HurtboxCollider" type="CollisionShape2D" parent="Hurtbox" unique_id=1804404978]
+shape = SubResource("CapsuleShape2D_c7jti")
+
+[node name="AttackHitbox" type="Area2D" parent="." unique_id=681256333]
+collision_layer = 16
+collision_mask = 2
+monitoring = false
+monitorable = false
+script = ExtResource("5_vsqo4")
+Knockback = 240.0
+
+[node name="AttackCollider" type="CollisionShape2D" parent="AttackHitbox" unique_id=124168446]
+shape = SubResource("ConvexPolygonShape2D_hmkn7")
+
+[node name="ThreadTarget" type="Node2D" parent="." unique_id=217567017]
+script = ExtResource("6_k5xa1")
+Kind = 2
+Material = 1
+
+[node name="TargetCollision" type="Area2D" parent="ThreadTarget" unique_id=1893579494]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="ThreadTarget/TargetCollision" unique_id=1139124022]
+shape = SubResource("CircleShape2D_3ubcu")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="ThreadTarget"]
+script = ExtResource("task6_adapter")
+
+[node name="Presentation" type="Node" parent="." unique_id=1229524208]
+script = ExtResource("7_vj0ns")
+Profile = SubResource("Resource_41uwp")
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=1672996139]
+
+[node name="Formal" type="Node2D" parent="VisualRoot" unique_id=792883558 instance=ExtResource("9_ir6s0")]
+script = ExtResource("10_chr2o")
+
+[node name="AttackTelegraph" type="Node2D" parent="VisualRoot"]
+z_index = 6
+script = ExtResource("12_attack")
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=845020747]
+z_index = 10
+
+[node name="BodyCollider" type="CollisionShape2D" parent="." unique_id=610230979]
+shape = SubResource("CapsuleShape2D_l37mu")

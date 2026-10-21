@@ -1,0 +1,78 @@
+Task 6 final overlay manifest
+Captured after final byte-state capture, original-resolution review, and verifier 2/2.
+
+Baseline HEAD: e4e06989af73b4b98a61fbf40d3f103e1888fdcd
+Materialization: artifacts/task6-final-evidence/final-materialization-head-task6-overlay
+Frozen shared preflight diff SHA-256: 11506B411AB36C79F52CC7E85CFA7F2EECE55A785F31543928A0B8725DC27524
+Frozen shared preflight manifest SHA-256: 2C3E68AE02FF0367B112512A33C9460719CDB49C60BF4770CB853A0D42D4F665
+Runtime/capture candidate SHA-256: 9FC8BDAE4B2947D834AF6ECA4981E538C29F5911BF2A98A27483B3FFF8624D9A
+Evidence candidate SHA-256: 3876653E541A024CAA29669C618A834BD5C84886123A18BC947FD142B008B6A3
+Generated scene SHA-256: 0F7BF41A79544BB8A37BAA66AB7927DD8DFFE75B346E681BBABED205660B50D1
+
+Columns: path | HEAD Git blob SHA | Task 6 canonical SHA-256 | frozen/user-overlay SHA-256 | final materialization SHA-256 | resolution
+
+Byte normalization: `apply_patch` preserved semantic content and frozen user hunks while normalizing CRLF to LF in README, progress, and traversal-test final working blobs; the final SHA-256 values below are the exact materialized/working bytes certified by this final run.
+
+README.md | 72825c42b25c39b6ddba66164d4ba0c73d86a04a | CF5EA18B5A4FED88F1706DAD22B708DD6F28BC94A9E68BEE4058F11F3952EE8E | 56D34491B9D70B706820FA4D73392D96F2D9D43EEDED429F46D80AA9737BF2E3 | CF5EA18B5A4FED88F1706DAD22B708DD6F28BC94A9E68BEE4058F11F3952EE8E | compatible: keep frozen user content outside Task 6 section; merge current Task 6 status only
+tests/integration/PrologueCanyonTraversalTests.cs | ec249e02677f46716e9333e40c304f263ea5b6b3 | F6CCE4829A0895B1315878EA07C4FEB18C5F7AA876B4D0CA2AE84A5F2CA9C05C | 7D6695333D8FD65012247AC1DAEE4DE06EB66D0834C3FA5CCF1B187357476C0D | A8547FD5815395985C1559A8973935D5B25160AD0393DE9F68020BE62304F4E1 | compatible three-way merge: canonical viewport PushInput/Input.ParseInputEvent helper plus two frozen user position hunks (1458,1537)
+tests/powershell/Task4PlaytestRecorderTransition.Tests.ps1 | 880efea2a46ff5b981e365e81fab8ddd6266bef0 | <not Task 6 owned> | 7488A0E0F0958E855959FEDAA292868729319D4FBF8B23A6B5AA1623FB35AA9B | 7488A0E0F0958E855959FEDAA292868729319D4FBF8B23A6B5AA1623FB35AA9B | preserved unchanged; user-hunk diff SHA-256 804052D0006373619347051A5B890AF7226A9908EE541B990B0729DBF12DDF15; never stage
+
+tests/smoke/PrologueCriticalPathSmoke.cs | bdbb2faa030bc5fe1c6b8234ba7e105cd4c1eb9e | D0B0BCDEE9555451EB0C469FDFEC582491E3ABBAE2306AE653174D4F344AC6E4 | 429AFAAC201003A2BF798363EA860B4DCA83CDB0008931D843709EE2F01A0BD3 | D0B0BCDEE9555451EB0C469FDFEC582491E3ABBAE2306AE653174D4F344AC6E4 | superseded: frozen direct route/model/runtime authority conflicts with Task 6 InputMap-only proof
+tests/presentation/ProloguePresentation.cs | aa7d38f09efaed33416c7a977240f1c37c812673 | E056002EEF0D4F6A5AC684ED33D6EA4F35258D05DE6ED659490D3628834D0C89 | B08A9316C2B0F6AFDED4DFEC0694C8DADC27968716A6A191E563FC467C2A3CDE | E056002EEF0D4F6A5AC684ED33D6EA4F35258D05DE6ED659490D3628834D0C89 | superseded: frozen route/presentation direct authority conflicts with Task 6 InputMap-only proof
+tests/presentation/MechanicalClawProofCapture.cs | e3118fbf446c787dbf08e65f81b79a9f9191ffbb | F2C01FD667973A9FCAFD4A06239B3E23B895D8F806C8BDBBCA998B01F7CA304B | 8254AC4C73BD07F184BD9C9635CE898B9BAB90FAF2F22D440BBF2E178EEE96DA | F2C01FD667973A9FCAFD4A06239B3E23B895D8F806C8BDBBCA998B01F7CA304B | superseded: frozen Instantiate/player.Position/Traverse/direct claw authority conflicts with Task 6 InputMap-only proof
+tests/presentation/BossRetryPresentation.cs | f7eb3a8be48c356cd06aeece6fa869e6f6290960 | 4F6F038B7455FBF0D7DA9E7F13CC9E33FF7F3E2A77D0983AE01135EE0853B055 | CBD0B8BCEF83C366A768870E45F5930F5704CF76B5218C877B154DA18926E776 | 4F6F038B7455FBF0D7DA9E7F13CC9E33FF7F3E2A77D0983AE01135EE0853B055 | superseded: frozen direct Boss/reset/title authority conflicts with ordered physical retry proof
+tests/presentation/PrologueVisualAudit.cs | dcf5a55dffe8f561729b2759b83ff21473396c03 | 66CB96A44AE026B3CE342F0873C08427D3AB955B1446B7814468D10D5F0FAEC4 | 960C4C071264C0309AE36843754563777E1B49E74CCE3B2419AE6968463DFE8A | 66CB96A44AE026B3CE342F0873C08427D3AB955B1446B7814468D10D5F0FAEC4 | superseded: frozen direct presentation audit authority; canonical audit retains Task 11 markers
+tools/audit-prologue-production.ps1 | e6e74e483f8d7731491f9b23c9aefeb2b8976bf1 | 275B41C9CF13774E277361BF02DD8026FA9D1CE5F24E140555494DC1E951E0F7 | 72C61AA2ECB478A72CA67D5305FFB02D15EA0EC0BDFA121EDA195F32E65FDC03 | 0F3FE1AD481998E588731A74815BD55E8631641D69FE151BDA8EB30C55CBAF36 | compatible: preserved pure build 0/0 audit enhancement; remaining frozen authority was superseded
+tools/capture-prologue.ps1 | a95c380109ef1e73366a47e56b96131ba38d18cd | 7160AF223E4A2E3678525376ADEC1A126FE286E473E4A7E6DEE9ACB4C79FE35F | 1F00A3FB2C6C8D686A6F3230F4ED8DADD83D62A1EB981F752A3B9E26A4F23C72 | 7160AF223E4A2E3678525376ADEC1A126FE286E473E4A7E6DEE9ACB4C79FE35F | superseded: legacy capture overlay is not the fresh explicit-audit-root, runtime-bound capture path
+tools/verify-prologue.ps1 | cdb7a022f818822c7c9c3374b8d394a6bfbb6571 | 3140C1EE304EC23F02762DC1B1E3386559A032E5F32BCBAB641094D75673CC31 | 4B83234D2C15E05693C253EB393F6B3B25B7A99F455F79BA4421C4ABBAA718CD | 3140C1EE304EC23F02762DC1B1E3386559A032E5F32BCBAB641094D75673CC31 | superseded: legacy verifier materialization is incompatible with Task 6 fresh candidate gate
+tests/powershell/PrologueEvidenceChecks.Tests.ps1 | a357089678f386ad0ca09854a8f67ba8dca7ebbf | <not Task 6 owned> | 8D39B1C2EA9C86053731CF4AF4B1E33F606CEA61E93667E9782E4C27D2BF0DAE | <not materialized> | frozen unowned overlay, excluded from Task 6 candidate and commit
+tests/powershell/Task4ProloguePhaseCoverage.Tests.ps1 | 3df80778f2d2efa104e02d193c98680776aa99e9 | <not Task 6 owned> | 9C83CF9630B1ACD74BAE1D8768433D0AB22B3A085368B6E5EB8F909267D65C60 | <not materialized> | frozen unowned overlay, excluded from Task 6 candidate and commit
+
+tools/extract-prologue-keyframes.ps1 | <absent> | A73C44B8C055A9D01A957E22F3E8CF20DE796A5BC120A6B2E3533B99EDE1B70B | FC2C5BB04B243021CC43AF0DD18C2AD2A4368C748D708B6C5140A6E65D92216C (late untracked 87-line screenshot extractor) | A73C44B8C055A9D01A957E22F3E8CF20DE796A5BC120A6B2E3533B99EDE1B70B | superseded: canonical 176-line AVI-bound extractor is required by Task 6; frozen full original is retained below
+.superpowers/sdd/2026-08-29-terrain-grapple-dense-canyon-revision/task-6-late-untracked-extract-prologue-keyframes.snapshot.ps1 | <absent> | FC2C5BB04B243021CC43AF0DD18C2AD2A4368C748D708B6C5140A6E65D92216C | FC2C5BB04B243021CC43AF0DD18C2AD2A4368C748D708B6C5140A6E65D92216C | FC2C5BB04B243021CC43AF0DD18C2AD2A4368C748D708B6C5140A6E65D92216C | exact frozen copy of superseded late untracked screenshot extractor
+tests/powershell/Task6TerrainGrappleEvidence.Tests.ps1 | <absent> | 7AC36C659EA2147C1C6AB7828D33CD7686270700E18F591C8BD4463749758A55 | <absent> | 7AC36C659EA2147C1C6AB7828D33CD7686270700E18F591C8BD4463749758A55 | new Task 6 fail-closed Pester and mutation contract
+docs/playtests/2026-08-29-terrain-grapple-dense-canyon-validation.md | <absent> | F0AD3758645B2C74D48ACBDE73DB4B7119D9614D3B3024A16AC750FC53B549E9 | <absent> | F0AD3758645B2C74D48ACBDE73DB4B7119D9614D3B3024A16AC750FC53B549E9 | new Task 6 record; included in evidence candidate and intentionally not changed after verifier #2
+task-6-report.md | 2c7544091a698cfaad661b886819b2f85f25e7d8 | 16A2193AB4075CBB4E9CE9079CAF6904CBF378BEC65DCE49E1B58BD03AE36218 | 87996C15E5D563AD86135620F2DA8C24F7EF88D3BA63C6506F9419C9C61154C3 | 16A2193AB4075CBB4E9CE9079CAF6904CBF378BEC65DCE49E1B58BD03AE36218 | Task 6 report updated after final evidence; outside runtime candidate
+.superpowers/sdd/2026-08-29-terrain-grapple-dense-canyon-revision/task-6-ledger.md | <absent> | E40471F84B9649D8DF41145470DA46CA1142A606FEEEAB26EA46F48F0767154E | <absent> | E40471F84B9649D8DF41145470DA46CA1142A606FEEEAB26EA46F48F0767154E | new Task 6 ledger updated after final evidence; outside runtime candidate
+.superpowers/sdd/2026-08-29-terrain-grapple-dense-canyon-revision/progress.md | 1444613bd3be07321c907d83c00e107c810736b5 | 1220F9FD54B06D240359B948D9043BCDEE211D5C259AF8A6FBBC059ED5E118FE | 34C930831A1E796B2535566C6FB939CDDD73B8B447E1CB99FCFCEC6764E49139 | 1220F9FD54B06D240359B948D9043BCDEE211D5C259AF8A6FBBC059ED5E118FE | Task 6 status/audit entries only; frozen working tree was clean at capture
+
+Capture provenance:
+  audit-final-working-20260901T121429023Z / audit manifest SHA-256 84CB6702976C74FA194AF82AC2AC63CAB10503B9A9A0A598A2DF5AAC107B4357
+  capture-final-working-20260901T121429023Z / capture manifest SHA-256 062E760BF5E61087561B5190249C042F939035A7B2543EC095F80A7C7F8A42F0
+  full-flow.avi SHA-256 9E3C73AC42DAE516653AE292D011F5AA7A3C6A7CE4434B3A020E8F77C5FB13AD; frames 11443; keyframe manifest F977AA9AE98088BE4C25696716589AB0306B3C3460EDD516FC5AABA0D51FA760; reticle manifest 3CDA77620453B19327AA16B53932D669CBCD446FFC3885B95EC8F9234EFED684
+  boss-retry.avi SHA-256 90F38361846E494532679284CCBF5683E40F64CE57092D34585DF4B7E6494C81; frames 2719; keyframe manifest 6509775F406DF15C62AE728720E3E0054517C1975F80D8EA3578C8469FD015A0
+  verifier #1 verify-final-working-1-20260901T122127595Z stdout SHA-256 2A77784516CDDB0B639E31B82C4846CE63E776B8EEB3502634D7654171BAD867
+  verifier #2 verify-final-working-2-20260901T122425864Z stdout SHA-256 9DD1ADD59E9540EB7AB4E821A7FE600A60238EEE587028C5C4EDD8E0E8E729B8
+  both verify-summary.txt SHA-256 5BC28F421A196188BE1FDB0334333880F2C6B8CCDC3CBDC5EE259F9690137B08
+
+Human boundary: human_acceptance=open. Step 8 has not started. No automatic HandsOnLauncher report
+or user qualitative note exists or is claimed by this manifest.
+
+2026-09-02 review-remediation supplement
+------------------------------------------
+The preceding capture/verifier provenance is historical and is superseded by the following
+runtime-bound candidate. The compatible frozen overlay remains preserved as described above;
+no user hunk was staged by this Task 6 work. Runtime/capture/verifier/test files were frozen
+before the current recording and both formal verifier passes.
+
+BASE HEAD: e4e06989af73b4b98a61fbf40d3f103e1888fdcd
+Current runtime candidate SHA-256: 49A6E23D6782668F04EE8061E3559E2B377765EBFF0ABCAB6E3D46A97AFD612D
+Current capture root: artifacts/task6-final-capture-20260902T005609288
+Current capture-manifest SHA-256: 9B3FB1B3126D27C8254F91BC4A6A0DE54C13C757075A74B26FD8D8AC9A2AACC4
+Current full-flow AVI SHA-256 / frames: 6C6E5046F0653BD02C366D8CF0C8119FB5CF2971DC83B51068BA2DA5A62B48E5 / 4053
+Current Boss-retry AVI SHA-256 / frames: FDF14343CF0A5C2755B076597DF2BDB5C526B77B64382A56959173409F0F261C / 2719
+Current scene SHA-256: 9C81ABD51F8C834295AF03FD7F2C8C4088AD2640B7C809ED392235C0E0FD7270
+Current verifier-summary SHA-256: BA94961F9965D0A2FE7191B08EA7B3F7947D244C91F3254A147DE5C5C5B0C9AA
+Verifier roots: task6-final-verify-1-20260902T010601067 (one PROLOGUE_VERIFY_OK), task6-final-verify-2-20260902T012103825 (one PROLOGUE_VERIFY_OK)
+
+Post-verification documentation is explicitly outside the runtime fingerprint. Its final working
+bytes were recorded after the verifier pair and do not change a runtime, capture, test, or
+materialized scene blob:
+README.md | 1C61DCFA2BEB643DF8BBA9CCDD687DEE5668E9445219B17CD8D78051E68EFF02 | Task 6 top-status hunk only; compatible user content outside that hunk remains working-tree overlay
+task-6-report.md | 52B1A56E958AD727808C4CAAE419CC3E83EEAC2D1F9B05F4C04804C5A1D1C49B | Task 6 report addendum
+docs/playtests/2026-08-29-terrain-grapple-dense-canyon-validation.md | 13039BA8069DF624661F142C09DD93F6C0D3509A6537CD951EF8970DD1F5A391 | Task 6 automated validation addendum; 46 original-resolution conclusions
+.superpowers/sdd/2026-08-29-terrain-grapple-dense-canyon-revision/task-6-ledger.md | 43C75118883C29D2C5E4DC5BEC4384335464F7C854FD474649E8EC7E38CD45A6 | Task 6 ledger addendum
+.superpowers/sdd/2026-08-29-terrain-grapple-dense-canyon-revision/progress.md | 513FCD196B4F2279BB681F12338A5578DCBC6394E73ADDA9F580D14754A88452 | Task 6 progress addendum
+
+Human boundary remains unchanged: human_acceptance=open; Step 8 is not started; no automatic
+HandsOnLauncher report or user qualitative note is created or claimed.

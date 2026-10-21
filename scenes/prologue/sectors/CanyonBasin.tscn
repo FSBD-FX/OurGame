@@ -1,0 +1,1568 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/prologue/seamless/PrologueSector.cs" id="1_63t3d"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonBackdropVisual.cs" id="2_jcfo0"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonPlatformVisual.cs" id="3_osu82"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonSteamDiverterVisual.cs" id="4_emdm8"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonAnchorVisual.cs" id="5_yxh6r"]
+[ext_resource type="Script" path="res://scripts/abilities/GrappleSurface2D.cs" id="6_nx2ng"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="7_asuqe"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="8_xilmo"]
+[ext_resource type="Script" path="res://scripts/interactions/ManualSteamValveControl.cs" id="9_rt1fy"]
+[ext_resource type="Script" path="res://scripts/prologue/traversal/TraversalSegment2D.cs" id="10_pc36b"]
+[ext_resource type="Script" path="res://scripts/world/KillZone.cs" id="11_pb1ae"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonGearPiston.cs" id="12_hd20y"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonSteamJet.cs" id="13_k31ax"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonSteamValve.cs" id="14_hqwl5"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonSteamDiverter.cs" id="15_wp6ig"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonCounterweightLift.cs" id="16_blryf"]
+[ext_resource type="Script" path="res://scripts/prologue/CheckpointTrigger.cs" id="17_oysfe"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/GraveLampVisual.tscn" id="18_mwqme"]
+[ext_resource type="Script" path="res://scripts/presentation/PrologueMechanismVisual.cs" id="19_rs3l1"]
+[ext_resource type="Script" path="res://scripts/prologue/traversal/CanyonShieldLaneHazard.cs" id="20_kvkxc"]
+[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragment.cs" id="21_j6d72"]
+[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragmentVisual.cs" id="22_k7us8"]
+[ext_resource type="Script" path="res://scripts/prologue/CanyonEncounterGroup.cs" id="23_st68f"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_icj6y"]
+size = Vector2(800, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_3h17j"]
+size = Vector2(300, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_eaqpj"]
+size = Vector2(212, 80)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_5q3eq"]
+size = Vector2(196, 120)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_p0cbc"]
+size = Vector2(240, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_dcrpf"]
+size = Vector2(240, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_slmnr"]
+size = Vector2(320, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_xyhx2"]
+size = Vector2(1160, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_vn1xf"]
+size = Vector2(150, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ghhsa"]
+size = Vector2(150, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_sqi1g"]
+size = Vector2(150, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_sjiu6"]
+size = Vector2(150, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_b14jt"]
+size = Vector2(150, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_krdyo"]
+size = Vector2(150, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_2ufrv"]
+size = Vector2(150, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_v2nws"]
+size = Vector2(150, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_23o8j"]
+size = Vector2(180, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_3smec"]
+size = Vector2(1720, 28)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_1rjdf"]
+size = Vector2(80, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_moaf2"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_10wlm"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_58fbh"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_sa0xx"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_d8swg"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_p3f3f"]
+size = Vector2(200, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_3n5wx"]
+size = Vector2(36, 60)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_huq3m"]
+radius = 22.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_3nnwj"]
+radius = 22.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_h7cdc"]
+radius = 22.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_pswkk"]
+radius = 24.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_c3buk"]
+size = Vector2(3840, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_hv4lx"]
+size = Vector2(132, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_6qekx"]
+size = Vector2(72, 150)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_3dth5"]
+size = Vector2(64, 150)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_bvpv0"]
+size = Vector2(64, 150)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_imp37"]
+size = Vector2(120, 24)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wyuud"]
+size = Vector2(52, 104)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ad6hi"]
+size = Vector2(260, 120)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_yadb3"]
+radius = 18.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_yq4ew"]
+radius = 18.0
+
+[node name="CanyonBasin" type="Node2D" unique_id=1335385765]
+script = ExtResource("1_63t3d")
+SectorId = 2
+Bounds = Rect2(0, 0, 3840, 720)
+metadata/canyon_layout_version = 2
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=1655945980]
+
+[node name="Background" type="Node2D" parent="VisualRoot" unique_id=105513128]
+z_index = -40
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="CanyonVoid" type="Polygon2D" parent="VisualRoot/Background" unique_id=23271764]
+position = Vector2(1920, 360)
+color = Color(0.03529412, 0.08235294, 0.105882354, 1)
+polygon = PackedVector2Array(-1920, -360, 1920, -360, 1920, 360, -1920, 360)
+
+[node name="DistantCanyon" type="Node2D" parent="VisualRoot/Background" unique_id=1143657365]
+script = ExtResource("2_jcfo0")
+SectorId = 2
+SectorBounds = Rect2(0, 0, 3840, 720)
+DistantLayer = true
+
+[node name="CanyonCoverageSkirt" type="Node2D" parent="VisualRoot/Background" unique_id=484265091]
+z_index = -100
+z_as_relative = false
+script = ExtResource("2_jcfo0")
+SectorId = 2
+SectorBounds = Rect2(-2380, -4540, 9880, 6200)
+CoverageLayer = true
+VisualRole = "coverage"
+
+[node name="Midground" type="Node2D" parent="VisualRoot" unique_id=742435488]
+z_index = -20
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="CanyonRib1" type="Polygon2D" parent="VisualRoot/Midground" unique_id=118499790]
+position = Vector2(90, 583.2)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -136.8, 16, -136.8, 16, 136.8, -16, 136.8)
+
+[node name="CanyonRib2" type="Polygon2D" parent="VisualRoot/Midground" unique_id=2076236246]
+position = Vector2(700, 554.4)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -165.59999, 16, -165.59999, 16, 165.59999, -16, 165.59999)
+
+[node name="CanyonRib3" type="Polygon2D" parent="VisualRoot/Midground" unique_id=1781532167]
+position = Vector2(1310, 525.6)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -194.4, 16, -194.4, 16, 194.4, -16, 194.4)
+
+[node name="CanyonRib4" type="Polygon2D" parent="VisualRoot/Midground" unique_id=1776938132]
+position = Vector2(1920, 583.2)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -136.8, 16, -136.8, 16, 136.8, -16, 136.8)
+
+[node name="CanyonRib5" type="Polygon2D" parent="VisualRoot/Midground" unique_id=756862091]
+position = Vector2(2530, 554.4)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -165.59999, 16, -165.59999, 16, 165.59999, -16, 165.59999)
+
+[node name="CanyonRib6" type="Polygon2D" parent="VisualRoot/Midground" unique_id=726072303]
+position = Vector2(3140, 525.6)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -194.4, 16, -194.4, 16, 194.4, -16, 194.4)
+
+[node name="CanyonRib7" type="Polygon2D" parent="VisualRoot/Midground" unique_id=567279990]
+position = Vector2(3750, 583.2)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -136.8, 16, -136.8, 16, 136.8, -16, 136.8)
+
+[node name="CanyonLandmark" type="Node2D" parent="VisualRoot/Midground" unique_id=380946912]
+script = ExtResource("2_jcfo0")
+SectorId = 2
+SectorBounds = Rect2(0, 0, 3840, 720)
+
+[node name="ChallengeCompositions" type="Node2D" parent="VisualRoot/Midground" unique_id=102782810]
+
+[node name="GearPistons" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=142081860]
+script = ExtResource("2_jcfo0")
+SectorId = 2
+VisualRole = "challenge"
+CompositionId = "buried-gear-crown"
+CompositionBounds = Rect2(800, 0, 960, 720)
+AccentColor = Color(0.4745098, 0.39607844, 0.25490198, 1)
+metadata/challenge_kind = 5
+metadata/height_layer = 0
+metadata/silhouette_id = "buried-gear-crown"
+metadata/collision_source = false
+
+[node name="SteamValves" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=1334674788]
+script = ExtResource("2_jcfo0")
+SectorId = 2
+VisualRole = "challenge"
+CompositionId = "steam-pump-trench"
+CompositionBounds = Rect2(1760, 360, 1160, 360)
+AccentColor = Color(0.43529412, 0.56078434, 0.54509807, 1)
+metadata/challenge_kind = 6
+metadata/height_layer = 0
+metadata/silhouette_id = "steam-pump-trench"
+metadata/collision_source = false
+
+[node name="GameplayReadable" type="Node2D" parent="VisualRoot" unique_id=2008109355]
+z_index = -2
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="MicroSceneReadability" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=580576753]
+
+[node name="BasinCamp" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=1341069225]
+position = Vector2(400, 360)
+color = Color(0.72, 0.58, 0.3, 0.04)
+polygon = PackedVector2Array(-396, -356, 396, -356, 396, 356, -396, 356)
+
+[node name="GearPistons" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=1142304476]
+position = Vector2(1280, 360)
+color = Color(0.72, 0.58, 0.3, 0.04)
+polygon = PackedVector2Array(-476, -356, 476, -356, 476, 356, -476, 356)
+
+[node name="SteamValves" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=1920971145]
+position = Vector2(2340, 540)
+color = Color(0.52, 0.69, 0.6, 0.055)
+polygon = PackedVector2Array(-576, -176, 576, -176, 576, 176, -576, 176)
+
+[node name="BasinCampFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=345381950]
+position = Vector2(400, 416)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(800, 40)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/BasinCampFloor" unique_id=1069350154]
+position = Vector2(0, -17)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-400, -3, 400, -3, 400, 3, -400, 3)
+
+[node name="GearEntry" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=457861055]
+position = Vector2(950, 416)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(300, 40)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/GearEntry" unique_id=1306707711]
+position = Vector2(0, -17)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-150, -3, 150, -3, 150, 3, -150, 3)
+
+[node name="GearPistonOne" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=283548638]
+position = Vector2(1266, 356)
+script = ExtResource("3_osu82")
+SurfaceMaterial = 1
+SectorId = 2
+SkinSize = Vector2(212, 80)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/GearPistonOne" unique_id=131027443]
+position = Vector2(0, -37)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-106, -3, 106, -3, 106, 3, -106, 3)
+
+[node name="GearPistonTwo" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1716103884]
+position = Vector2(1662, 296)
+script = ExtResource("3_osu82")
+SurfaceMaterial = 1
+SectorId = 2
+SkinSize = Vector2(196, 120)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/GearPistonTwo" unique_id=656967655]
+position = Vector2(0, -57)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-98, -3, 98, -3, 98, 3, -98, 3)
+
+[node name="UpperGearGalleryOne" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1633163945]
+position = Vector2(1880, 176)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(240, 40)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/UpperGearGalleryOne" unique_id=1527615328]
+position = Vector2(0, -17)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
+
+[node name="UpperGearGalleryTwo" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=2006159251]
+position = Vector2(2120, 96)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(240, 40)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/UpperGearGalleryTwo" unique_id=328508331]
+position = Vector2(0, -17)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
+
+[node name="UpperGearGalleryThree" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1375420983]
+position = Vector2(2400, 20)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(320, 40)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/UpperGearGalleryThree" unique_id=142805968]
+position = Vector2(0, -17)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-160, -3, 160, -3, 160, 3, -160, 3)
+
+[node name="MechanismTelegraphs" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1440393545]
+
+[node name="GearPistonTelegraph" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs" unique_id=993923988]
+position = Vector2(1320, 250)
+color = Color(0.8392157, 0.6392157, 0.25490198, 1)
+polygon = PackedVector2Array(-66, -9, 66, -9, 66, 9, -66, 9)
+
+[node name="SteamJetTelegraph" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs" unique_id=579469698]
+z_index = 1
+position = Vector2(2180, 510)
+color = Color(0.54, 0.76, 0.75, 0.54)
+polygon = PackedVector2Array(-36, -75, 36, -75, 36, 75, -36, 75)
+
+[node name="LowerVapor" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/SteamJetTelegraph" unique_id=74759357]
+position = Vector2(-2.8, 45)
+color = Color(0.77, 0.92, 0.89, 0.45)
+polygon = PackedVector2Array(18, 0, 17.119019, 5.562306, 14.562306, 10.580134, 10.580134, 14.562306, 5.5623055, 17.119019, -7.86805e-07, 18, -5.5623064, 17.119017, -10.580137, 14.562304, -14.562307, 10.580133, -17.119017, 5.5623064, -18, -1.57361e-06, -17.119015, -5.5623097, -14.562305, -10.580136, -10.580132, -14.562308, -5.5622997, -17.119019, 2.1464786e-07, -18, 5.5623083, -17.119017, 10.580139, -14.562303, 14.562305, -10.580135, 17.119019, -5.562305)
+
+[node name="MiddleVapor" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/SteamJetTelegraph" unique_id=786322726]
+position = Vector2(3.6000001, 3)
+color = Color(0.77, 0.92, 0.89, 0.369)
+polygon = PackedVector2Array(22, 0, 20.923244, 6.798374, 17.798374, 12.931275, 12.931275, 17.798374, 6.798373, 20.923244, -9.616506e-07, 22, -6.7983747, 20.923243, -12.931279, 17.798372, -17.798376, 12.931274, -20.923243, 6.7983747, -22, -1.9233012e-06, -20.92324, -6.7983785, -17.798372, -12.931278, -12.931272, -17.798376, -6.798366, -20.923244, 2.6234738e-07, -22, 6.7983766, -20.923243, 12.93128, -17.79837, 17.798372, -12.931276, 20.923244, -6.7983727)
+
+[node name="UpperVapor" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/SteamJetTelegraph" unique_id=1734738518]
+position = Vector2(-2.3999999, -48)
+color = Color(0.77, 0.92, 0.89, 0.27)
+polygon = PackedVector2Array(15, 0, 14.265848, 4.635255, 12.135255, 8.816778, 8.816778, 12.135255, 4.6352544, 14.265848, -6.556708e-07, 15, -4.6352553, 14.265847, -8.816781, 12.135253, -12.135256, 8.816778, -14.265847, 4.6352553, -15, -1.3113416e-06, -14.265846, -4.635258, -12.135254, -8.81678, -8.816776, -12.135257, -4.6352496, -14.265849, 1.7887321e-07, -15, 4.635257, -14.265847, 8.816782, -12.135252, 12.135254, -8.816779, 14.265848, -4.635254)
+
+[node name="SteamJetActive" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs" unique_id=66686079]
+z_index = 1
+position = Vector2(2180, 510)
+color = Color(0.7, 0.94, 0.96, 0.82)
+polygon = PackedVector2Array(-36, -75, 36, -75, 36, 75, -36, 75)
+
+[node name="LowerVapor" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/SteamJetActive" unique_id=1481081946]
+position = Vector2(-4.76, 45)
+color = Color(0.91, 1, 1, 0.78)
+polygon = PackedVector2Array(18, 0, 17.119019, 5.562306, 14.562306, 10.580134, 10.580134, 14.562306, 5.5623055, 17.119019, -7.86805e-07, 18, -5.5623064, 17.119017, -10.580137, 14.562304, -14.562307, 10.580133, -17.119017, 5.5623064, -18, -1.57361e-06, -17.119015, -5.5623097, -14.562305, -10.580136, -10.580132, -14.562308, -5.5622997, -17.119019, 2.1464786e-07, -18, 5.5623083, -17.119017, 10.580139, -14.562303, 14.562305, -10.580135, 17.119019, -5.562305)
+
+[node name="MiddleVapor" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/SteamJetActive" unique_id=724818631]
+position = Vector2(6.1200004, 3)
+color = Color(0.91, 1, 1, 0.6396)
+polygon = PackedVector2Array(22, 0, 20.923244, 6.798374, 17.798374, 12.931275, 12.931275, 17.798374, 6.798373, 20.923244, -9.616506e-07, 22, -6.7983747, 20.923243, -12.931279, 17.798372, -17.798376, 12.931274, -20.923243, 6.7983747, -22, -1.9233012e-06, -20.92324, -6.7983785, -17.798372, -12.931278, -12.931272, -17.798376, -6.798366, -20.923244, 2.6234738e-07, -22, 6.7983766, -20.923243, 12.93128, -17.79837, 17.798372, -12.931276, 20.923244, -6.7983727)
+
+[node name="UpperVapor" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/SteamJetActive" unique_id=146640010]
+position = Vector2(-4.08, -48)
+color = Color(0.91, 1, 1, 0.468)
+polygon = PackedVector2Array(15, 0, 14.265848, 4.635255, 12.135255, 8.816778, 8.816778, 12.135255, 4.6352544, 14.265848, -6.556708e-07, 15, -4.6352553, 14.265847, -8.816781, 12.135253, -12.135256, 8.816778, -14.265847, 4.6352553, -15, -1.3113416e-06, -14.265846, -4.635258, -12.135254, -8.81678, -8.816776, -12.135257, -4.6352496, -14.265849, 1.7887321e-07, -15, 4.635257, -14.265847, 8.816782, -12.135252, 12.135254, -8.816779, 14.265848, -4.635254)
+
+[node name="SteamDiverterTrenchVisual" type="Node2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs" unique_id=1418514478]
+z_index = 1
+script = ExtResource("4_emdm8")
+ControllerPath = NodePath("../../../../Gameplay/Mechanisms/SteamDiverterTrench")
+ControlPath = NodePath("../../../../Gameplay/GrappleSurfaces/SteamDiverterTrenchControl")
+SupportShapePath = NodePath("../../../../Gameplay/Collision/SteamTrenchFloor/Collision")
+
+[node name="SteamTrenchFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=2009950441]
+position = Vector2(2340, 656)
+script = ExtResource("3_osu82")
+SurfaceMaterial = 1
+SectorId = 2
+SkinSize = Vector2(1160, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SteamTrenchFloor" unique_id=927093170]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-580, -3, 580, -3, 580, 3, -580, 3)
+
+[node name="SteamValveControl" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=801047955]
+position = Vector2(1880, 440)
+script = ExtResource("5_yxh6r")
+SurfaceMaterial = 2
+Radius = 22.0
+metadata/material_family = "thread-anchor-cyan"
+
+[node name="SteamDiverterTrenchControl" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1535501548]
+position = Vector2(2710, 470)
+script = ExtResource("5_yxh6r")
+SurfaceMaterial = 2
+Radius = 22.0
+metadata/material_family = "thread-anchor-cyan"
+
+[node name="SteamRejoinStep1" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1832144831]
+position = Vector2(2995, 576)
+script = ExtResource("3_osu82")
+SurfaceMaterial = 1
+SectorId = 2
+SkinSize = Vector2(150, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SteamRejoinStep1" unique_id=751455322]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="SteamRejoinStep2" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1704468731]
+position = Vector2(3105, 496)
+script = ExtResource("3_osu82")
+SurfaceMaterial = 1
+SectorId = 2
+SkinSize = Vector2(150, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SteamRejoinStep2" unique_id=1843779470]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="SteamRejoinStep3" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1079359211]
+position = Vector2(3215, 416)
+script = ExtResource("3_osu82")
+SurfaceMaterial = 1
+SectorId = 2
+SkinSize = Vector2(150, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SteamRejoinStep3" unique_id=1568819281]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="SteamRejoinStep4" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1904187230]
+position = Vector2(3325, 336)
+script = ExtResource("3_osu82")
+SurfaceMaterial = 1
+SectorId = 2
+SkinSize = Vector2(150, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SteamRejoinStep4" unique_id=1174886452]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="SteamRejoinStep5" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=643745290]
+position = Vector2(3435, 256)
+script = ExtResource("3_osu82")
+SurfaceMaterial = 1
+SectorId = 2
+SkinSize = Vector2(150, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SteamRejoinStep5" unique_id=2019087230]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="SteamRejoinStep6" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=531778874]
+position = Vector2(3545, 176)
+script = ExtResource("3_osu82")
+SurfaceMaterial = 1
+SectorId = 2
+SkinSize = Vector2(150, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SteamRejoinStep6" unique_id=1996030171]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="SteamRejoinStep7" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1522582998]
+position = Vector2(3655, 96)
+script = ExtResource("3_osu82")
+SurfaceMaterial = 1
+SectorId = 2
+SkinSize = Vector2(150, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SteamRejoinStep7" unique_id=627757085]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="SteamRejoinStep8" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1719521029]
+position = Vector2(3765, 20)
+script = ExtResource("3_osu82")
+SurfaceMaterial = 1
+SectorId = 2
+SkinSize = Vector2(150, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SteamRejoinStep8" unique_id=792267309]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="SteamRejoinTop" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=16671376]
+position = Vector2(3750, 20)
+script = ExtResource("3_osu82")
+SurfaceMaterial = 1
+SectorId = 2
+SkinSize = Vector2(180, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SteamRejoinTop" unique_id=1401888984]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-90, -3, 90, -3, 90, 3, -90, 3)
+
+[node name="ShortcutBasinWalkway" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=794411419]
+position = Vector2(1660, 530)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(1720, 28)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutBasinWalkway" unique_id=1267445753]
+position = Vector2(0, -11)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-860, -3, 860, -3, 860, 3, -860, 3)
+
+[node name="ShortcutCampReturnStep" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1143397954]
+position = Vector2(1140, 496)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(80, 40)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutCampReturnStep" unique_id=1908819269]
+position = Vector2(0, -17)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-40, -3, 40, -3, 40, 3, -40, 3)
+
+[node name="ShortcutStep4116" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1303051524]
+position = Vector2(2635, 532)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep4116" unique_id=1331291487]
+position = Vector2(0, -13)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep3956" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=988167706]
+position = Vector2(2895, 372)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep3956" unique_id=299894688]
+position = Vector2(0, -13)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep3956Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1864121012]
+position = Vector2(2952, 246)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep3956Grip" unique_id=1639904943]
+position = Vector2(0, -27)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep3796" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=604350787]
+position = Vector2(2635, 212)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep3796" unique_id=822565149]
+position = Vector2(0, -13)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep3796Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=363259046]
+position = Vector2(2578, 86)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep3796Grip" unique_id=934442834]
+position = Vector2(0, -27)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep3636" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=830045565]
+position = Vector2(2920, 52)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(200, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep3636" unique_id=1564366117]
+position = Vector2(0, -13)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-100, -3, 100, -3, 100, 3, -100, 3)
+
+[node name="ShortcutStep3636Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=186696139]
+position = Vector2(2952, -74)
+script = ExtResource("3_osu82")
+SectorId = 2
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep3636Grip" unique_id=1439078142]
+position = Vector2(0, -27)
+color = Color(0.70980394, 0.6666667, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="BasinCounterweightControl" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=2134477930]
+position = Vector2(1212, 216)
+script = ExtResource("5_yxh6r")
+SurfaceMaterial = 2
+Radius = 22.0
+metadata/material_family = "thread-anchor-cyan"
+
+[node name="BasinCounterweightGalleryAnchor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=100058166]
+position = Vector2(1832, 24)
+script = ExtResource("5_yxh6r")
+SurfaceMaterial = 2
+metadata/material_family = "thread-anchor-cyan"
+
+[node name="Foreground" type="Node2D" parent="VisualRoot" unique_id=1749278674]
+z_index = 20
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="DepthOccluders" type="Node2D" parent="VisualRoot/Foreground" unique_id=1067378283]
+
+[node name="NearLeft" type="Polygon2D" parent="VisualRoot/Foreground/DepthOccluders" unique_id=1441049622]
+color = Color(0.09019608, 0.14509805, 0.16470589, 0.66)
+polygon = PackedVector2Array(0, 0, 150, 0, 78, 93.6, 0, 67.392)
+metadata/occlusion_class = "foreground-safe-edge"
+
+[node name="NearRight" type="Polygon2D" parent="VisualRoot/Foreground/DepthOccluders" unique_id=1558265266]
+color = Color(0.09019608, 0.14509805, 0.16470589, 0.66)
+polygon = PackedVector2Array(3690, 0, 3840, 0, 3840, 71.136, 3771, 93.6)
+metadata/occlusion_class = "foreground-safe-edge"
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=472628413]
+z_index = 30
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="SectorLabel" type="Label" parent="VisualRoot/Effects" unique_id=300633009]
+visible = false
+modulate = Color(0.75, 0.82, 0.76, 0.55)
+offset_left = 42.0
+offset_top = 34.0
+offset_right = 42.0
+offset_bottom = 34.0
+text = "CanyonBasin"
+
+[node name="Gameplay" type="Node2D" parent="." unique_id=239037184]
+
+[node name="Collision" type="Node2D" parent="Gameplay" unique_id=787717765]
+
+[node name="BasinCampFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1241906894]
+position = Vector2(400, 416)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/BasinCampFloor" unique_id=1662295003]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/BasinCampFloor" unique_id=1456253884]
+shape = SubResource("RectangleShape2D_icj6y")
+
+[node name="GearEntry" type="StaticBody2D" parent="Gameplay/Collision" unique_id=254273948]
+position = Vector2(950, 416)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/GearEntry" unique_id=1049027511]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/GearEntry" unique_id=302710773]
+shape = SubResource("RectangleShape2D_3h17j")
+
+[node name="GearPistonOne" type="StaticBody2D" parent="Gameplay/Collision" unique_id=765229177]
+position = Vector2(1266, 356)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/GearPistonOne" unique_id=1853316420]
+script = ExtResource("6_nx2ng")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/GearPistonOne" unique_id=1012605714]
+shape = SubResource("RectangleShape2D_eaqpj")
+
+[node name="GearPistonTwo" type="StaticBody2D" parent="Gameplay/Collision" unique_id=915941689]
+position = Vector2(1662, 296)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/GearPistonTwo" unique_id=2080763840]
+script = ExtResource("6_nx2ng")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/GearPistonTwo" unique_id=986663574]
+shape = SubResource("RectangleShape2D_5q3eq")
+
+[node name="UpperGearGalleryOne" type="StaticBody2D" parent="Gameplay/Collision" unique_id=16886518]
+position = Vector2(1880, 176)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/UpperGearGalleryOne" unique_id=533275510]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/UpperGearGalleryOne" unique_id=1001435181]
+shape = SubResource("RectangleShape2D_p0cbc")
+
+[node name="UpperGearGalleryTwo" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1686995393]
+position = Vector2(2120, 96)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/UpperGearGalleryTwo" unique_id=353712979]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/UpperGearGalleryTwo" unique_id=866996658]
+shape = SubResource("RectangleShape2D_dcrpf")
+
+[node name="UpperGearGalleryThree" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1682754493]
+position = Vector2(2400, 20)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/UpperGearGalleryThree" unique_id=678295781]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/UpperGearGalleryThree" unique_id=713758638]
+shape = SubResource("RectangleShape2D_slmnr")
+
+[node name="SteamTrenchFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=589175423]
+position = Vector2(2340, 656)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SteamTrenchFloor" unique_id=1608014885]
+script = ExtResource("6_nx2ng")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SteamTrenchFloor" unique_id=1635337023]
+shape = SubResource("RectangleShape2D_xyhx2")
+
+[node name="SteamRejoinStep1" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1807684551]
+position = Vector2(2995, 576)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SteamRejoinStep1" unique_id=381483132]
+script = ExtResource("6_nx2ng")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SteamRejoinStep1" unique_id=171978850]
+shape = SubResource("RectangleShape2D_vn1xf")
+
+[node name="SteamRejoinStep2" type="StaticBody2D" parent="Gameplay/Collision" unique_id=556880240]
+position = Vector2(3105, 496)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SteamRejoinStep2" unique_id=534216913]
+script = ExtResource("6_nx2ng")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SteamRejoinStep2" unique_id=1319592143]
+shape = SubResource("RectangleShape2D_ghhsa")
+
+[node name="SteamRejoinStep3" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1776240437]
+position = Vector2(3215, 416)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SteamRejoinStep3" unique_id=1079956901]
+script = ExtResource("6_nx2ng")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SteamRejoinStep3" unique_id=433142921]
+shape = SubResource("RectangleShape2D_sqi1g")
+
+[node name="SteamRejoinStep4" type="StaticBody2D" parent="Gameplay/Collision" unique_id=766459612]
+position = Vector2(3325, 336)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SteamRejoinStep4" unique_id=1079342574]
+script = ExtResource("6_nx2ng")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SteamRejoinStep4" unique_id=1716996363]
+shape = SubResource("RectangleShape2D_sjiu6")
+
+[node name="SteamRejoinStep5" type="StaticBody2D" parent="Gameplay/Collision" unique_id=464554824]
+position = Vector2(3435, 256)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SteamRejoinStep5" unique_id=1132409180]
+script = ExtResource("6_nx2ng")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SteamRejoinStep5" unique_id=1875991275]
+shape = SubResource("RectangleShape2D_b14jt")
+
+[node name="SteamRejoinStep6" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1986830459]
+position = Vector2(3545, 176)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SteamRejoinStep6" unique_id=50832429]
+script = ExtResource("6_nx2ng")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SteamRejoinStep6" unique_id=859357022]
+shape = SubResource("RectangleShape2D_krdyo")
+
+[node name="SteamRejoinStep7" type="StaticBody2D" parent="Gameplay/Collision" unique_id=372928334]
+position = Vector2(3655, 96)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SteamRejoinStep7" unique_id=132814145]
+script = ExtResource("6_nx2ng")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SteamRejoinStep7" unique_id=1199723503]
+shape = SubResource("RectangleShape2D_2ufrv")
+
+[node name="SteamRejoinStep8" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1022517824]
+position = Vector2(3765, 20)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SteamRejoinStep8" unique_id=468705559]
+script = ExtResource("6_nx2ng")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SteamRejoinStep8" unique_id=473431686]
+shape = SubResource("RectangleShape2D_v2nws")
+
+[node name="SteamRejoinTop" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1915874436]
+position = Vector2(3750, 20)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SteamRejoinTop" unique_id=86798257]
+script = ExtResource("6_nx2ng")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SteamRejoinTop" unique_id=493938371]
+shape = SubResource("RectangleShape2D_23o8j")
+
+[node name="ShortcutBasinWalkway" type="StaticBody2D" parent="Gameplay/Collision" unique_id=518275332]
+position = Vector2(1660, 530)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutBasinWalkway" unique_id=1161626919]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutBasinWalkway" unique_id=1072989707]
+shape = SubResource("RectangleShape2D_3smec")
+
+[node name="ShortcutCampReturnStep" type="StaticBody2D" parent="Gameplay/Collision" unique_id=193462786]
+position = Vector2(1140, 496)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutCampReturnStep" unique_id=1427646270]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutCampReturnStep" unique_id=1901204571]
+shape = SubResource("RectangleShape2D_1rjdf")
+
+[node name="ShortcutStep4116" type="StaticBody2D" parent="Gameplay/Collision" unique_id=108794724]
+position = Vector2(2635, 532)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep4116" unique_id=877198692]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep4116" unique_id=1215189794]
+shape = SubResource("RectangleShape2D_moaf2")
+
+[node name="ShortcutStep3956" type="StaticBody2D" parent="Gameplay/Collision" unique_id=241236348]
+position = Vector2(2895, 372)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3956" unique_id=1678731841]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep3956" unique_id=1772274740]
+shape = SubResource("RectangleShape2D_10wlm")
+
+[node name="ShortcutStep3956Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1005551714]
+position = Vector2(2952, 246)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3956Grip" unique_id=1291465831]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep3956Grip" unique_id=1212840203]
+shape = SubResource("RectangleShape2D_58fbh")
+
+[node name="ShortcutStep3796" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1703458835]
+position = Vector2(2635, 212)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3796" unique_id=183380823]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep3796" unique_id=331493626]
+shape = SubResource("RectangleShape2D_sa0xx")
+
+[node name="ShortcutStep3796Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=16737367]
+position = Vector2(2578, 86)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3796Grip" unique_id=40123066]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep3796Grip" unique_id=1606770422]
+shape = SubResource("RectangleShape2D_d8swg")
+
+[node name="ShortcutStep3636" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1258927402]
+position = Vector2(2920, 52)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = true
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3636" unique_id=1700610565]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep3636" unique_id=36835921]
+shape = SubResource("RectangleShape2D_p3f3f")
+
+[node name="ShortcutStep3636Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1043105390]
+position = Vector2(2952, -74)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3636Grip" unique_id=1393767575]
+script = ExtResource("6_nx2ng")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep3636Grip" unique_id=1102829793]
+shape = SubResource("RectangleShape2D_3n5wx")
+
+[node name="GrappleSurfaces" type="Node2D" parent="Gameplay" unique_id=64915720]
+
+[node name="SteamValveControl" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=656658411]
+position = Vector2(1880, 440)
+script = ExtResource("7_asuqe")
+Kind = 3
+PullReceiverPath = NodePath("../../Mechanisms/SteamValve")
+metadata/target_role = "mechanism-control"
+
+[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/SteamValveControl" unique_id=569748160]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/SteamValveControl/TargetCollision" unique_id=484178106]
+shape = SubResource("CircleShape2D_huq3m")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/GrappleSurfaces/SteamValveControl" unique_id=150809795]
+script = ExtResource("8_xilmo")
+
+[node name="ManualSteamValveControl" type="Node2D" parent="Gameplay/GrappleSurfaces/SteamValveControl" unique_id=1720444267]
+script = ExtResource("9_rt1fy")
+
+[node name="SteamDiverterTrenchControl" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=1234648707]
+position = Vector2(2710, 470)
+script = ExtResource("7_asuqe")
+Kind = 3
+PullReceiverPath = NodePath("../../Mechanisms/SteamDiverterTrench")
+metadata/target_role = "mechanism-control"
+
+[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/SteamDiverterTrenchControl" unique_id=655218603]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/SteamDiverterTrenchControl/TargetCollision" unique_id=610600772]
+shape = SubResource("CircleShape2D_3nnwj")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/GrappleSurfaces/SteamDiverterTrenchControl" unique_id=555471058]
+script = ExtResource("8_xilmo")
+
+[node name="BasinCounterweightControl" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=719331279]
+position = Vector2(1212, 216)
+script = ExtResource("7_asuqe")
+Kind = 3
+PullReceiverPath = NodePath("../../Mechanisms/BasinCounterweightLift")
+metadata/target_role = "mechanism-control"
+
+[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/BasinCounterweightControl" unique_id=918215211]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/BasinCounterweightControl/TargetCollision" unique_id=2125199145]
+shape = SubResource("CircleShape2D_h7cdc")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/GrappleSurfaces/BasinCounterweightControl" unique_id=1691663772]
+script = ExtResource("8_xilmo")
+
+[node name="BasinCounterweightGalleryAnchor" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=198692182]
+position = Vector2(1832, 24)
+script = ExtResource("6_nx2ng")
+metadata/target_role = "basin-gallery-transfer"
+
+[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/BasinCounterweightGalleryAnchor" unique_id=651349105]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/BasinCounterweightGalleryAnchor/TargetCollision" unique_id=2016097251]
+shape = SubResource("CircleShape2D_pswkk")
+
+[node name="TraversalContracts" type="Node2D" parent="Gameplay" unique_id=1377312157]
+
+[node name="canyonv2routebasin-camp-to-gears" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=1245976402]
+script = ExtResource("10_pc36b")
+SegmentId = &"canyon.v2.route.basin-camp-to-gears"
+RequiredAbilities = 1
+LaunchZone = Rect2(640, 324, 120, 72)
+LandingZone = Rect2(840, 324, 180, 72)
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routebasin-camp-to-gears" unique_id=1867592697]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(640, 324, 760, 324, 760, 396, 640, 396)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routebasin-camp-to-gears" unique_id=334019382]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(840, 324, 1020, 324, 1020, 396, 840, 396)
+
+[node name="canyonv2routegears-to-lift-high" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=1011000867]
+script = ExtResource("10_pc36b")
+SegmentId = &"canyon.v2.route.gears-to-lift-high"
+RequiredAbilities = 1
+LaunchZone = Rect2(1560, 164, 160, 72)
+LandingZone = Rect2(2600, -88, 220, 72)
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routegears-to-lift-high" unique_id=1420243176]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(1560, 164, 1720, 164, 1720, 236, 1560, 236)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routegears-to-lift-high" unique_id=1514897950]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(2600, -88, 2820, -88, 2820, -16, 2600, -16)
+
+[node name="canyonv2routegears-to-steam-valves" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=678437382]
+script = ExtResource("10_pc36b")
+SegmentId = &"canyon.v2.route.gears-to-steam-valves"
+RequiredAbilities = 1
+LaunchZone = Rect2(1560, 164, 160, 72)
+LandingZone = Rect2(1820, 564, 240, 72)
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routegears-to-steam-valves" unique_id=1888166827]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(1560, 164, 1720, 164, 1720, 236, 1560, 236)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routegears-to-steam-valves" unique_id=311876595]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(1820, 564, 2060, 564, 2060, 636, 1820, 636)
+
+[node name="canyonv2routesteam-valves-to-lift" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=213057463]
+script = ExtResource("10_pc36b")
+SegmentId = &"canyon.v2.route.steam-valves-to-lift"
+RequiredAbilities = 1
+LaunchZone = Rect2(2280, 564, 160, 72)
+LandingZone = Rect2(3660, -72, 140, 72)
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routesteam-valves-to-lift" unique_id=881129901]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(2280, 564, 2440, 564, 2440, 636, 2280, 636)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routesteam-valves-to-lift" unique_id=395805427]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(3660, -72, 3800, -72, 3800, 0, 3660, 0)
+
+[node name="canyonv2routebasin-to-upper-shortcut" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=1627529124]
+script = ExtResource("10_pc36b")
+SegmentId = &"canyon.v2.route.basin-to-upper-shortcut"
+Kind = 1
+RequiredAbilities = 3
+LaunchZone = Rect2(640, 324, 120, 72)
+LandingZone = Rect2(2820, -2192, 120, 72)
+AssistTargetPath = NodePath("Gameplay/Collision/GearEntry/GrappleSurfaceProfile")
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routebasin-to-upper-shortcut" unique_id=1087057322]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(640, 324, 760, 324, 760, 396, 640, 396)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routebasin-to-upper-shortcut" unique_id=372704791]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(2820, -2192, 2940, -2192, 2940, -2120, 2820, -2120)
+
+[node name="canyonv2routebasin-camp-to-abyss" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=250420919]
+script = ExtResource("10_pc36b")
+SegmentId = &"canyon.v2.route.basin-camp-to-abyss"
+Kind = 4
+RequiredAbilities = 2
+LaunchZone = Rect2(380, 324, 120, 72)
+LandingZone = Rect2(880, -112, 160, 72)
+AssistTargetPath = NodePath("../CanyonDescent/Gameplay/Collision/AbyssBrakeLeft4/GrappleSurfaceProfile")
+AssistHitPoint = Vector2(-18, 290.7278)
+AssistHitNormal = Vector2(-1, 0)
+LandingSupportPath = NodePath("../CanyonDescent/Gameplay/Collision/AbyssSafeBottom")
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routebasin-camp-to-abyss" unique_id=2002495327]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(380, 324, 500, 324, 500, 396, 380, 396)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routebasin-camp-to-abyss" unique_id=669611107]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(880, -112, 1040, -112, 1040, -40, 880, -40)
+
+[node name="RouteMarkers" type="Node2D" parent="Gameplay" unique_id=1248401327]
+
+[node name="PreviousSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=1721468733]
+position = Vector2(620, 2)
+
+[node name="NextSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=1375018122]
+position = Vector2(2460, 2)
+
+[node name="FallRecovery" type="Node2D" parent="Gameplay" unique_id=90607939]
+
+[node name="RecoveryVolume" type="Area2D" parent="Gameplay/FallRecovery" unique_id=1939131536]
+position = Vector2(1920, 712)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("11_pb1ae")
+RoomControllerPath = NodePath("../../../../../..")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume" unique_id=869240034]
+shape = SubResource("RectangleShape2D_c3buk")
+
+[node name="RecoveryLanding" type="Marker2D" parent="Gameplay/FallRecovery" unique_id=1249166004]
+position = Vector2(400, 360)
+
+[node name="OptionalPaths" type="Node2D" parent="Gameplay" unique_id=1579218248]
+
+[node name="MicroScenes" type="Node2D" parent="Gameplay" unique_id=345410271]
+
+[node name="BasinCamp" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=80529708]
+position = Vector2(400, 360)
+metadata/local_bounds = Rect2(0, 0, 800, 720)
+metadata/optional_subarea = false
+metadata/route_node_id = 5
+metadata/challenge_kind = -1
+
+[node name="GearPistons" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=453288867]
+position = Vector2(1280, 360)
+metadata/local_bounds = Rect2(800, 0, 960, 720)
+metadata/optional_subarea = false
+metadata/route_node_id = 6
+metadata/challenge_kind = 5
+
+[node name="SteamValves" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=1765870258]
+position = Vector2(2340, 540)
+metadata/local_bounds = Rect2(1760, 360, 1160, 360)
+metadata/optional_subarea = true
+metadata/route_node_id = 7
+metadata/challenge_kind = 6
+
+[node name="Mechanisms" type="Node2D" parent="Gameplay" unique_id=1195402879]
+
+[node name="GearPiston" type="AnimatableBody2D" parent="Gameplay/Mechanisms" unique_id=38512004]
+script = ExtResource("12_hd20y")
+SafeSeconds = 1.4
+TelegraphSeconds = 0.55
+ActiveSeconds = 0.65
+RecoverySeconds = 0.6
+RetractedPosition = Vector2(1320, 360)
+ExtendedPosition = Vector2(1320, 260)
+RouteBounds = Rect2(1240, 220, 160, 180)
+TelegraphPath = NodePath("../../../VisualRoot/GameplayReadable/MechanismTelegraphs/GearPistonTelegraph")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/GearPiston" unique_id=517482765]
+shape = SubResource("RectangleShape2D_hv4lx")
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Mechanisms/GearPiston" unique_id=1693114217]
+script = ExtResource("6_nx2ng")
+Material = 4
+UseCollisionHitPoint = true
+
+[node name="PistonFace" type="Polygon2D" parent="Gameplay/Mechanisms/GearPiston" unique_id=103634957]
+color = Color(0.46117648, 0.32941177, 0.14274509, 1)
+polygon = PackedVector2Array(-66, -16, 66, -16, 66, 16, -66, 16)
+
+[node name="FacingPlane" type="Polygon2D" parent="Gameplay/Mechanisms/GearPiston/PistonFace" unique_id=2041715590]
+position = Vector2(0, -2)
+color = Color(0.65882355, 0.47058824, 0.20392157, 1)
+polygon = PackedVector2Array(-62, -12, 62, -12, 62, 12, -62, 12)
+
+[node name="ContactShadow" type="Polygon2D" parent="Gameplay/Mechanisms/GearPiston/PistonFace" unique_id=1646992167]
+position = Vector2(0, 11)
+color = Color(0.34258825, 0.24470587, 0.10603921, 1)
+polygon = PackedVector2Array(-62, -3, 62, -3, 62, 3, -62, 3)
+
+[node name="BoltLeft" type="Polygon2D" parent="Gameplay/Mechanisms/GearPiston/PistonFace" unique_id=1603017459]
+position = Vector2(-58, -8)
+color = Color(0.7607843, 0.6862745, 0.4627451, 0.72)
+polygon = PackedVector2Array(2.5, 0, 2.3776414, 0.7725425, 2.0225425, 1.4694631, 1.4694631, 2.0225425, 0.7725424, 2.3776414, -1.09278474e-07, 2.5, -0.7725426, 2.3776412, -1.4694636, 2.0225422, -2.0225427, 1.469463, -2.3776412, 0.7725426, -2.5, -2.1855695e-07, -2.377641, -0.772543, -2.0225425, -1.4694633, -1.4694626, -2.0225427, -0.77254164, -2.3776414, 2.9812202e-08, -2.5, 0.77254283, -2.3776412, 1.4694637, -2.022542, 2.0225425, -1.4694632, 2.3776414, -0.77254236)
+
+[node name="BoltRight" type="Polygon2D" parent="Gameplay/Mechanisms/GearPiston/PistonFace" unique_id=674384134]
+position = Vector2(58, -8)
+color = Color(0.7607843, 0.6862745, 0.4627451, 0.72)
+polygon = PackedVector2Array(2.5, 0, 2.3776414, 0.7725425, 2.0225425, 1.4694631, 1.4694631, 2.0225425, 0.7725424, 2.3776414, -1.09278474e-07, 2.5, -0.7725426, 2.3776412, -1.4694636, 2.0225422, -2.0225427, 1.469463, -2.3776412, 0.7725426, -2.5, -2.1855695e-07, -2.377641, -0.772543, -2.0225425, -1.4694633, -1.4694626, -2.0225427, -0.77254164, -2.3776414, 2.9812202e-08, -2.5, 0.77254283, -2.3776412, 1.4694637, -2.022542, 2.0225425, -1.4694632, 2.3776414, -0.77254236)
+
+[node name="SteamJet" type="Area2D" parent="Gameplay/Mechanisms" unique_id=294264946]
+position = Vector2(2180, 510)
+script = ExtResource("13_k31ax")
+SafeSeconds = 1.25
+TelegraphSeconds = 0.45
+ActiveSeconds = 0.7
+TelegraphPath = NodePath("../../../VisualRoot/GameplayReadable/MechanismTelegraphs/SteamJetTelegraph")
+ActiveVisualPath = NodePath("../../../VisualRoot/GameplayReadable/MechanismTelegraphs/SteamJetActive")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/SteamJet" unique_id=1793038063]
+shape = SubResource("RectangleShape2D_6qekx")
+
+[node name="SteamValve" type="Node2D" parent="Gameplay/Mechanisms" unique_id=156169222]
+position = Vector2(1880, 520)
+script = ExtResource("14_hqwl5")
+
+[node name="ValveWheel" type="Polygon2D" parent="Gameplay/Mechanisms/SteamValve" unique_id=408944352]
+color = Color(0.3476863, 0.27960783, 0.16533335, 1)
+polygon = PackedVector2Array(27, 0, 25.678526, 8.343459, 21.843458, 15.870201, 15.870201, 21.843458, 8.343458, 25.678526, -1.1802075e-06, 27, -8.34346, 25.678524, -15.870207, 21.843456, -21.84346, 15.8702, -25.678524, 8.34346, -27, -2.360415e-06, -25.678524, -8.343465, -21.843458, -15.870205, -15.870196, -21.843462, -8.34345, -25.678528, 3.2197178e-07, -27, 8.343462, -25.678524, 15.870208, -21.843454, 21.843458, -15.870203, 25.678526, -8.343457)
+
+[node name="Face" type="Polygon2D" parent="Gameplay/Mechanisms/SteamValve/ValveWheel" unique_id=973720911]
+color = Color(0.56078434, 0.4509804, 0.26666668, 1)
+polygon = PackedVector2Array(21.06, 0, 20.029251, 6.507898, 17.037897, 12.3787565, 12.3787565, 17.037897, 6.5078974, 20.029251, -9.2056183e-07, 21.06, -6.5078983, 20.02925, -12.37876, 17.037895, -17.037899, 12.378756, -20.02925, 6.5078983, -21.06, -1.8411237e-06, -20.029247, -6.507902, -17.037897, -12.378759, -12.378753, -17.0379, -6.50789, -20.029251, 2.5113798e-07, -21.06, 6.5079, -20.02925, 12.378762, -17.037893, 17.037897, -12.378758, 20.029251, -6.5078964)
+
+[node name="Hub" type="Polygon2D" parent="Gameplay/Mechanisms/SteamValve/ValveWheel" unique_id=1248128116]
+color = Color(0.13333334, 0.19215687, 0.21568628, 1)
+polygon = PackedVector2Array(5.13, 0, 4.87892, 1.5852573, 4.150257, 3.0153384, 3.0153384, 4.150257, 1.585257, 4.87892, -2.2423943e-07, 5.13, -1.5852574, 4.87892, -3.0153394, 4.1502566, -4.1502576, 3.015338, -4.87892, 1.5852574, -5.13, -4.4847886e-07, -4.8789196, -1.5852584, -4.150257, -3.015339, -3.0153375, -4.150258, -1.5852554, -4.8789206, 6.117464e-08, -5.13, 1.5852579, -4.87892, 3.0153396, -4.1502566, 4.150257, -3.0153387, 4.87892, -1.5852569)
+
+[node name="Spoke1" type="Polygon2D" parent="Gameplay/Mechanisms/SteamValve/ValveWheel" unique_id=1241635842]
+color = Color(0.6178824, 0.52235293, 0.36200002, 1)
+polygon = PackedVector2Array(-19.17, -2, 19.17, -2, 19.17, 2, -19.17, 2)
+
+[node name="Spoke2" type="Polygon2D" parent="Gameplay/Mechanisms/SteamValve/ValveWheel" unique_id=521732667]
+rotation = 0.7853982
+color = Color(0.6178824, 0.52235293, 0.36200002, 1)
+polygon = PackedVector2Array(-19.17, -2, 19.17, -2, 19.17, 2, -19.17, 2)
+
+[node name="Spoke3" type="Polygon2D" parent="Gameplay/Mechanisms/SteamValve/ValveWheel" unique_id=1341892371]
+rotation = 1.5707964
+color = Color(0.6178824, 0.52235293, 0.36200002, 1)
+polygon = PackedVector2Array(-19.17, -2, 19.17, -2, 19.17, 2, -19.17, 2)
+
+[node name="Spoke4" type="Polygon2D" parent="Gameplay/Mechanisms/SteamValve/ValveWheel" unique_id=410195076]
+rotation = 2.3561945
+color = Color(0.6178824, 0.52235293, 0.36200002, 1)
+polygon = PackedVector2Array(-19.17, -2, 19.17, -2, 19.17, 2, -19.17, 2)
+
+[node name="SteamDiverterTrench" type="Node2D" parent="Gameplay/Mechanisms" unique_id=41743227]
+position = Vector2(2710, 470)
+script = ExtResource("15_wp6ig")
+MechanismId = "canyon.v2.steam-diverter.trench"
+
+[node name="LeftJet" type="Area2D" parent="Gameplay/Mechanisms/SteamDiverterTrench" unique_id=911683875]
+position = Vector2(-100, 40)
+monitoring = false
+script = ExtResource("13_k31ax")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/SteamDiverterTrench/LeftJet" unique_id=1229924860]
+shape = SubResource("RectangleShape2D_3dth5")
+disabled = true
+
+[node name="Telegraph" type="Node2D" parent="Gameplay/Mechanisms/SteamDiverterTrench/LeftJet" unique_id=1913189370]
+visible = false
+
+[node name="ActiveVisual" type="Node2D" parent="Gameplay/Mechanisms/SteamDiverterTrench/LeftJet" unique_id=184739882]
+visible = false
+
+[node name="RightJet" type="Area2D" parent="Gameplay/Mechanisms/SteamDiverterTrench" unique_id=1144323404]
+position = Vector2(120, 40)
+monitoring = false
+script = ExtResource("13_k31ax")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/SteamDiverterTrench/RightJet" unique_id=1432012629]
+shape = SubResource("RectangleShape2D_bvpv0")
+disabled = true
+
+[node name="Telegraph" type="Node2D" parent="Gameplay/Mechanisms/SteamDiverterTrench/RightJet" unique_id=177369819]
+visible = false
+
+[node name="ActiveVisual" type="Node2D" parent="Gameplay/Mechanisms/SteamDiverterTrench/RightJet" unique_id=178726820]
+visible = false
+
+[node name="BasinCounterweightLift" type="AnimatableBody2D" parent="Gameplay/Mechanisms" unique_id=519307096]
+script = ExtResource("16_blryf")
+LowerPosition = Vector2(1480, 408)
+UpperPosition = Vector2(1480, 256)
+EndpointDwellSeconds = 2.0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/BasinCounterweightLift" unique_id=1268331909]
+shape = SubResource("RectangleShape2D_imp37")
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Mechanisms/BasinCounterweightLift" unique_id=2017668357]
+script = ExtResource("6_nx2ng")
+Material = 4
+UseCollisionHitPoint = true
+
+[node name="Carriage" type="Polygon2D" parent="Gameplay/Mechanisms/BasinCounterweightLift" unique_id=1465451448]
+color = Color(0.39529413, 0.31019607, 0.16745098, 1)
+polygon = PackedVector2Array(-60, -12, 60, -12, 60, 12, -60, 12)
+
+[node name="FacingPlane" type="Polygon2D" parent="Gameplay/Mechanisms/BasinCounterweightLift/Carriage" unique_id=1373101867]
+position = Vector2(0, -2)
+color = Color(0.5647059, 0.44313726, 0.23921569, 1)
+polygon = PackedVector2Array(-56, -8, 56, -8, 56, 8, -56, 8)
+
+[node name="ContactShadow" type="Polygon2D" parent="Gameplay/Mechanisms/BasinCounterweightLift/Carriage" unique_id=303170105]
+position = Vector2(0, 7)
+color = Color(0.29364705, 0.23043136, 0.12439215, 1)
+polygon = PackedVector2Array(-56, -3, 56, -3, 56, 3, -56, 3)
+
+[node name="BoltLeft" type="Polygon2D" parent="Gameplay/Mechanisms/BasinCounterweightLift/Carriage" unique_id=1176799253]
+position = Vector2(-52, -4)
+color = Color(0.7607843, 0.6862745, 0.4627451, 0.72)
+polygon = PackedVector2Array(2.5, 0, 2.3776414, 0.7725425, 2.0225425, 1.4694631, 1.4694631, 2.0225425, 0.7725424, 2.3776414, -1.09278474e-07, 2.5, -0.7725426, 2.3776412, -1.4694636, 2.0225422, -2.0225427, 1.469463, -2.3776412, 0.7725426, -2.5, -2.1855695e-07, -2.377641, -0.772543, -2.0225425, -1.4694633, -1.4694626, -2.0225427, -0.77254164, -2.3776414, 2.9812202e-08, -2.5, 0.77254283, -2.3776412, 1.4694637, -2.022542, 2.0225425, -1.4694632, 2.3776414, -0.77254236)
+
+[node name="BoltRight" type="Polygon2D" parent="Gameplay/Mechanisms/BasinCounterweightLift/Carriage" unique_id=698487163]
+position = Vector2(52, -4)
+color = Color(0.7607843, 0.6862745, 0.4627451, 0.72)
+polygon = PackedVector2Array(2.5, 0, 2.3776414, 0.7725425, 2.0225425, 1.4694631, 1.4694631, 2.0225425, 0.7725424, 2.3776414, -1.09278474e-07, 2.5, -0.7725426, 2.3776412, -1.4694636, 2.0225422, -2.0225427, 1.469463, -2.3776412, 0.7725426, -2.5, -2.1855695e-07, -2.377641, -0.772543, -2.0225425, -1.4694633, -1.4694626, -2.0225427, -0.77254164, -2.3776414, 2.9812202e-08, -2.5, 0.77254283, -2.3776412, 1.4694637, -2.022542, 2.0225425, -1.4694632, 2.3776414, -0.77254236)
+
+[node name="BasinCheckpoint" type="Area2D" parent="Gameplay" unique_id=1054394896]
+position = Vector2(400, 360)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("17_oysfe")
+EntranceId = &"canyon.v2.basin-camp"
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/BasinCheckpoint" unique_id=2048613994]
+shape = SubResource("RectangleShape2D_wyuud")
+
+[node name="Visual" type="Node2D" parent="Gameplay/BasinCheckpoint" unique_id=1473887049 instance=ExtResource("18_mwqme")]
+position = Vector2(0, -22)
+script = ExtResource("19_rs3l1")
+
+[node name="ShieldLane" type="Area2D" parent="Gameplay" unique_id=346393937]
+position = Vector2(980, 330)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("20_kvkxc")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/ShieldLane" unique_id=1533466509]
+shape = SubResource("RectangleShape2D_ad6hi")
+
+[node name="QuestFragments" type="Node2D" parent="Gameplay" unique_id=605000738]
+
+[node name="gear-gallery" type="Area2D" parent="Gameplay/QuestFragments" unique_id=1834886485]
+position = Vector2(1880, 120)
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+script = ExtResource("21_j6d72")
+StableId = "canyon.v2.fragment.gear-gallery"
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/QuestFragments/gear-gallery" unique_id=865514926]
+shape = SubResource("CircleShape2D_yadb3")
+
+[node name="AvailableVisual" type="Node2D" parent="Gameplay/QuestFragments/gear-gallery" unique_id=2092307498]
+script = ExtResource("22_k7us8")
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="Status" type="Label" parent="Gameplay/QuestFragments/gear-gallery" unique_id=1619774692]
+custom_minimum_size = Vector2(180, 30)
+offset_left = -90.0
+offset_top = -48.0
+offset_right = -90.0
+offset_bottom = -48.0
+horizontal_alignment = 1
+
+[node name="steam-loop" type="Area2D" parent="Gameplay/QuestFragments" unique_id=1138858549]
+position = Vector2(2100, 600)
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+script = ExtResource("21_j6d72")
+StableId = "canyon.v2.fragment.steam-loop"
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/QuestFragments/steam-loop" unique_id=1742566868]
+shape = SubResource("CircleShape2D_yq4ew")
+
+[node name="AvailableVisual" type="Node2D" parent="Gameplay/QuestFragments/steam-loop" unique_id=1516381675]
+script = ExtResource("22_k7us8")
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="Status" type="Label" parent="Gameplay/QuestFragments/steam-loop" unique_id=417169573]
+custom_minimum_size = Vector2(180, 30)
+offset_left = -90.0
+offset_top = -48.0
+offset_right = -90.0
+offset_bottom = -48.0
+horizontal_alignment = 1
+
+[node name="Actors" type="Node2D" parent="Gameplay" unique_id=1613062077]
+
+[node name="Encounters" type="Node2D" parent="Gameplay" unique_id=1046024146]
+
+[node name="GearPistonsEncounter" type="Node" parent="Gameplay/Encounters" unique_id=427922902]
+script = ExtResource("23_st68f")
+EncounterId = &"canyon.v2.encounter.gear-pistons"
+
+[node name="SteamValvesEncounter" type="Node" parent="Gameplay/Encounters" unique_id=847924530]
+script = ExtResource("23_st68f")
+EncounterId = &"canyon.v2.encounter.steam-valves"

@@ -1,0 +1,104 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/boss/FallenBellkeeper.cs" id="1_2goxw"]
+[ext_resource type="Script" path="res://scripts/config/BossTuning.cs" id="2_550wi"]
+[ext_resource type="Script" path="res://scripts/combat/HealthComponent.cs" id="3_v4u8l"]
+[ext_resource type="Script" path="res://scripts/combat/ArmoredDamageReceiver.cs" id="4_6osof"]
+[ext_resource type="Script" path="res://scripts/combat/Hurtbox.cs" id="5_lrutv"]
+[ext_resource type="Script" path="res://scripts/combat/Hitbox.cs" id="6_uij15"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="7_xvwnw"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="task6_adapter"]
+[ext_resource type="Script" path="res://scripts/boss/FallenBellkeeperPresentationCoordinator.cs" id="8_mabmy"]
+[ext_resource type="Script" path="res://scripts/config/PresentationProfile.cs" id="9_qsulo"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/FallenBellkeeperFormalVisual.tscn" id="10_k8eya"]
+[ext_resource type="Script" path="res://scripts/boss/FallenBellkeeperFormalVisual.cs" id="11_d5yx8"]
+[ext_resource type="Script" path="res://scripts/presentation/AttackTelegraphVisual.cs" id="12_taxky"]
+
+[sub_resource type="Resource" id="Resource_l6om6"]
+script = ExtResource("2_550wi")
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_mjqjq"]
+radius = 44.0
+height = 126.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_56i2j"]
+size = Vector2(150, 54)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_dpkj6"]
+radius = 32.0
+
+[sub_resource type="Resource" id="Resource_5j65t"]
+script = ExtResource("9_qsulo")
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_rwnsg"]
+radius = 42.0
+height = 122.0
+
+[node name="FallenBellkeeper" type="CharacterBody2D" unique_id=1807914410]
+collision_layer = 4
+script = ExtResource("1_2goxw")
+Tuning = SubResource("Resource_l6om6")
+
+[node name="Health" type="Node" parent="." unique_id=434611909]
+script = ExtResource("3_v4u8l")
+MaxHealth = 12
+InvulnerabilitySeconds = 0.0
+
+[node name="Armor" type="Node" parent="." unique_id=724230818]
+script = ExtResource("4_6osof")
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=1202123504]
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("5_lrutv")
+
+[node name="HurtboxCollider" type="CollisionShape2D" parent="Hurtbox" unique_id=197675463]
+shape = SubResource("CapsuleShape2D_mjqjq")
+
+[node name="AttackHitbox" type="Area2D" parent="." unique_id=261376404]
+collision_layer = 16
+collision_mask = 2
+monitoring = false
+monitorable = false
+script = ExtResource("6_uij15")
+Knockback = 360.0
+GuardClass = 1
+
+[node name="AttackCollider" type="CollisionShape2D" parent="AttackHitbox" unique_id=209062603]
+shape = SubResource("RectangleShape2D_56i2j")
+
+[node name="ChainTarget" type="Node2D" parent="." unique_id=2077962784]
+position = Vector2(70, -42)
+script = ExtResource("7_xvwnw")
+Kind = 3
+Material = 1
+
+[node name="TargetCollision" type="Area2D" parent="ChainTarget" unique_id=987765218]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="ChainTarget/TargetCollision" unique_id=1444519624]
+shape = SubResource("CircleShape2D_dpkj6")
+disabled = true
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="ChainTarget"]
+script = ExtResource("task6_adapter")
+
+[node name="Presentation" type="Node" parent="." unique_id=83772233]
+script = ExtResource("8_mabmy")
+Profile = SubResource("Resource_5j65t")
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=2002876019]
+
+[node name="Formal" type="Node2D" parent="VisualRoot" unique_id=794443177 instance=ExtResource("10_k8eya")]
+script = ExtResource("11_d5yx8")
+
+[node name="AttackTelegraph" type="Node2D" parent="VisualRoot" unique_id=1534383855]
+z_index = 6
+script = ExtResource("12_taxky")
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=1760572187]
+z_index = 10
+
+[node name="BodyCollider" type="CollisionShape2D" parent="." unique_id=603140380]
+shape = SubResource("CapsuleShape2D_rwnsg")

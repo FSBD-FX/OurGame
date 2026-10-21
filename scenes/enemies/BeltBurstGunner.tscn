@@ -1,0 +1,92 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/ranged/BeltBurstGunner.cs" id="1_ldjvf"]
+[ext_resource type="Script" path="res://scripts/enemies/ranged/RangedWeaponSettings.cs" id="2_qctvx"]
+[ext_resource type="Script" path="res://scripts/combat/HealthComponent.cs" id="3_m1v5y"]
+[ext_resource type="Script" path="res://scripts/combat/Hurtbox.cs" id="4_2g07f"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="5_d1qmr"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="6_nmtyq"]
+[ext_resource type="Script" path="res://scripts/enemies/ranged/RangedWeaponPresentation.cs" id="7_fhr2p"]
+[ext_resource type="Script" path="res://scripts/enemies/ranged/RangedWeaponVisual.cs" id="8_3qyoy"]
+[ext_resource type="Script" path="res://scripts/presentation/AttackTelegraphVisual.cs" id="9_chae7"]
+
+[sub_resource type="Resource" id="Resource_lw7ex"]
+script = ExtResource("2_qctvx")
+Role = 1
+DetectionRange = 520.0
+MaximumTravel = 560.0
+ActiveSeconds = 0.42
+RecoverySeconds = 1.2
+ProjectileSpeed = 440.0
+ProjectileRadius = 5.0
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_bn1dk"]
+radius = 25.0
+height = 68.0
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_utqkn"]
+radius = 25.0
+height = 68.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_kxrol"]
+radius = 31.0
+
+[node name="BeltBurstGunner" type="CharacterBody2D" unique_id=509195804]
+collision_layer = 4
+script = ExtResource("1_ldjvf")
+Settings = SubResource("Resource_lw7ex")
+
+[node name="BodyCollider" type="CollisionShape2D" parent="." unique_id=49420828]
+position = Vector2(0, -5)
+shape = SubResource("CapsuleShape2D_bn1dk")
+
+[node name="Health" type="Node" parent="." unique_id=631710314]
+script = ExtResource("3_m1v5y")
+MaxHealth = 2
+InvulnerabilitySeconds = 0.0
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=1258651314]
+collision_layer = 4
+collision_mask = 8
+script = ExtResource("4_2g07f")
+
+[node name="HurtboxCollider" type="CollisionShape2D" parent="Hurtbox" unique_id=469989165]
+position = Vector2(0, -5)
+shape = SubResource("CapsuleShape2D_utqkn")
+
+[node name="ThreadTarget" type="Node2D" parent="." unique_id=614097493]
+script = ExtResource("5_d1qmr")
+Kind = 1
+Material = 1
+AssistRadius = 34.0
+
+[node name="TargetCollision" type="Area2D" parent="ThreadTarget" unique_id=1692118473]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="ThreadTarget/TargetCollision" unique_id=830261295]
+position = Vector2(0, -5)
+shape = SubResource("CircleShape2D_kxrol")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="ThreadTarget" unique_id=29628662]
+script = ExtResource("6_nmtyq")
+
+[node name="Muzzle" type="Marker2D" parent="." unique_id=685567139]
+position = Vector2(0, -8)
+
+[node name="Presentation" type="Node" parent="." unique_id=928946891]
+script = ExtResource("7_fhr2p")
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=1474363283]
+position = Vector2(0, -5)
+
+[node name="WeaponVisual" type="Node2D" parent="VisualRoot" unique_id=1184061575]
+script = ExtResource("8_3qyoy")
+Role = 1
+
+[node name="AttackTelegraph" type="Node2D" parent="VisualRoot" unique_id=215100094]
+z_index = 6
+script = ExtResource("9_chae7")
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=590707508]
+z_index = 10

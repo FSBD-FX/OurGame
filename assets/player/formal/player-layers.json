@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "atlas": "res://assets/player/formal/player-layers.png",
+  "size": [512, 256],
+  "layers": [
+    { "name": "Body", "rect": [8, 8, 96, 112], "pivot": [48, 62] },
+    { "name": "NearArm", "rect": [108, 8, 96, 112], "pivot": [48, 28] },
+    { "name": "FarArm", "rect": [208, 8, 96, 112], "pivot": [48, 28] },
+    { "name": "NearLeg", "rect": [308, 8, 96, 112], "pivot": [48, 24] },
+    { "name": "FarLeg", "rect": [408, 8, 96, 112], "pivot": [48, 24] },
+    { "name": "Weapon", "rect": [8, 136, 96, 112], "pivot": [18, 58] },
+    { "name": "Mantle", "rect": [108, 136, 96, 112], "pivot": [48, 34] },
+    { "name": "ShoulderCore", "rect": [208, 136, 96, 112], "pivot": [48, 56] },
+    { "name": "Lantern", "rect": [308, 136, 96, 112], "pivot": [48, 60] },
+    { "name": "Tether", "rect": [408, 136, 96, 112], "pivot": [48, 28] }
+  ]
+}

@@ -1,0 +1,1618 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/prologue/seamless/PrologueSector.cs" id="1_dxa4e"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonBackdropVisual.cs" id="2_1hw70"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonPlatformVisual.cs" id="3_4hssx"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonAnchorVisual.cs" id="4_h6uhl"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonSteamDiverterVisual.cs" id="5_si5jp"]
+[ext_resource type="Script" path="res://scripts/abilities/GrappleSurface2D.cs" id="6_qmf3r"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="7_pgq5f"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="8_ngsyf"]
+[ext_resource type="Script" path="res://scripts/prologue/traversal/TraversalSegment2D.cs" id="9_baajp"]
+[ext_resource type="Script" path="res://scripts/world/KillZone.cs" id="10_bknsk"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonUpdraft.cs" id="11_hbmem"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonPressurePlateGate.cs" id="12_si1x5"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonPressureGateVisual.cs" id="13_hwf7y"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonSteamDiverter.cs" id="14_gkdvc"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonSteamJet.cs" id="15_ryiho"]
+[ext_resource type="Script" path="res://scripts/prologue/mechanisms/CanyonClawMechanism2D.cs" id="16_cwl7k"]
+[ext_resource type="Script" path="res://scripts/prologue/PrologueSupplyCache.cs" id="17_yx4c4"]
+[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragment.cs" id="18_q0jtb"]
+[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragmentVisual.cs" id="19_mhpcd"]
+[ext_resource type="Script" path="res://scripts/prologue/CanyonEncounterGroup.cs" id="20_5b6gf"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_w4m1s"]
+size = Vector2(1280, 400)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_8kx3q"]
+size = Vector2(36, 896)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_nu1kd"]
+size = Vector2(48, 960)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_fepsv"]
+size = Vector2(620, 24)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_h3iq2"]
+size = Vector2(700, 24)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_r5q1e"]
+size = Vector2(700, 24)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_b0jew"]
+size = Vector2(36, 700)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_8lbav"]
+size = Vector2(120, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_nhdvi"]
+size = Vector2(36, 304)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_23w58"]
+size = Vector2(36, 304)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_8etqh"]
+size = Vector2(36, 400)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_xm6wn"]
+size = Vector2(36, 400)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wydw5"]
+size = Vector2(36, 800)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ucumc"]
+size = Vector2(36, 800)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_7i606"]
+size = Vector2(36, 800)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_n877e"]
+size = Vector2(36, 640)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_4ywky"]
+size = Vector2(200, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ljate"]
+size = Vector2(200, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_o1yp2"]
+size = Vector2(190, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_5356t"]
+size = Vector2(640, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_r36us"]
+size = Vector2(300, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_g8p3w"]
+size = Vector2(240, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_2slnf"]
+size = Vector2(480, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_k7q3p"]
+size = Vector2(160, 24)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_iauvj"]
+size = Vector2(40, 280)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_miivd"]
+size = Vector2(440, 36)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_h7o36"]
+size = Vector2(230, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_g822u"]
+size = Vector2(340, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_j2xic"]
+size = Vector2(560, 40)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_stov4"]
+radius = 22.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_a5bke"]
+size = Vector2(336, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_tq3f7"]
+size = Vector2(564, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_a20er"]
+size = Vector2(40, 216)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_vwjvk"]
+size = Vector2(56, 150)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_fnf8n"]
+size = Vector2(56, 150)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_3bs6r"]
+radius = 28.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_h8ukb"]
+radius = 28.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_cpiid"]
+radius = 18.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_cof1s"]
+radius = 18.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_aujcg"]
+radius = 18.0
+
+[node name="CanyonDescent" type="Node2D" unique_id=170266706]
+script = ExtResource("1_dxa4e")
+SectorId = 1
+Bounds = Rect2(0, 0, 1280, 3600)
+metadata/canyon_layout_version = 2
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=628003372]
+
+[node name="Background" type="Node2D" parent="VisualRoot" unique_id=1965338048]
+z_index = -40
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="CanyonVoid" type="Polygon2D" parent="VisualRoot/Background" unique_id=177356287]
+position = Vector2(640, 1800)
+color = Color(0.03529412, 0.08235294, 0.105882354, 1)
+polygon = PackedVector2Array(-640, -1800, 640, -1800, 640, 1800, -640, 1800)
+
+[node name="DistantCanyon" type="Node2D" parent="VisualRoot/Background" unique_id=273747493]
+script = ExtResource("2_1hw70")
+SectorId = 1
+SectorBounds = Rect2(0, 0, 1280, 3600)
+DistantLayer = true
+
+[node name="CanyonCoverageSkirt" type="Node2D" parent="VisualRoot/Background" unique_id=1347371058]
+z_index = -100
+z_as_relative = false
+script = ExtResource("2_1hw70")
+SectorId = 1
+SectorBounds = Rect2(-2380, -940, 9880, 6200)
+CoverageLayer = true
+VisualRole = "coverage"
+
+[node name="Midground" type="Node2D" parent="VisualRoot" unique_id=1456175140]
+z_index = -20
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="CanyonLandmark" type="Node2D" parent="VisualRoot/Midground" unique_id=1732905860]
+script = ExtResource("2_1hw70")
+SectorId = 1
+SectorBounds = Rect2(0, 0, 1280, 3600)
+UseCanyonDepthStaging = true
+
+[node name="ChallengeCompositions" type="Node2D" parent="VisualRoot/Midground" unique_id=952644617]
+
+[node name="StaggeredRift" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=1825854591]
+script = ExtResource("2_1hw70")
+SectorId = 1
+UseCanyonDepthStaging = true
+VisualRole = "challenge"
+CompositionId = "staggered-belfry-ribs"
+CompositionBounds = Rect2(0, 0, 1280, 1176)
+AccentColor = Color(0.4745098, 0.39607844, 0.25490198, 1)
+metadata/challenge_kind = 1
+metadata/height_layer = 2
+metadata/silhouette_id = "staggered-belfry-ribs"
+metadata/collision_source = false
+
+[node name="ControlledAbyss" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=1923042203]
+script = ExtResource("2_1hw70")
+SectorId = 1
+VisualRole = "challenge"
+CompositionId = "abyss-salvage-crane"
+CompositionBounds = Rect2(640, 1176, 640, 2424)
+AccentColor = Color(0.4745098, 0.39607844, 0.25490198, 1)
+metadata/challenge_kind = 2
+metadata/height_layer = 1
+metadata/silhouette_id = "abyss-salvage-crane"
+metadata/collision_source = false
+
+[node name="ArchiveSideCave" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=1524854517]
+script = ExtResource("2_1hw70")
+SectorId = 1
+VisualRole = "challenge"
+CompositionId = "sealed-archive-vault"
+CompositionBounds = Rect2(0, 1176, 640, 624)
+AccentColor = Color(0.4745098, 0.39607844, 0.25490198, 1)
+metadata/challenge_kind = 3
+metadata/height_layer = 2
+metadata/silhouette_id = "sealed-archive-vault"
+metadata/collision_source = false
+
+[node name="FrozenDetour" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=680597859]
+script = ExtResource("2_1hw70")
+SectorId = 1
+VisualRole = "challenge"
+CompositionId = "frozen-bell-choir"
+CompositionBounds = Rect2(0, 1800, 640, 1560)
+AccentColor = Color(0.38431373, 0.5411765, 0.6039216, 1)
+metadata/challenge_kind = 4
+metadata/height_layer = 1
+metadata/silhouette_id = "frozen-bell-choir"
+metadata/collision_source = false
+
+[node name="GameplayReadable" type="Node2D" parent="VisualRoot" unique_id=1115469936]
+z_index = -2
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="MicroSceneReadability" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=725460090]
+
+[node name="RiftRoof" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=191318200]
+position = Vector2(640, 200)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(1280, 400)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/RiftRoof" unique_id=646333495]
+position = Vector2(0, -197)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-640, -3, 640, -3, 640, 3, -640, 3)
+
+[node name="RiftOuterRightWall" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=894569689]
+position = Vector2(1262, 848)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(36, 896)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/RiftOuterRightWall" unique_id=1729345814]
+position = Vector2(0, -445)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="RiftArchiveOuterWall" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1774360064]
+position = Vector2(24, 1200)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(48, 960)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/RiftArchiveOuterWall" unique_id=1447609348]
+position = Vector2(0, -477)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-24, -3, 24, -3, 24, 3, -24, 3)
+
+[node name="RiftUpperFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=639129820]
+position = Vector2(310, 648)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(620, 24)
+CatchShelf = true
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/RiftUpperFloor" unique_id=1816972108]
+position = Vector2(0, -9)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-310, -3, 310, -3, 310, 3, -310, 3)
+
+[node name="RiftMiddleCatch" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=390089768]
+position = Vector2(570, 868)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(700, 24)
+CatchShelf = true
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/RiftMiddleCatch" unique_id=353433735]
+position = Vector2(0, -9)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-350, -3, 350, -3, 350, 3, -350, 3)
+
+[node name="RiftLowerCatch" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=110060166]
+position = Vector2(470, 1088)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(700, 24)
+CatchShelf = true
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/RiftLowerCatch" unique_id=1564008668]
+position = Vector2(0, -9)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-350, -3, 350, -3, 350, 3, -350, 3)
+
+[node name="RiftAlternationWall" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=827892113]
+position = Vector2(938, 750)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(36, 700)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/RiftAlternationWall" unique_id=597493199]
+position = Vector2(0, -347)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AbyssCommitment" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1539031070]
+position = Vector2(860, 1316)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(120, 40)
+CatchShelf = true
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssCommitment" unique_id=1244064334]
+position = Vector2(0, -17)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-60, -3, 60, -3, 60, 3, -60, 3)
+
+[node name="AbyssBrakeRight1" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=566726950]
+position = Vector2(1228, 1448)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(36, 304)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssBrakeRight1" unique_id=1183060249]
+position = Vector2(0, -149)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AbyssBrakeLeft1" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=168405909]
+position = Vector2(658, 1448)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(36, 304)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssBrakeLeft1" unique_id=896877416]
+position = Vector2(0, -149)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AbyssBrakeRight2" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=381332427]
+position = Vector2(1228, 1800)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(36, 400)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssBrakeRight2" unique_id=1223078449]
+position = Vector2(0, -197)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AbyssBrakeLeft2" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=2049504590]
+position = Vector2(658, 1800)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(36, 400)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssBrakeLeft2" unique_id=154677800]
+position = Vector2(0, -197)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AbyssBrakeRight3" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=493188903]
+position = Vector2(1228, 2400)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(36, 800)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssBrakeRight3" unique_id=453146910]
+position = Vector2(0, -397)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AbyssBrakeLeft3" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1205785562]
+position = Vector2(658, 2400)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(36, 800)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssBrakeLeft3" unique_id=1455592778]
+position = Vector2(0, -397)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AbyssBrakeRight4" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1783907017]
+position = Vector2(1228, 3200)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(36, 800)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssBrakeRight4" unique_id=989458702]
+position = Vector2(0, -397)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AbyssBrakeLeft4" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=503387958]
+position = Vector2(658, 3120)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(36, 640)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssBrakeLeft4" unique_id=1613737898]
+position = Vector2(0, -317)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AbyssExit1" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=447279731]
+position = Vector2(1170, 1560)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(200, 40)
+CatchShelf = true
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssExit1" unique_id=1857449359]
+position = Vector2(0, -17)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-100, -3, 100, -3, 100, 3, -100, 3)
+
+[node name="AbyssExit2" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=206854456]
+position = Vector2(740, 2240)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(200, 40)
+CatchShelf = true
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssExit2" unique_id=414003918]
+position = Vector2(0, -17)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-100, -3, 100, -3, 100, 3, -100, 3)
+
+[node name="AbyssExit3" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=102888476]
+position = Vector2(1175, 3100)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(190, 40)
+CatchShelf = true
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssExit3" unique_id=1851219204]
+position = Vector2(0, -17)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-95, -3, 95, -3, 95, 3, -95, 3)
+
+[node name="AbyssSafeBottom" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1981012961]
+position = Vector2(960, 3580)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(640, 40)
+CatchShelf = true
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssSafeBottom" unique_id=1291483370]
+position = Vector2(0, -17)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-320, -3, 320, -3, 320, 3, -320, 3)
+
+[node name="SoftLandingPad" type="Node2D" parent="VisualRoot/GameplayReadable/AbyssSafeBottom" unique_id=1682464877]
+
+[node name="PaddedRim" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssSafeBottom/SoftLandingPad" unique_id=636624744]
+position = Vector2(0, -17)
+color = Color(0.5803922, 0.83137256, 0.64705884, 1)
+polygon = PackedVector2Array(-320, -3, 320, -3, 320, 3, -320, 3)
+
+[node name="Cushion1" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssSafeBottom/SoftLandingPad" unique_id=911514509]
+position = Vector2(-280, -7)
+color = Color(0.2784314, 0.49411765, 0.40784314, 1)
+polygon = PackedVector2Array(-36, -10, 36, -10, 39, -5, 34, 9, -34, 9, -39, -5)
+
+[node name="Cushion2" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssSafeBottom/SoftLandingPad" unique_id=499086231]
+position = Vector2(-200, -7)
+color = Color(0.34509805, 0.54509807, 0.42352942, 1)
+polygon = PackedVector2Array(-36, -10, 36, -10, 39, -5, 34, 9, -34, 9, -39, -5)
+
+[node name="Cushion3" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssSafeBottom/SoftLandingPad" unique_id=72955630]
+position = Vector2(-120, -7)
+color = Color(0.2784314, 0.49411765, 0.40784314, 1)
+polygon = PackedVector2Array(-36, -10, 36, -10, 39, -5, 34, 9, -34, 9, -39, -5)
+
+[node name="Cushion4" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssSafeBottom/SoftLandingPad" unique_id=1361537068]
+position = Vector2(-40, -7)
+color = Color(0.34509805, 0.54509807, 0.42352942, 1)
+polygon = PackedVector2Array(-36, -10, 36, -10, 39, -5, 34, 9, -34, 9, -39, -5)
+
+[node name="Cushion5" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssSafeBottom/SoftLandingPad" unique_id=1067898021]
+position = Vector2(40, -7)
+color = Color(0.2784314, 0.49411765, 0.40784314, 1)
+polygon = PackedVector2Array(-36, -10, 36, -10, 39, -5, 34, 9, -34, 9, -39, -5)
+
+[node name="Cushion6" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssSafeBottom/SoftLandingPad" unique_id=351331337]
+position = Vector2(120, -7)
+color = Color(0.34509805, 0.54509807, 0.42352942, 1)
+polygon = PackedVector2Array(-36, -10, 36, -10, 39, -5, 34, 9, -34, 9, -39, -5)
+
+[node name="Cushion7" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssSafeBottom/SoftLandingPad" unique_id=1581374807]
+position = Vector2(200, -7)
+color = Color(0.2784314, 0.49411765, 0.40784314, 1)
+polygon = PackedVector2Array(-36, -10, 36, -10, 39, -5, 34, 9, -34, 9, -39, -5)
+
+[node name="Cushion8" type="Polygon2D" parent="VisualRoot/GameplayReadable/AbyssSafeBottom/SoftLandingPad" unique_id=593156330]
+position = Vector2(280, -7)
+color = Color(0.34509805, 0.54509807, 0.42352942, 1)
+polygon = PackedVector2Array(-36, -10, 36, -10, 39, -5, 34, 9, -34, 9, -39, -5)
+
+[node name="ArchiveEntry" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1869968650]
+position = Vector2(150, 1280)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(300, 40)
+CatchShelf = true
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ArchiveEntry" unique_id=1481366724]
+position = Vector2(0, -17)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-150, -3, 150, -3, 150, 3, -150, 3)
+
+[node name="ArchiveShelf" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1944730522]
+position = Vector2(320, 1440)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(240, 40)
+CatchShelf = true
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ArchiveShelf" unique_id=2097404512]
+position = Vector2(0, -17)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
+
+[node name="ArchiveFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=2116607700]
+position = Vector2(360, 1660)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(480, 40)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ArchiveFloor" unique_id=54907324]
+position = Vector2(0, -17)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-240, -3, 240, -3, 240, 3, -240, 3)
+
+[node name="ArchiveSupplyRoof" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=2614580]
+position = Vector2(520, 1412)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(160, 24)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ArchiveSupplyRoof" unique_id=1535570602]
+position = Vector2(0, -9)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-80, -3, 80, -3, 80, 3, -80, 3)
+
+[node name="ArchiveSupplyRightWall" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=891221115]
+position = Vector2(620, 1540)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(40, 280)
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ArchiveSupplyRightWall" unique_id=348722669]
+position = Vector2(0, -137)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-20, -3, 20, -3, 20, 3, -20, 3)
+
+[node name="FrozenCeiling" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1871093335]
+position = Vector2(340, 1858)
+script = ExtResource("3_4hssx")
+SurfaceMaterial = 3
+SectorId = 1
+SkinSize = Vector2(440, 36)
+metadata/material_family = "rejected-frost-glass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/FrozenCeiling" unique_id=1509165129]
+position = Vector2(0, -15)
+color = Color(0.65882355, 0.84705883, 0.9098039, 1)
+polygon = PackedVector2Array(-220, -3, 220, -3, 220, 3, -220, 3)
+
+[node name="FrozenLeftCatch" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1025714041]
+position = Vector2(115, 2200)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(230, 40)
+CatchShelf = true
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/FrozenLeftCatch" unique_id=1248449077]
+position = Vector2(0, -17)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-115, -3, 115, -3, 115, 3, -115, 3)
+
+[node name="FrozenRightCatch" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1587716789]
+position = Vector2(470, 2660)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(340, 40)
+CatchShelf = true
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/FrozenRightCatch" unique_id=1871411544]
+position = Vector2(0, -17)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-170, -3, 170, -3, 170, 3, -170, 3)
+
+[node name="SteamDiverterFrozenControl" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=15322509]
+position = Vector2(460, 2500)
+script = ExtResource("4_h6uhl")
+SurfaceMaterial = 2
+Radius = 22.0
+metadata/material_family = "thread-anchor-cyan"
+
+[node name="MechanismTelegraphs" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=431907362]
+
+[node name="SteamDiverterFrozenVisual" type="Node2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs" unique_id=703452301]
+z_index = 1
+script = ExtResource("5_si5jp")
+ControllerPath = NodePath("../../../../Gameplay/Mechanisms/SteamDiverterFrozen")
+ControlPath = NodePath("../../../../Gameplay/GrappleSurfaces/SteamDiverterFrozenControl")
+SupportShapePath = NodePath("../../../../Gameplay/Collision/FrozenRightCatch/Collision")
+
+[node name="FrozenExit" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=782062911]
+position = Vector2(280, 3300)
+script = ExtResource("3_4hssx")
+SectorId = 1
+SkinSize = Vector2(560, 40)
+CatchShelf = true
+UseCanyonDepthStaging = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/FrozenExit" unique_id=1570964]
+position = Vector2(0, -17)
+color = Color(0.57254905, 0.6784314, 0.6862745, 1)
+polygon = PackedVector2Array(-280, -3, 280, -3, 280, 3, -280, 3)
+
+[node name="Foreground" type="Node2D" parent="VisualRoot" unique_id=1072228914]
+z_index = 20
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="DepthOccluders" type="Node2D" parent="VisualRoot/Foreground" unique_id=251512693]
+
+[node name="NearRight" type="Polygon2D" parent="VisualRoot/Foreground/DepthOccluders" unique_id=439560553]
+color = Color(0.09019608, 0.14509805, 0.16470589, 0.66)
+polygon = PackedVector2Array(1130, 0, 1280, 0, 1280, 72.96, 1211, 96)
+metadata/occlusion_class = "foreground-safe-edge"
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=1111243710]
+z_index = 30
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="SectorLabel" type="Label" parent="VisualRoot/Effects" unique_id=1758179617]
+visible = false
+modulate = Color(0.75, 0.82, 0.76, 0.55)
+offset_left = 42.0
+offset_top = 34.0
+offset_right = 42.0
+offset_bottom = 34.0
+text = "CanyonDescent"
+
+[node name="Gameplay" type="Node2D" parent="." unique_id=1924538528]
+
+[node name="Collision" type="Node2D" parent="Gameplay" unique_id=180626836]
+
+[node name="RiftRoof" type="StaticBody2D" parent="Gameplay/Collision" unique_id=246868285]
+position = Vector2(640, 200)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/RiftRoof" unique_id=2021803947]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/RiftRoof" unique_id=925530529]
+shape = SubResource("RectangleShape2D_w4m1s")
+
+[node name="RiftOuterRightWall" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1736035914]
+position = Vector2(1262, 848)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/RiftOuterRightWall" unique_id=645774872]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/RiftOuterRightWall" unique_id=1970117229]
+shape = SubResource("RectangleShape2D_8kx3q")
+
+[node name="RiftArchiveOuterWall" type="StaticBody2D" parent="Gameplay/Collision" unique_id=790491601]
+position = Vector2(24, 1200)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/RiftArchiveOuterWall" unique_id=792642575]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/RiftArchiveOuterWall" unique_id=1382185941]
+shape = SubResource("RectangleShape2D_nu1kd")
+
+[node name="RiftUpperFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1947077368]
+position = Vector2(310, 648)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/RiftUpperFloor" unique_id=831982072]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/RiftUpperFloor" unique_id=100599874]
+shape = SubResource("RectangleShape2D_fepsv")
+
+[node name="RiftMiddleCatch" type="StaticBody2D" parent="Gameplay/Collision" unique_id=2013441218]
+position = Vector2(570, 868)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/RiftMiddleCatch" unique_id=1631460565]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/RiftMiddleCatch" unique_id=1467856639]
+shape = SubResource("RectangleShape2D_h3iq2")
+
+[node name="RiftLowerCatch" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1353762757]
+position = Vector2(470, 1088)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/RiftLowerCatch" unique_id=648301557]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/RiftLowerCatch" unique_id=772257821]
+shape = SubResource("RectangleShape2D_r5q1e")
+
+[node name="RiftAlternationWall" type="StaticBody2D" parent="Gameplay/Collision" unique_id=525105970]
+position = Vector2(938, 750)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/RiftAlternationWall" unique_id=1727815501]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/RiftAlternationWall" unique_id=2081355536]
+shape = SubResource("RectangleShape2D_b0jew")
+
+[node name="AbyssCommitment" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1653993867]
+position = Vector2(860, 1316)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AbyssCommitment" unique_id=1945702054]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AbyssCommitment" unique_id=458378932]
+shape = SubResource("RectangleShape2D_8lbav")
+
+[node name="AbyssBrakeRight1" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1719833905]
+position = Vector2(1228, 1448)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AbyssBrakeRight1" unique_id=2094572013]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AbyssBrakeRight1" unique_id=1843765753]
+shape = SubResource("RectangleShape2D_nhdvi")
+
+[node name="AbyssBrakeLeft1" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1647526272]
+position = Vector2(658, 1448)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AbyssBrakeLeft1" unique_id=1526320039]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AbyssBrakeLeft1" unique_id=145200968]
+shape = SubResource("RectangleShape2D_23w58")
+
+[node name="AbyssBrakeRight2" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1078755741]
+position = Vector2(1228, 1800)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AbyssBrakeRight2" unique_id=955521360]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AbyssBrakeRight2" unique_id=588572404]
+shape = SubResource("RectangleShape2D_8etqh")
+
+[node name="AbyssBrakeLeft2" type="StaticBody2D" parent="Gameplay/Collision" unique_id=2043675167]
+position = Vector2(658, 1800)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AbyssBrakeLeft2" unique_id=402904041]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AbyssBrakeLeft2" unique_id=344380016]
+shape = SubResource("RectangleShape2D_xm6wn")
+
+[node name="AbyssBrakeRight3" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1783794753]
+position = Vector2(1228, 2400)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AbyssBrakeRight3" unique_id=1143515267]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AbyssBrakeRight3" unique_id=592199146]
+shape = SubResource("RectangleShape2D_wydw5")
+
+[node name="AbyssBrakeLeft3" type="StaticBody2D" parent="Gameplay/Collision" unique_id=831682486]
+position = Vector2(658, 2400)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AbyssBrakeLeft3" unique_id=460986359]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AbyssBrakeLeft3" unique_id=2095862724]
+shape = SubResource("RectangleShape2D_ucumc")
+
+[node name="AbyssBrakeRight4" type="StaticBody2D" parent="Gameplay/Collision" unique_id=2055395222]
+position = Vector2(1228, 3200)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AbyssBrakeRight4" unique_id=1744497844]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AbyssBrakeRight4" unique_id=1010336655]
+shape = SubResource("RectangleShape2D_7i606")
+
+[node name="AbyssBrakeLeft4" type="StaticBody2D" parent="Gameplay/Collision" unique_id=702009655]
+position = Vector2(658, 3120)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AbyssBrakeLeft4" unique_id=965042980]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AbyssBrakeLeft4" unique_id=108165040]
+shape = SubResource("RectangleShape2D_n877e")
+
+[node name="AbyssExit1" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1315644041]
+position = Vector2(1170, 1560)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AbyssExit1" unique_id=1950261084]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AbyssExit1" unique_id=298384258]
+shape = SubResource("RectangleShape2D_4ywky")
+
+[node name="AbyssExit2" type="StaticBody2D" parent="Gameplay/Collision" unique_id=502700769]
+position = Vector2(740, 2240)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AbyssExit2" unique_id=2035474186]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AbyssExit2" unique_id=1601435204]
+shape = SubResource("RectangleShape2D_ljate")
+
+[node name="AbyssExit3" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1989311882]
+position = Vector2(1175, 3100)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AbyssExit3" unique_id=1760727809]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AbyssExit3" unique_id=120532726]
+shape = SubResource("RectangleShape2D_o1yp2")
+
+[node name="AbyssSafeBottom" type="StaticBody2D" parent="Gameplay/Collision" unique_id=359786901]
+position = Vector2(960, 3580)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/soft_landing = true
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AbyssSafeBottom" unique_id=198606017]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AbyssSafeBottom" unique_id=497768041]
+shape = SubResource("RectangleShape2D_5356t")
+
+[node name="ArchiveEntry" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1231524207]
+position = Vector2(150, 1280)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ArchiveEntry" unique_id=1752279123]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ArchiveEntry" unique_id=1168787949]
+shape = SubResource("RectangleShape2D_r36us")
+
+[node name="ArchiveShelf" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1182274464]
+position = Vector2(320, 1440)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ArchiveShelf" unique_id=1904787163]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ArchiveShelf" unique_id=731889397]
+shape = SubResource("RectangleShape2D_g8p3w")
+
+[node name="ArchiveFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1235914703]
+position = Vector2(360, 1660)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ArchiveFloor" unique_id=851413646]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ArchiveFloor" unique_id=1224985474]
+shape = SubResource("RectangleShape2D_2slnf")
+
+[node name="ArchiveSupplyRoof" type="StaticBody2D" parent="Gameplay/Collision" unique_id=793431002]
+position = Vector2(520, 1412)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ArchiveSupplyRoof" unique_id=1946529718]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ArchiveSupplyRoof" unique_id=1594567985]
+shape = SubResource("RectangleShape2D_k7q3p")
+
+[node name="ArchiveSupplyRightWall" type="StaticBody2D" parent="Gameplay/Collision" unique_id=688032881]
+position = Vector2(620, 1540)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ArchiveSupplyRightWall" unique_id=1929096279]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ArchiveSupplyRightWall" unique_id=2086789970]
+shape = SubResource("RectangleShape2D_iauvj")
+
+[node name="FrozenCeiling" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1559937664]
+position = Vector2(340, 1858)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/FrozenCeiling" unique_id=2038263645]
+script = ExtResource("6_qmf3r")
+Material = 3
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/FrozenCeiling" unique_id=2011728491]
+shape = SubResource("RectangleShape2D_miivd")
+
+[node name="FrozenLeftCatch" type="StaticBody2D" parent="Gameplay/Collision" unique_id=200977848]
+position = Vector2(115, 2200)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/FrozenLeftCatch" unique_id=385189648]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/FrozenLeftCatch" unique_id=231932551]
+shape = SubResource("RectangleShape2D_h7o36")
+
+[node name="FrozenRightCatch" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1208135802]
+position = Vector2(470, 2660)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/FrozenRightCatch" unique_id=59613613]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/FrozenRightCatch" unique_id=1602730380]
+shape = SubResource("RectangleShape2D_g822u")
+
+[node name="FrozenExit" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1781822897]
+position = Vector2(280, 3300)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/FrozenExit" unique_id=1930791792]
+script = ExtResource("6_qmf3r")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/FrozenExit" unique_id=2016879332]
+shape = SubResource("RectangleShape2D_j2xic")
+
+[node name="GrappleSurfaces" type="Node2D" parent="Gameplay" unique_id=1638060483]
+
+[node name="SteamDiverterFrozenControl" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=1029841434]
+position = Vector2(460, 2500)
+script = ExtResource("7_pgq5f")
+Kind = 3
+PullReceiverPath = NodePath("../../Mechanisms/SteamDiverterFrozen")
+metadata/target_role = "mechanism-control"
+
+[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/SteamDiverterFrozenControl" unique_id=198554931]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/SteamDiverterFrozenControl/TargetCollision" unique_id=448176782]
+shape = SubResource("CircleShape2D_stov4")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/GrappleSurfaces/SteamDiverterFrozenControl" unique_id=16864412]
+script = ExtResource("8_ngsyf")
+
+[node name="TraversalContracts" type="Node2D" parent="Gameplay" unique_id=1814112646]
+
+[node name="canyonv2routerift-to-abyss" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=245213244]
+script = ExtResource("9_baajp")
+SegmentId = &"canyon.v2.route.rift-to-abyss"
+Kind = 3
+LaunchZone = Rect2(140, 1004, 60, 72)
+LandingZone = Rect2(830, 1224, 70, 72)
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routerift-to-abyss" unique_id=664856967]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(140, 1004, 200, 1004, 200, 1076, 140, 1076)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routerift-to-abyss" unique_id=1884497972]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(830, 1224, 900, 1224, 900, 1296, 830, 1296)
+
+[node name="canyonv2routeabyss-to-basin-camp" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=1825006690]
+script = ExtResource("9_baajp")
+SegmentId = &"canyon.v2.route.abyss-to-basin-camp"
+Kind = 3
+LaunchZone = Rect2(680, 3488, 120, 72)
+LandingZone = Rect2(540, 3924, 180, 72)
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routeabyss-to-basin-camp" unique_id=902180974]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(680, 3488, 800, 3488, 800, 3560, 680, 3560)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routeabyss-to-basin-camp" unique_id=1526469767]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(540, 3924, 720, 3924, 720, 3996, 540, 3996)
+
+[node name="canyonv2routerift-to-archive" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=1402624773]
+script = ExtResource("9_baajp")
+SegmentId = &"canyon.v2.route.rift-to-archive"
+Kind = 3
+LaunchZone = Rect2(140, 1004, 60, 72)
+LandingZone = Rect2(68, 1188, 120, 72)
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routerift-to-archive" unique_id=1087495963]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(140, 1004, 200, 1004, 200, 1076, 140, 1076)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routerift-to-archive" unique_id=358742647]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(68, 1188, 188, 1188, 188, 1260, 68, 1260)
+
+[node name="canyonv2routearchive-to-frozen-detour" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=488734347]
+script = ExtResource("9_baajp")
+SegmentId = &"canyon.v2.route.archive-to-frozen-detour"
+RequiredAbilities = 1
+LaunchZone = Rect2(160, 1568, 120, 72)
+LandingZone = Rect2(40, 2108, 140, 72)
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routearchive-to-frozen-detour" unique_id=1835904109]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(160, 1568, 280, 1568, 280, 1640, 160, 1640)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routearchive-to-frozen-detour" unique_id=877127674]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(40, 2108, 180, 2108, 180, 2180, 40, 2180)
+
+[node name="canyonv2routefrozen-detour-to-basin-camp" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=1660272559]
+script = ExtResource("9_baajp")
+SegmentId = &"canyon.v2.route.frozen-detour-to-basin-camp"
+RequiredAbilities = 1
+LaunchZone = Rect2(360, 3208, 160, 72)
+LandingZone = Rect2(280, 3924, 240, 72)
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routefrozen-detour-to-basin-camp" unique_id=1051228488]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(360, 3208, 520, 3208, 520, 3280, 360, 3280)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routefrozen-detour-to-basin-camp" unique_id=1714596096]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(280, 3924, 520, 3924, 520, 3996, 280, 3996)
+
+[node name="RouteMarkers" type="Node2D" parent="Gameplay" unique_id=1094717337]
+
+[node name="PreviousSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=142645571]
+position = Vector2(2, 600)
+
+[node name="NextSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=215596104]
+position = Vector2(620, 3598)
+
+[node name="BasinReturnSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=1712641414]
+position = Vector2(432, 3598)
+
+[node name="FallRecovery" type="Node2D" parent="Gameplay" unique_id=929843495]
+
+[node name="RecoveryVolume" type="Area2D" parent="Gameplay/FallRecovery" unique_id=604609553]
+position = Vector2(168, 3592)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("10_bknsk")
+RoomControllerPath = NodePath("../../../../../..")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume" unique_id=1532035988]
+shape = SubResource("RectangleShape2D_a5bke")
+
+[node name="RecoveryVolume2" type="Area2D" parent="Gameplay/FallRecovery" unique_id=683288822]
+position = Vector2(998, 3592)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("10_bknsk")
+RoomControllerPath = NodePath("../../../../../..")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume2" unique_id=451437996]
+shape = SubResource("RectangleShape2D_tq3f7")
+
+[node name="RecoveryLanding" type="Marker2D" parent="Gameplay/FallRecovery" unique_id=1560147902]
+position = Vector2(880, 1260)
+
+[node name="OptionalPaths" type="Node2D" parent="Gameplay" unique_id=948360753]
+
+[node name="MicroScenes" type="Node2D" parent="Gameplay" unique_id=228828214]
+
+[node name="StaggeredRift" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=1131770084]
+position = Vector2(640, 588)
+metadata/local_bounds = Rect2(0, 0, 1280, 1176)
+metadata/optional_subarea = false
+metadata/route_node_id = 1
+metadata/challenge_kind = 1
+
+[node name="ControlledAbyss" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=2030222520]
+position = Vector2(960, 2388)
+metadata/local_bounds = Rect2(640, 1176, 640, 2424)
+metadata/optional_subarea = false
+metadata/route_node_id = 2
+metadata/challenge_kind = 2
+
+[node name="ArchiveSideCave" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=939627192]
+position = Vector2(320, 1488)
+metadata/local_bounds = Rect2(0, 1176, 640, 624)
+metadata/optional_subarea = true
+metadata/route_node_id = 3
+metadata/challenge_kind = 3
+
+[node name="FrozenDetour" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=100180107]
+position = Vector2(320, 2580)
+metadata/local_bounds = Rect2(0, 1800, 640, 1560)
+metadata/optional_subarea = true
+metadata/route_node_id = 4
+metadata/challenge_kind = 4
+
+[node name="Mechanisms" type="Node2D" parent="Gameplay" unique_id=2078832429]
+
+[node name="AbyssUpdraft" type="Node2D" parent="Gameplay/Mechanisms" unique_id=234344343]
+z_index = 2
+position = Vector2(676, 1360)
+script = ExtResource("11_hbmem")
+
+[node name="EntryCue" type="Label" parent="Gameplay/Mechanisms/AbyssUpdraft" unique_id=1898211620]
+modulate = Color(0.627451, 0.77254903, 0.72156864, 1)
+offset_left = 70.0
+offset_top = -205.0
+offset_right = 70.0
+offset_bottom = -205.0
+theme_override_font_sizes/font_size = 16
+text = "↑ 上升气流 · 下落减缓"
+
+[node name="ArchivePressureGate" type="Node2D" parent="Gameplay/Mechanisms" unique_id=1319024856]
+script = ExtResource("12_si1x5")
+
+[node name="Door" type="StaticBody2D" parent="Gameplay/Mechanisms/ArchivePressureGate" unique_id=265025538]
+position = Vector2(460, 1532)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/ArchivePressureGate/Door" unique_id=2005505771]
+shape = SubResource("RectangleShape2D_a20er")
+disabled = true
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Mechanisms/ArchivePressureGate/Door" unique_id=1970185107]
+script = ExtResource("6_qmf3r")
+Material = 4
+UseCollisionHitPoint = true
+
+[node name="ReadableGate" type="Node2D" parent="Gameplay/Mechanisms/ArchivePressureGate" unique_id=919109249]
+script = ExtResource("13_hwf7y")
+
+[node name="SteamDiverterFrozen" type="Node2D" parent="Gameplay/Mechanisms" unique_id=1257361579]
+position = Vector2(460, 2500)
+script = ExtResource("14_gkdvc")
+MechanismId = "canyon.v2.steam-diverter.frozen"
+
+[node name="LeftJet" type="Area2D" parent="Gameplay/Mechanisms/SteamDiverterFrozen" unique_id=973302090]
+position = Vector2(-80, 40)
+monitoring = false
+script = ExtResource("15_ryiho")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/SteamDiverterFrozen/LeftJet" unique_id=1763585461]
+shape = SubResource("RectangleShape2D_vwjvk")
+disabled = true
+
+[node name="Telegraph" type="Node2D" parent="Gameplay/Mechanisms/SteamDiverterFrozen/LeftJet" unique_id=815117443]
+visible = false
+
+[node name="ActiveVisual" type="Node2D" parent="Gameplay/Mechanisms/SteamDiverterFrozen/LeftJet" unique_id=647603434]
+visible = false
+
+[node name="RightJet" type="Area2D" parent="Gameplay/Mechanisms/SteamDiverterFrozen" unique_id=475084236]
+position = Vector2(80, 40)
+monitoring = false
+script = ExtResource("15_ryiho")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/SteamDiverterFrozen/RightJet" unique_id=8770079]
+shape = SubResource("RectangleShape2D_fnf8n")
+disabled = true
+
+[node name="Telegraph" type="Node2D" parent="Gameplay/Mechanisms/SteamDiverterFrozen/RightJet" unique_id=172356947]
+visible = false
+
+[node name="ActiveVisual" type="Node2D" parent="Gameplay/Mechanisms/SteamDiverterFrozen/RightJet" unique_id=1525920062]
+visible = false
+
+[node name="HiddenPanel" type="Node2D" parent="Gameplay/Mechanisms" unique_id=354838143]
+position = Vector2(160, 1440)
+script = ExtResource("16_cwl7k")
+Kind = 2
+
+[node name="LinkedNode" type="Node2D" parent="Gameplay/Mechanisms/HiddenPanel" unique_id=1032724001]
+
+[node name="ReadableMechanism" type="Polygon2D" parent="Gameplay/Mechanisms/HiddenPanel/LinkedNode" unique_id=1718819619]
+color = Color(0.29647058, 0.31294116, 0.2552941, 1)
+polygon = PackedVector2Array(-36, -36, 36, -36, 36, 36, -36, 36)
+
+[node name="FacingPlane" type="Polygon2D" parent="Gameplay/Mechanisms/HiddenPanel/LinkedNode/ReadableMechanism" unique_id=1109789883]
+position = Vector2(0, -2)
+color = Color(0.42352942, 0.44705883, 0.3647059, 1)
+polygon = PackedVector2Array(-32, -32, 32, -32, 32, 32, -32, 32)
+
+[node name="ContactShadow" type="Polygon2D" parent="Gameplay/Mechanisms/HiddenPanel/LinkedNode/ReadableMechanism" unique_id=873846554]
+position = Vector2(0, 31)
+color = Color(0.22023529, 0.23247059, 0.18964705, 1)
+polygon = PackedVector2Array(-32, -3, 32, -3, 32, 3, -32, 3)
+
+[node name="BoltLeft" type="Polygon2D" parent="Gameplay/Mechanisms/HiddenPanel/LinkedNode/ReadableMechanism" unique_id=1558227675]
+position = Vector2(-28, -28)
+color = Color(0.7607843, 0.6862745, 0.4627451, 0.72)
+polygon = PackedVector2Array(2.5, 0, 2.3776414, 0.7725425, 2.0225425, 1.4694631, 1.4694631, 2.0225425, 0.7725424, 2.3776414, -1.09278474e-07, 2.5, -0.7725426, 2.3776412, -1.4694636, 2.0225422, -2.0225427, 1.469463, -2.3776412, 0.7725426, -2.5, -2.1855695e-07, -2.377641, -0.772543, -2.0225425, -1.4694633, -1.4694626, -2.0225427, -0.77254164, -2.3776414, 2.9812202e-08, -2.5, 0.77254283, -2.3776412, 1.4694637, -2.022542, 2.0225425, -1.4694632, 2.3776414, -0.77254236)
+
+[node name="BoltRight" type="Polygon2D" parent="Gameplay/Mechanisms/HiddenPanel/LinkedNode/ReadableMechanism" unique_id=2071753327]
+position = Vector2(28, -28)
+color = Color(0.7607843, 0.6862745, 0.4627451, 0.72)
+polygon = PackedVector2Array(2.5, 0, 2.3776414, 0.7725425, 2.0225425, 1.4694631, 1.4694631, 2.0225425, 0.7725424, 2.3776414, -1.09278474e-07, 2.5, -0.7725426, 2.3776412, -1.4694636, 2.0225422, -2.0225427, 1.469463, -2.3776412, 0.7725426, -2.5, -2.1855695e-07, -2.377641, -0.772543, -2.0225425, -1.4694633, -1.4694626, -2.0225427, -0.77254164, -2.3776414, 2.9812202e-08, -2.5, 0.77254283, -2.3776412, 1.4694637, -2.022542, 2.0225425, -1.4694632, 2.3776414, -0.77254236)
+
+[node name="ThreadTarget" type="Node2D" parent="Gameplay/Mechanisms/HiddenPanel" unique_id=522454892]
+position = Vector2(0, -64)
+script = ExtResource("7_pgq5f")
+Kind = 3
+metadata/target_role = "mechanism"
+
+[node name="TargetCollision" type="Area2D" parent="Gameplay/Mechanisms/HiddenPanel/ThreadTarget" unique_id=1445970303]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/HiddenPanel/ThreadTarget/TargetCollision" unique_id=242558035]
+shape = SubResource("CircleShape2D_3bs6r")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/Mechanisms/HiddenPanel/ThreadTarget" unique_id=160215489]
+script = ExtResource("8_ngsyf")
+
+[node name="Rewards" type="Node2D" parent="Gameplay" unique_id=1396218645]
+
+[node name="ArchiveSupply" type="Area2D" parent="Gameplay/Rewards" unique_id=1517614446]
+position = Vector2(540, 1604)
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+script = ExtResource("17_yx4c4")
+DiscoveryId = "canyon.v2.reward.archive-supply"
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Rewards/ArchiveSupply" unique_id=2087105384]
+shape = SubResource("CircleShape2D_h8ukb")
+
+[node name="AvailableVisual" type="Node2D" parent="Gameplay/Rewards/ArchiveSupply" unique_id=1441097710]
+
+[node name="SupplyMark" type="Polygon2D" parent="Gameplay/Rewards/ArchiveSupply/AvailableVisual" unique_id=1476583137]
+color = Color(0.5901961, 0.5160784, 0.31294116, 1)
+polygon = PackedVector2Array(-22, -18, 22, -18, 22, 18, -22, 18)
+
+[node name="FacingPlane" type="Polygon2D" parent="Gameplay/Rewards/ArchiveSupply/AvailableVisual/SupplyMark" unique_id=1688295087]
+position = Vector2(0, -2)
+color = Color(0.84313726, 0.7372549, 0.44705883, 1)
+polygon = PackedVector2Array(-18, -14, 18, -14, 18, 14, -18, 14)
+
+[node name="ContactShadow" type="Polygon2D" parent="Gameplay/Rewards/ArchiveSupply/AvailableVisual/SupplyMark" unique_id=1548637074]
+position = Vector2(0, 13)
+color = Color(0.43843135, 0.38337255, 0.23247059, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="BoltLeft" type="Polygon2D" parent="Gameplay/Rewards/ArchiveSupply/AvailableVisual/SupplyMark" unique_id=1904535530]
+position = Vector2(-14, -10)
+color = Color(0.7607843, 0.6862745, 0.4627451, 0.72)
+polygon = PackedVector2Array(2.5, 0, 2.3776414, 0.7725425, 2.0225425, 1.4694631, 1.4694631, 2.0225425, 0.7725424, 2.3776414, -1.09278474e-07, 2.5, -0.7725426, 2.3776412, -1.4694636, 2.0225422, -2.0225427, 1.469463, -2.3776412, 0.7725426, -2.5, -2.1855695e-07, -2.377641, -0.772543, -2.0225425, -1.4694633, -1.4694626, -2.0225427, -0.77254164, -2.3776414, 2.9812202e-08, -2.5, 0.77254283, -2.3776412, 1.4694637, -2.022542, 2.0225425, -1.4694632, 2.3776414, -0.77254236)
+
+[node name="BoltRight" type="Polygon2D" parent="Gameplay/Rewards/ArchiveSupply/AvailableVisual/SupplyMark" unique_id=1948276539]
+position = Vector2(14, -10)
+color = Color(0.7607843, 0.6862745, 0.4627451, 0.72)
+polygon = PackedVector2Array(2.5, 0, 2.3776414, 0.7725425, 2.0225425, 1.4694631, 1.4694631, 2.0225425, 0.7725424, 2.3776414, -1.09278474e-07, 2.5, -0.7725426, 2.3776412, -1.4694636, 2.0225422, -2.0225427, 1.469463, -2.3776412, 0.7725426, -2.5, -2.1855695e-07, -2.377641, -0.772543, -2.0225425, -1.4694633, -1.4694626, -2.0225427, -0.77254164, -2.3776414, 2.9812202e-08, -2.5, 0.77254283, -2.3776412, 1.4694637, -2.022542, 2.0225425, -1.4694632, 2.3776414, -0.77254236)
+
+[node name="HealingCross" type="Polygon2D" parent="Gameplay/Rewards/ArchiveSupply/AvailableVisual" unique_id=1949673360]
+color = Color(0.9411765, 0.91764706, 0.8352941, 1)
+polygon = PackedVector2Array(-4, -12.5, 4, -12.5, 4, 12.5, -4, 12.5)
+
+[node name="HealingCrossBar" type="Polygon2D" parent="Gameplay/Rewards/ArchiveSupply/AvailableVisual" unique_id=833366877]
+color = Color(0.9411765, 0.91764706, 0.8352941, 1)
+polygon = PackedVector2Array(-12.5, -4, 12.5, -4, 12.5, 4, -12.5, 4)
+
+[node name="SpentVisual" type="Node2D" parent="Gameplay/Rewards/ArchiveSupply" unique_id=718899317]
+visible = false
+
+[node name="EmptySupply" type="Polygon2D" parent="Gameplay/Rewards/ArchiveSupply/SpentVisual" unique_id=1598706287]
+color = Color(0.2772549, 0.25254902, 0.20862746, 1)
+polygon = PackedVector2Array(-22, -18, 22, -18, 22, 18, -22, 18)
+
+[node name="FacingPlane" type="Polygon2D" parent="Gameplay/Rewards/ArchiveSupply/SpentVisual/EmptySupply" unique_id=712720371]
+position = Vector2(0, -2)
+color = Color(0.39607844, 0.36078432, 0.29803923, 1)
+polygon = PackedVector2Array(-18, -14, 18, -14, 18, 14, -18, 14)
+
+[node name="ContactShadow" type="Polygon2D" parent="Gameplay/Rewards/ArchiveSupply/SpentVisual/EmptySupply" unique_id=931364262]
+position = Vector2(0, 13)
+color = Color(0.20596078, 0.18760784, 0.15498039, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="BoltLeft" type="Polygon2D" parent="Gameplay/Rewards/ArchiveSupply/SpentVisual/EmptySupply" unique_id=1544162384]
+position = Vector2(-14, -10)
+color = Color(0.7607843, 0.6862745, 0.4627451, 0.72)
+polygon = PackedVector2Array(2.5, 0, 2.3776414, 0.7725425, 2.0225425, 1.4694631, 1.4694631, 2.0225425, 0.7725424, 2.3776414, -1.09278474e-07, 2.5, -0.7725426, 2.3776412, -1.4694636, 2.0225422, -2.0225427, 1.469463, -2.3776412, 0.7725426, -2.5, -2.1855695e-07, -2.377641, -0.772543, -2.0225425, -1.4694633, -1.4694626, -2.0225427, -0.77254164, -2.3776414, 2.9812202e-08, -2.5, 0.77254283, -2.3776412, 1.4694637, -2.022542, 2.0225425, -1.4694632, 2.3776414, -0.77254236)
+
+[node name="BoltRight" type="Polygon2D" parent="Gameplay/Rewards/ArchiveSupply/SpentVisual/EmptySupply" unique_id=660107658]
+position = Vector2(14, -10)
+color = Color(0.7607843, 0.6862745, 0.4627451, 0.72)
+polygon = PackedVector2Array(2.5, 0, 2.3776414, 0.7725425, 2.0225425, 1.4694631, 1.4694631, 2.0225425, 0.7725424, 2.3776414, -1.09278474e-07, 2.5, -0.7725426, 2.3776412, -1.4694636, 2.0225422, -2.0225427, 1.469463, -2.3776412, 0.7725426, -2.5, -2.1855695e-07, -2.377641, -0.772543, -2.0225425, -1.4694633, -1.4694626, -2.0225427, -0.77254164, -2.3776414, 2.9812202e-08, -2.5, 0.77254283, -2.3776412, 1.4694637, -2.022542, 2.0225425, -1.4694632, 2.3776414, -0.77254236)
+
+[node name="Status" type="Label" parent="Gameplay/Rewards/ArchiveSupply" unique_id=2061963966]
+custom_minimum_size = Vector2(180, 30)
+offset_left = -90.0
+offset_top = -56.0
+offset_right = -90.0
+offset_bottom = -56.0
+horizontal_alignment = 1
+
+[node name="Actors" type="Node2D" parent="Gameplay" unique_id=1301750382]
+
+[node name="QuestFragments" type="Node2D" parent="Gameplay" unique_id=194472960]
+
+[node name="rift" type="Area2D" parent="Gameplay/QuestFragments" unique_id=576540583]
+position = Vector2(180, 1040)
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+script = ExtResource("18_q0jtb")
+StableId = "canyon.v2.fragment.rift"
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/QuestFragments/rift" unique_id=1831166640]
+shape = SubResource("CircleShape2D_cpiid")
+
+[node name="AvailableVisual" type="Node2D" parent="Gameplay/QuestFragments/rift" unique_id=1121817284]
+script = ExtResource("19_mhpcd")
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="Status" type="Label" parent="Gameplay/QuestFragments/rift" unique_id=1456448648]
+custom_minimum_size = Vector2(180, 30)
+offset_left = -90.0
+offset_top = -48.0
+offset_right = -90.0
+offset_bottom = -48.0
+horizontal_alignment = 1
+
+[node name="abyss-floor" type="Area2D" parent="Gameplay/QuestFragments" unique_id=1563634810]
+position = Vector2(960, 3524)
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+script = ExtResource("18_q0jtb")
+StableId = "canyon.v2.fragment.abyss-floor"
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/QuestFragments/abyss-floor" unique_id=1120061279]
+shape = SubResource("CircleShape2D_cof1s")
+
+[node name="AvailableVisual" type="Node2D" parent="Gameplay/QuestFragments/abyss-floor" unique_id=1665643291]
+script = ExtResource("19_mhpcd")
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="Status" type="Label" parent="Gameplay/QuestFragments/abyss-floor" unique_id=383678659]
+custom_minimum_size = Vector2(180, 30)
+offset_left = -90.0
+offset_top = -48.0
+offset_right = -90.0
+offset_bottom = -48.0
+horizontal_alignment = 1
+
+[node name="archive" type="Area2D" parent="Gameplay/QuestFragments" unique_id=1270206732]
+position = Vector2(240, 1604)
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+script = ExtResource("18_q0jtb")
+StableId = "canyon.v2.fragment.archive"
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/QuestFragments/archive" unique_id=173570267]
+shape = SubResource("CircleShape2D_aujcg")
+
+[node name="AvailableVisual" type="Node2D" parent="Gameplay/QuestFragments/archive" unique_id=165281316]
+script = ExtResource("19_mhpcd")
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="Status" type="Label" parent="Gameplay/QuestFragments/archive" unique_id=325509266]
+custom_minimum_size = Vector2(180, 30)
+offset_left = -90.0
+offset_top = -48.0
+offset_right = -90.0
+offset_bottom = -48.0
+horizontal_alignment = 1
+
+[node name="Encounters" type="Node2D" parent="Gameplay" unique_id=677678930]
+
+[node name="StaggeredRiftEncounter" type="Node" parent="Gameplay/Encounters" unique_id=1289513169]
+script = ExtResource("20_5b6gf")
+EncounterId = &"canyon.v2.encounter.staggered-rift"
+
+[node name="ControlledAbyssEncounter" type="Node" parent="Gameplay/Encounters" unique_id=815897243]
+script = ExtResource("20_5b6gf")
+EncounterId = &"canyon.v2.encounter.controlled-abyss"
+
+[node name="ArchiveSideCaveEncounter" type="Node" parent="Gameplay/Encounters" unique_id=74209579]
+script = ExtResource("20_5b6gf")
+EncounterId = &"canyon.v2.encounter.archive-side-cave"
+
+[node name="FrozenUpperEncounter" type="Node" parent="Gameplay/Encounters" unique_id=930613319]
+script = ExtResource("20_5b6gf")
+EncounterId = &"canyon.v2.encounter.frozen-upper"
+
+[node name="FrozenLowerEncounter" type="Node" parent="Gameplay/Encounters" unique_id=858416170]
+script = ExtResource("20_5b6gf")
+EncounterId = &"canyon.v2.encounter.frozen-lower"

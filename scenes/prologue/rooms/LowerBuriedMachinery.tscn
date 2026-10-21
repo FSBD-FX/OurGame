@@ -1,0 +1,581 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/prologue/PrologueRoom.cs" id="1_tfo2g"]
+[ext_resource type="Script" path="res://scripts/config/RoomPresentationProfile.cs" id="2_n03p4"]
+[ext_resource type="Script" path="res://scripts/abilities/GrappleSurface2D.cs" id="task6_surface"]
+[ext_resource type="Script" path="res://scripts/presentation/RoomFormalVisual.cs" id="3_t6n50"]
+[ext_resource type="Script" path="res://scripts/presentation/ForegroundOccluder.cs" id="4_qj13i"]
+[ext_resource type="Script" path="res://scripts/prologue/traversal/TraversalSegment2D.cs" id="5_jvc4a"]
+[ext_resource type="Script" path="res://scripts/prologue/RoomExit.cs" id="6_qoji7"]
+[ext_resource type="Script" path="res://scripts/prologue/EncounterController.cs" id="7_calgu"]
+[ext_resource type="Script" path="res://scripts/prologue/EncounterSpawn.cs" id="8_7f5hs"]
+[ext_resource type="PackedScene" path="res://scenes/enemies/RustShellSquire.tscn" id="9_88v84"]
+[ext_resource type="PackedScene" path="res://scenes/enemies/GraveLampMoth.tscn" id="10_2rajl"]
+[ext_resource type="Script" path="res://scripts/prologue/EncounterDefinition.cs" id="11_vrsce"]
+[ext_resource type="Script" path="res://scripts/prologue/TutorialPromptTrigger.cs" id="12_dkykv"]
+[ext_resource type="Script" path="res://scripts/world/KillZone.cs" id="13_d8kqj"]
+
+[sub_resource type="Resource" id="Resource_ykxjg"]
+script = ExtResource("2_n03p4")
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_task6_surface"]
+radius = 25.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_whi2v"]
+size = Vector2(600, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_rlnqn"]
+size = Vector2(1260, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_bbiks"]
+size = Vector2(220, 26)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_bhw70"]
+size = Vector2(240, 26)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ckb8v"]
+size = Vector2(540, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_sgiti"]
+size = Vector2(48, 112)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_c1m8s"]
+size = Vector2(48, 112)
+
+[sub_resource type="Resource" id="Resource_nm1ll"]
+script = ExtResource("8_7f5hs")
+Scene = ExtResource("9_88v84")
+MarkerPath = NodePath("../SpawnMarkers/Ground")
+SpawnId = &"ground"
+
+[sub_resource type="Resource" id="Resource_o5ga7"]
+script = ExtResource("8_7f5hs")
+Scene = ExtResource("10_2rajl")
+MarkerPath = NodePath("../SpawnMarkers/Air")
+SpawnId = &"air"
+
+[sub_resource type="Resource" id="Resource_72c1h"]
+script = ExtResource("11_vrsce")
+EncounterId = &"lower_mixed"
+Spawns = Array[ExtResource("8_7f5hs")]([SubResource("Resource_nm1ll"), SubResource("Resource_o5ga7")])
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_yvmqh"]
+size = Vector2(260, 240)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_byrvw"]
+size = Vector2(2600, 120)
+
+[node name="LowerBuriedMachinery" type="Node2D" unique_id=1699471525]
+script = ExtResource("1_tfo2g")
+RoomId = 3
+CameraBounds = Rect2(-640, -360, 2400, 720)
+PresentationProfile = SubResource("Resource_ykxjg")
+
+[node name="Presentation" type="Node2D" parent="." unique_id=1732174238]
+z_index = -20
+
+[node name="VisualRoot" type="Node2D" parent="Presentation" unique_id=794659572]
+
+[node name="Placeholder" type="Node2D" parent="Presentation/VisualRoot" unique_id=229128855]
+visible = false
+
+[node name="Backdrop" type="Polygon2D" parent="Presentation/VisualRoot/Placeholder" unique_id=196176287]
+color = Color(0.09019608, 0.07450981, 0.05882353, 1)
+polygon = PackedVector2Array(-640, -360, 1760, -360, 1760, 360, -640, 360)
+
+[node name="TowerSilhouette" type="Polygon2D" parent="Presentation/VisualRoot/Placeholder" unique_id=1323202988]
+color = Color(0.25490198, 0.22745098, 0.16862746, 1)
+polygon = PackedVector2Array(-220, -360, 10, -360, 100, 360, -380, 360)
+
+[node name="RoomLabel" type="Label" parent="Presentation/VisualRoot/Placeholder" unique_id=1429023900]
+visible = false
+modulate = Color(0.75, 0.82, 0.76, 0.4)
+offset_left = -598.0
+offset_top = -324.0
+offset_right = -598.0
+offset_bottom = -324.0
+text = "LOWER BURIED MACHINERY"
+
+[node name="Geometry" type="Node2D" parent="." unique_id=921327927]
+
+[node name="EntryFloor" type="StaticBody2D" parent="Geometry" unique_id=2121388993]
+position = Vector2(-350, 250)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/EntryFloor" unique_id=1275440091]
+shape = SubResource("RectangleShape2D_whi2v")
+
+[node name="Body" type="Polygon2D" parent="Geometry/EntryFloor" unique_id=1254657300]
+visible = false
+color = Color(0.29803923, 0.28627452, 0.21960784, 1)
+polygon = PackedVector2Array(-300, -20, 300, -20, 300, 20, -300, 20)
+
+[node name="Rim" type="Polygon2D" parent="Geometry/EntryFloor" unique_id=626384040]
+visible = false
+position = Vector2(0, -17)
+color = Color(0.7176471, 0.8235294, 0.6117647, 1)
+polygon = PackedVector2Array(-300, -3, 300, -3, 300, 3, -300, 3)
+
+[node name="ArenaFloor" type="StaticBody2D" parent="Geometry" unique_id=1530692550]
+position = Vector2(600, 250)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/ArenaFloor" unique_id=1952997836]
+shape = SubResource("RectangleShape2D_rlnqn")
+
+[node name="Body" type="Polygon2D" parent="Geometry/ArenaFloor" unique_id=333675610]
+visible = false
+color = Color(0.36862746, 0.34901962, 0.2509804, 1)
+polygon = PackedVector2Array(-630, -20, 630, -20, 630, 20, -630, 20)
+
+[node name="Rim" type="Polygon2D" parent="Geometry/ArenaFloor" unique_id=363644939]
+visible = false
+position = Vector2(0, -17)
+color = Color(0.7176471, 0.8235294, 0.6117647, 1)
+polygon = PackedVector2Array(-630, -3, 630, -3, 630, 3, -630, 3)
+
+[node name="DodgeShelf" type="StaticBody2D" parent="Geometry" unique_id=1223031841]
+position = Vector2(520, 80)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/DodgeShelf" unique_id=65169410]
+shape = SubResource("RectangleShape2D_bbiks")
+
+[node name="Body" type="Polygon2D" parent="Geometry/DodgeShelf" unique_id=292069938]
+visible = false
+color = Color(0.4627451, 0.41960785, 0.28627452, 1)
+polygon = PackedVector2Array(-110, -13, 110, -13, 110, 13, -110, 13)
+
+[node name="Rim" type="Polygon2D" parent="Geometry/DodgeShelf" unique_id=148307586]
+visible = false
+position = Vector2(0, -10)
+color = Color(0.7176471, 0.8235294, 0.6117647, 1)
+polygon = PackedVector2Array(-110, -3, 110, -3, 110, 3, -110, 3)
+
+[node name="SupplyShelf" type="StaticBody2D" parent="Geometry" unique_id=756887428]
+position = Vector2(1020, 20)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/SupplyShelf" unique_id=850148291]
+shape = SubResource("RectangleShape2D_bhw70")
+
+[node name="Body" type="Polygon2D" parent="Geometry/SupplyShelf" unique_id=945123635]
+visible = false
+color = Color(0.4627451, 0.41960785, 0.28627452, 1)
+polygon = PackedVector2Array(-120, -13, 120, -13, 120, 13, -120, 13)
+
+[node name="Rim" type="Polygon2D" parent="Geometry/SupplyShelf" unique_id=1047866871]
+visible = false
+position = Vector2(0, -10)
+color = Color(0.7176471, 0.8235294, 0.6117647, 1)
+polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
+
+[node name="MechanismLanding" type="StaticBody2D" parent="Geometry" unique_id=1303139085]
+position = Vector2(1450, 250)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/MechanismLanding" unique_id=368813642]
+shape = SubResource("RectangleShape2D_ckb8v")
+
+[node name="Body" type="Polygon2D" parent="Geometry/MechanismLanding" unique_id=1380209803]
+visible = false
+color = Color(0.29803923, 0.28627452, 0.21960784, 1)
+polygon = PackedVector2Array(-270, -20, 270, -20, 270, 20, -270, 20)
+
+[node name="Rim" type="Polygon2D" parent="Geometry/MechanismLanding" unique_id=2139889310]
+visible = false
+position = Vector2(0, -17)
+color = Color(0.7176471, 0.8235294, 0.6117647, 1)
+polygon = PackedVector2Array(-270, -3, 270, -3, 270, 3, -270, 3)
+
+[node name="Ice" type="Node2D" parent="Geometry"]
+position = Vector2(280, -30)
+script = ExtResource("task6_surface")
+Material = 3
+
+[node name="TargetCollision" type="Area2D" parent="Geometry/Ice"]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Geometry/Ice/TargetCollision"]
+shape = SubResource("CircleShape2D_task6_surface")
+
+[node name="Art" type="Node2D" parent="." unique_id=1679400091]
+z_index = -1
+script = ExtResource("3_t6n50")
+RoomKey = "lower-buried-machinery"
+Room = 3
+LandmarkId = "copper-pipes-fungus"
+
+[node name="Far" type="Node2D" parent="Art" unique_id=985381934]
+z_index = -30
+metadata/depth_role = "far"
+
+[node name="Backdrop" type="Polygon2D" parent="Art/Far" unique_id=321961950]
+position = Vector2(560, 0)
+color = Color(0.08235294, 0.06666667, 0.050980393, 1)
+polygon = PackedVector2Array(-1200, -360, 1200, -360, 1200, 360, -1200, 360)
+
+[node name="Back" type="Node2D" parent="Art" unique_id=1256663015]
+z_index = -24
+metadata/depth_role = "far"
+
+[node name="BuriedVault" type="Polygon2D" parent="Art/Back" unique_id=1886086801]
+position = Vector2(560, 0)
+color = Color(0.18329412, 0.16933334, 0.15537255, 1)
+polygon = PackedVector2Array(-1200, -360, 1200, -360, 1200, 360, -1200, 360)
+
+[node name="BoilerVoid" type="Polygon2D" parent="Art/Back" unique_id=1270578312]
+position = Vector2(940, -70)
+color = Color(0.1282353, 0.11333334, 0.09843138, 1)
+polygon = PackedVector2Array(190, 0, 186.3492, 37.06716, 175.53711, 72.709854, 157.97922, 105.55835, 134.35028, 134.35028, 105.558334, 157.97923, 72.709854, 175.53711, 37.067146, 186.34921, -8.305164e-06, 190, -37.06716, 186.3492, -72.70987, 175.53711, -105.55837, 157.97922, -134.35028, 134.35028, -157.97923, 105.558334, -175.53712, 72.70982, -186.34921, 37.067158, -190, -1.6610327e-05, -186.3492, -37.067192, -175.53711, -72.709854, -157.97922, -105.55836, -134.35027, -134.35031, -105.558304, -157.97926, -72.70979, -175.53714, -37.067173, -186.3492, 2.2657273e-06, -190, 37.067177, -186.3492, 72.709885, -175.5371, 105.55838, -157.9792, 134.35033, -134.35023, 157.97922, -105.55836, 175.53712, -72.709854, 186.34921, -37.067146)
+
+[node name="EarthLoad" type="Polygon2D" parent="Art/Back" unique_id=651753041]
+position = Vector2(560, -285)
+color = Color(0.16129883, 0.14901334, 0.13672784, 1)
+polygon = PackedVector2Array(-1200, -75, 1200, -75, 1200, 75, -1200, 75)
+
+[node name="Mid" type="Node2D" parent="Art" unique_id=2135340546]
+z_index = -16
+metadata/depth_role = "mid"
+
+[node name="StructuralRib1" type="Polygon2D" parent="Art/Mid" unique_id=1843044617]
+position = Vector2(-430, 0)
+color = Color(0.29976472, 0.26352942, 0.18776472, 1)
+polygon = PackedVector2Array(-15, -266.4, 15, -266.4, 15, 266.4, -15, 266.4)
+
+[node name="StructuralRib2" type="Polygon2D" parent="Art/Mid" unique_id=948138017]
+position = Vector2(230, 0)
+color = Color(0.29976472, 0.26352942, 0.18776472, 1)
+polygon = PackedVector2Array(-9, -266.4, 9, -266.4, 9, 266.4, -9, 266.4)
+
+[node name="StructuralRib3" type="Polygon2D" parent="Art/Mid" unique_id=1118338368]
+position = Vector2(890, 0)
+color = Color(0.29976472, 0.26352942, 0.18776472, 1)
+polygon = PackedVector2Array(-15, -266.4, 15, -266.4, 15, 266.4, -15, 266.4)
+
+[node name="StructuralRib4" type="Polygon2D" parent="Art/Mid" unique_id=1280990222]
+position = Vector2(1550, 0)
+color = Color(0.29976472, 0.26352942, 0.18776472, 1)
+polygon = PackedVector2Array(-9, -266.4, 9, -266.4, 9, 266.4, -9, 266.4)
+
+[node name="Landmark" type="Node2D" parent="Art/Mid" unique_id=979951849]
+metadata/landmark_id = "copper-pipes-fungus"
+
+[node name="CopperMain" type="Line2D" parent="Art/Mid/Landmark" unique_id=630662085]
+points = PackedVector2Array(400, -205, 400, 25, 1020, 25)
+width = 28.0
+default_color = Color(0.69411767, 0.46666667, 0.2627451, 1)
+
+[node name="CopperReturn" type="Line2D" parent="Art/Mid/Landmark" unique_id=2074856162]
+points = PackedVector2Array(530, -215, 530, -65, 980, -65)
+width = 16.0
+default_color = Color(0.58305883, 0.39200002, 0.2207059, 1)
+
+[node name="FungusBloom" type="Polygon2D" parent="Art/Mid/Landmark" unique_id=1818574113]
+position = Vector2(790, 1)
+color = Color(0.47058824, 0.5764706, 0.41568628, 1)
+polygon = PackedVector2Array(48, 0, 41.569218, 24, 23.999998, 41.56922, -2.0981465e-06, 48, -24.000004, 41.569218, -41.569225, 23.999992, -48, -4.196293e-06, -41.569214, -24.000008, -23.999996, -41.56922, 5.7239424e-07, -48, 24.000017, -41.56921, 41.56923, -23.999989)
+
+[node name="Platforms" type="Node2D" parent="Art" unique_id=5747098]
+z_index = -4
+metadata/depth_role = "play"
+
+[node name="EntryFloor" type="Polygon2D" parent="Art/Platforms" unique_id=243519379]
+position = Vector2(-350, 250)
+color = Color(0.35686275, 0.3137255, 0.22352941, 1)
+polygon = PackedVector2Array(-300, -20, 300, -20, 300, 20, -300, 20)
+
+[node name="LitEdge" type="Polygon2D" parent="Art/Platforms/EntryFloor" unique_id=1317437334]
+position = Vector2(0, -16)
+color = Color(0.7675294, 0.59466666, 0.43968627, 1)
+polygon = PackedVector2Array(-300, -4, 300, -4, 300, 4, -300, 4)
+
+[node name="ArenaFloor" type="Polygon2D" parent="Art/Platforms" unique_id=1773597058]
+position = Vector2(600, 250)
+color = Color(0.35686275, 0.3137255, 0.22352941, 1)
+polygon = PackedVector2Array(-630, -20, 630, -20, 630, 20, -630, 20)
+
+[node name="LitEdge" type="Polygon2D" parent="Art/Platforms/ArenaFloor" unique_id=1353245923]
+position = Vector2(0, -16)
+color = Color(0.7675294, 0.59466666, 0.43968627, 1)
+polygon = PackedVector2Array(-630, -4, 630, -4, 630, 4, -630, 4)
+
+[node name="DodgeShelf" type="Polygon2D" parent="Art/Platforms" unique_id=612720405]
+position = Vector2(520, 80)
+color = Color(0.35686275, 0.3137255, 0.22352941, 1)
+polygon = PackedVector2Array(-110, -13, 110, -13, 110, 13, -110, 13)
+
+[node name="LitEdge" type="Polygon2D" parent="Art/Platforms/DodgeShelf" unique_id=288771146]
+position = Vector2(0, -9)
+color = Color(0.7675294, 0.59466666, 0.43968627, 1)
+polygon = PackedVector2Array(-110, -4, 110, -4, 110, 4, -110, 4)
+
+[node name="SupplyShelf" type="Polygon2D" parent="Art/Platforms" unique_id=550190511]
+position = Vector2(1020, 20)
+color = Color(0.35686275, 0.3137255, 0.22352941, 1)
+polygon = PackedVector2Array(-120, -13, 120, -13, 120, 13, -120, 13)
+
+[node name="LitEdge" type="Polygon2D" parent="Art/Platforms/SupplyShelf" unique_id=1954023005]
+position = Vector2(0, -9)
+color = Color(0.7675294, 0.59466666, 0.43968627, 1)
+polygon = PackedVector2Array(-120, -4, 120, -4, 120, 4, -120, 4)
+
+[node name="MechanismLanding" type="Polygon2D" parent="Art/Platforms" unique_id=747850418]
+position = Vector2(1450, 250)
+color = Color(0.35686275, 0.3137255, 0.22352941, 1)
+polygon = PackedVector2Array(-270, -20, 270, -20, 270, 20, -270, 20)
+
+[node name="LitEdge" type="Polygon2D" parent="Art/Platforms/MechanismLanding" unique_id=1079947637]
+position = Vector2(0, -16)
+color = Color(0.7675294, 0.59466666, 0.43968627, 1)
+polygon = PackedVector2Array(-270, -4, 270, -4, 270, 4, -270, 4)
+
+[node name="Props" type="Node2D" parent="Art" unique_id=1386315523]
+z_index = -2
+metadata/depth_role = "play"
+
+[node name="Suspension1" type="Line2D" parent="Art/Props" unique_id=182859854]
+position = Vector2(-450, -360)
+points = PackedVector2Array(0, 0, 0, 70)
+width = 4.0
+default_color = Color(0.7675294, 0.59466666, 0.43968627, 0.62)
+
+[node name="Fitting1" type="Polygon2D" parent="Art/Props" unique_id=1931981071]
+position = Vector2(-450, -272)
+color = Color(0.29976472, 0.26352942, 0.18776472, 0.8)
+polygon = PackedVector2Array(15, 0, 12.990381, 7.5, 7.4999995, 12.990381, -6.556708e-07, 15, -7.500001, 12.990381, -12.990382, 7.499997, -15, -1.3113416e-06, -12.990379, -7.500003, -7.4999986, -12.990381, 1.7887321e-07, -15, 7.5000052, -12.990378, 12.990383, -7.499996)
+
+[node name="Suspension2" type="Line2D" parent="Art/Props" unique_id=1196235891]
+position = Vector2(55, -360)
+points = PackedVector2Array(0, 0, 0, 112)
+width = 2.0
+default_color = Color(0.7675294, 0.59466666, 0.43968627, 0.62)
+
+[node name="Suspension3" type="Line2D" parent="Art/Props" unique_id=1758339120]
+position = Vector2(560, -360)
+points = PackedVector2Array(0, 0, 0, 154)
+width = 4.0
+default_color = Color(0.7675294, 0.59466666, 0.43968627, 0.62)
+
+[node name="Fitting3" type="Polygon2D" parent="Art/Props" unique_id=84598210]
+position = Vector2(560, -188)
+color = Color(0.29976472, 0.26352942, 0.18776472, 0.8)
+polygon = PackedVector2Array(23, 0, 19.918585, 11.5, 11.499999, 19.918585, -1.0053619e-06, 23, -11.500001, 19.918585, -19.918587, 11.499996, -23, -2.0107238e-06, -19.918581, -11.500004, -11.499998, -19.918585, 2.7427225e-07, -23, 11.500009, -19.91858, 19.918589, -11.499994)
+
+[node name="Suspension4" type="Line2D" parent="Art/Props" unique_id=20541951]
+position = Vector2(1065, -360)
+points = PackedVector2Array(0, 0, 0, 70)
+width = 2.0
+default_color = Color(0.7675294, 0.59466666, 0.43968627, 0.62)
+
+[node name="Suspension5" type="Line2D" parent="Art/Props" unique_id=130275850]
+position = Vector2(1570, -360)
+points = PackedVector2Array(0, 0, 0, 112)
+width = 4.0
+default_color = Color(0.7675294, 0.59466666, 0.43968627, 0.62)
+
+[node name="Fitting5" type="Polygon2D" parent="Art/Props" unique_id=1236773908]
+position = Vector2(1570, -230)
+color = Color(0.29976472, 0.26352942, 0.18776472, 0.8)
+polygon = PackedVector2Array(19, 0, 16.454483, 9.5, 9.499999, 16.454483, -8.305164e-07, 19, -9.500001, 16.454483, -16.454485, 9.499996, -19, -1.6610328e-06, -16.45448, -9.500004, -9.499998, -16.454483, 2.2657274e-07, -19, 9.500007, -16.45448, 16.454485, -9.499995)
+
+[node name="Front" type="Node2D" parent="Art" unique_id=1821399716]
+z_index = 12
+metadata/depth_role = "front"
+
+[node name="LeftForeground" type="Node2D" parent="Art/Front" unique_id=1903153612]
+position = Vector2(-550, 0)
+script = ExtResource("4_qj13i")
+
+[node name="Arch" type="Polygon2D" parent="Art/Front/LeftForeground" unique_id=358497064]
+color = Color(0.18329412, 0.16933334, 0.15537255, 1)
+polygon = PackedVector2Array(-90, -360, 90, -360, 195, 360, -90, 360)
+
+[node name="RightForeground" type="Node2D" parent="Art/Front" unique_id=478323969]
+position = Vector2(1670, 0)
+script = ExtResource("4_qj13i")
+
+[node name="Arch" type="Polygon2D" parent="Art/Front/RightForeground" unique_id=304041279]
+color = Color(0.18329412, 0.16933334, 0.15537255, 1)
+polygon = PackedVector2Array(-90, -360, 90, -360, -15, 360, -90, 360)
+
+[node name="Atmosphere" type="Node2D" parent="Art" unique_id=1248253411]
+z_index = -8
+metadata/depth_role = "atmosphere"
+metadata/deterministic_seed = 142
+metadata/atmosphere_kind = "FungalSpores"
+
+[node name="Dust1" type="Polygon2D" parent="Art/Atmosphere" unique_id=639926559]
+position = Vector2(977, 79)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(1.5, 0, 1.0606601, 1.0606601, -6.556708e-08, 1.5, -1.0606601, 1.0606601, -1.5, -1.3113416e-07, -1.06066, -1.0606604, 1.788732e-08, -1.5, 1.0606605, -1.0606598)
+
+[node name="Dust2" type="Polygon2D" parent="Art/Atmosphere" unique_id=1186035110]
+position = Vector2(1114, 162)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(2.5, 0, 1.767767, 1.767767, -1.09278474e-07, 2.5, -1.767767, 1.767767, -2.5, -2.1855695e-07, -1.7677666, -1.7677672, 2.9812202e-08, -2.5, 1.7677675, -1.7677664)
+
+[node name="Dust3" type="Polygon2D" parent="Art/Atmosphere" unique_id=869063433]
+position = Vector2(1251, 245)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(3.5, 0, 2.4748738, 2.4748738, -1.5298986e-07, 3.5, -2.4748738, 2.4748738, -3.5, -3.059797e-07, -2.4748733, -2.474874, 4.173708e-08, -3.5, 2.4748745, -2.4748728)
+
+[node name="Dust4" type="Polygon2D" parent="Art/Atmosphere" unique_id=159286409]
+position = Vector2(1388, -282)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(1.5, 0, 1.0606601, 1.0606601, -6.556708e-08, 1.5, -1.0606601, 1.0606601, -1.5, -1.3113416e-07, -1.06066, -1.0606604, 1.788732e-08, -1.5, 1.0606605, -1.0606598)
+
+[node name="Dust5" type="Polygon2D" parent="Art/Atmosphere" unique_id=877072062]
+position = Vector2(1525, -199)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(2.5, 0, 1.767767, 1.767767, -1.09278474e-07, 2.5, -1.767767, 1.767767, -2.5, -2.1855695e-07, -1.7677666, -1.7677672, 2.9812202e-08, -2.5, 1.7677675, -1.7677664)
+
+[node name="Dust6" type="Polygon2D" parent="Art/Atmosphere" unique_id=1084672883]
+position = Vector2(1662, -116)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(3.5, 0, 2.4748738, 2.4748738, -1.5298986e-07, 3.5, -2.4748738, 2.4748738, -3.5, -3.059797e-07, -2.4748733, -2.474874, 4.173708e-08, -3.5, 2.4748745, -2.4748728)
+
+[node name="Dust7" type="Polygon2D" parent="Art/Atmosphere" unique_id=1226878114]
+position = Vector2(-491, -33)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(1.5, 0, 1.0606601, 1.0606601, -6.556708e-08, 1.5, -1.0606601, 1.0606601, -1.5, -1.3113416e-07, -1.06066, -1.0606604, 1.788732e-08, -1.5, 1.0606605, -1.0606598)
+
+[node name="Dust8" type="Polygon2D" parent="Art/Atmosphere" unique_id=1100592033]
+position = Vector2(-354, 50)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(2.5, 0, 1.767767, 1.767767, -1.09278474e-07, 2.5, -1.767767, 1.767767, -2.5, -2.1855695e-07, -1.7677666, -1.7677672, 2.9812202e-08, -2.5, 1.7677675, -1.7677664)
+
+[node name="Dust9" type="Polygon2D" parent="Art/Atmosphere" unique_id=620627271]
+position = Vector2(-217, 133)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(3.5, 0, 2.4748738, 2.4748738, -1.5298986e-07, 3.5, -2.4748738, 2.4748738, -3.5, -3.059797e-07, -2.4748733, -2.474874, 4.173708e-08, -3.5, 2.4748745, -2.4748728)
+
+[node name="Dust10" type="Polygon2D" parent="Art/Atmosphere" unique_id=1468449630]
+position = Vector2(-80, 216)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(1.5, 0, 1.0606601, 1.0606601, -6.556708e-08, 1.5, -1.0606601, 1.0606601, -1.5, -1.3113416e-07, -1.06066, -1.0606604, 1.788732e-08, -1.5, 1.0606605, -1.0606598)
+
+[node name="Dust11" type="Polygon2D" parent="Art/Atmosphere" unique_id=1794259300]
+position = Vector2(57, 299)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(2.5, 0, 1.767767, 1.767767, -1.09278474e-07, 2.5, -1.767767, 1.767767, -2.5, -2.1855695e-07, -1.7677666, -1.7677672, 2.9812202e-08, -2.5, 1.7677675, -1.7677664)
+
+[node name="Dust12" type="Polygon2D" parent="Art/Atmosphere" unique_id=373488711]
+position = Vector2(194, -228)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(3.5, 0, 2.4748738, 2.4748738, -1.5298986e-07, 3.5, -2.4748738, 2.4748738, -3.5, -3.059797e-07, -2.4748733, -2.474874, 4.173708e-08, -3.5, 2.4748745, -2.4748728)
+
+[node name="Dust13" type="Polygon2D" parent="Art/Atmosphere" unique_id=1484319377]
+position = Vector2(331, -145)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(1.5, 0, 1.0606601, 1.0606601, -6.556708e-08, 1.5, -1.0606601, 1.0606601, -1.5, -1.3113416e-07, -1.06066, -1.0606604, 1.788732e-08, -1.5, 1.0606605, -1.0606598)
+
+[node name="Dust14" type="Polygon2D" parent="Art/Atmosphere" unique_id=678388819]
+position = Vector2(468, -62)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(2.5, 0, 1.767767, 1.767767, -1.09278474e-07, 2.5, -1.767767, 1.767767, -2.5, -2.1855695e-07, -1.7677666, -1.7677672, 2.9812202e-08, -2.5, 1.7677675, -1.7677664)
+
+[node name="Dust15" type="Polygon2D" parent="Art/Atmosphere" unique_id=805169946]
+position = Vector2(605, 21)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(3.5, 0, 2.4748738, 2.4748738, -1.5298986e-07, 3.5, -2.4748738, 2.4748738, -3.5, -3.059797e-07, -2.4748733, -2.474874, 4.173708e-08, -3.5, 2.4748745, -2.4748728)
+
+[node name="Dust16" type="Polygon2D" parent="Art/Atmosphere" unique_id=473790826]
+position = Vector2(742, 104)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(1.5, 0, 1.0606601, 1.0606601, -6.556708e-08, 1.5, -1.0606601, 1.0606601, -1.5, -1.3113416e-07, -1.06066, -1.0606604, 1.788732e-08, -1.5, 1.0606605, -1.0606598)
+
+[node name="Dust17" type="Polygon2D" parent="Art/Atmosphere" unique_id=407723112]
+position = Vector2(879, 187)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(2.5, 0, 1.767767, 1.767767, -1.09278474e-07, 2.5, -1.767767, 1.767767, -2.5, -2.1855695e-07, -1.7677666, -1.7677672, 2.9812202e-08, -2.5, 1.7677675, -1.7677664)
+
+[node name="Dust18" type="Polygon2D" parent="Art/Atmosphere" unique_id=1349461027]
+position = Vector2(1016, 270)
+color = Color(0.7491765, 0.56266665, 0.395451, 0.24)
+polygon = PackedVector2Array(3.5, 0, 2.4748738, 2.4748738, -1.5298986e-07, 3.5, -2.4748738, 2.4748738, -3.5, -3.059797e-07, -2.4748733, -2.474874, 4.173708e-08, -3.5, 2.4748745, -2.4748728)
+
+[node name="TraversalContracts" type="Node2D" parent="." unique_id=288167013]
+
+[node name="entry_to_arena" type="Node2D" parent="TraversalContracts" unique_id=95844506]
+script = ExtResource("5_jvc4a")
+SegmentId = &"entry_to_arena"
+RequiredAbilities = 1
+LaunchZone = Rect2(-186, 182, 96, 48)
+LandingZone = Rect2(-30, 182, 96, 48)
+
+[node name="Entrances" type="Node2D" parent="." unique_id=1635824530]
+
+[node name="from_corridor" type="Marker2D" parent="Entrances" unique_id=1237734576]
+position = Vector2(-540, 198)
+
+[node name="from_mechanism" type="Marker2D" parent="Entrances" unique_id=208252324]
+position = Vector2(1480, 198)
+
+[node name="Exits" type="Node2D" parent="." unique_id=1787017572]
+
+[node name="ToCorridor" type="Area2D" parent="Exits" unique_id=1127677516]
+position = Vector2(-610, 190)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("6_qoji7")
+ExitId = &"to_corridor"
+
+[node name="Collision" type="CollisionShape2D" parent="Exits/ToCorridor" unique_id=719159410]
+shape = SubResource("RectangleShape2D_sgiti")
+
+[node name="Readability" type="Polygon2D" parent="Exits/ToCorridor" unique_id=106248843]
+color = Color(0.4745098, 0.84313726, 0.6745098, 1)
+polygon = PackedVector2Array(-9, -48, 9, -48, 9, 48, -9, 48)
+
+[node name="ToMechanism" type="Area2D" parent="Exits" unique_id=1510269985]
+position = Vector2(1690, 190)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("6_qoji7")
+ExitId = &"to_mechanism"
+
+[node name="Collision" type="CollisionShape2D" parent="Exits/ToMechanism" unique_id=1170997320]
+shape = SubResource("RectangleShape2D_c1m8s")
+
+[node name="Readability" type="Polygon2D" parent="Exits/ToMechanism" unique_id=1708543897]
+color = Color(0.8784314, 0.7411765, 0.4117647, 1)
+polygon = PackedVector2Array(-9, -48, 9, -48, 9, 48, -9, 48)
+
+[node name="SpawnMarkers" type="Node2D" parent="." unique_id=1617949792]
+
+[node name="Ground" type="Marker2D" parent="SpawnMarkers" unique_id=1530883697]
+position = Vector2(520, 198)
+
+[node name="Air" type="Marker2D" parent="SpawnMarkers" unique_id=1896595724]
+position = Vector2(920, -80)
+
+[node name="Actors" type="Node2D" parent="." unique_id=1696590522]
+
+[node name="EncounterController" type="Node" parent="." unique_id=1558175047]
+script = ExtResource("7_calgu")
+Definition = SubResource("Resource_72c1h")
+AutoActivate = true
+
+[node name="Tutorials" type="Node2D" parent="." unique_id=1520407255]
+
+[node name="ThreadEnemy" type="Area2D" parent="Tutorials" unique_id=2059149614]
+position = Vector2(280, 90)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("12_dkykv")
+TutorialId = &"thread_enemy"
+Text = "E + LEFT MOUSE  PULL LIGHT ENEMY"
+
+[node name="Collision" type="CollisionShape2D" parent="Tutorials/ThreadEnemy" unique_id=1469206485]
+shape = SubResource("RectangleShape2D_yvmqh")
+
+[node name="KillZone" type="Area2D" parent="." unique_id=499375671]
+position = Vector2(580, 560)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("13_d8kqj")
+
+[node name="Collision" type="CollisionShape2D" parent="KillZone" unique_id=2002150062]
+shape = SubResource("RectangleShape2D_byrvw")

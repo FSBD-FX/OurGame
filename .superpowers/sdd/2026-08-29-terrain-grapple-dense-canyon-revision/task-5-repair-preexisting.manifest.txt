@@ -1,0 +1,13 @@
+Task 5 repair preflight — HEAD cba18ae87f1f9ee366d5f1a08004b0058de5dd43
+
+scripts/player/PlayerInputReader.cs
+status: clean relative to HEAD
+HEAD/worktree blob: 023ad4c224a1925f527b9a0e0e83d7490b4e8c64
+SHA-256: 960A0449744B0069A939A663549C06F8B76996D75E6846C535A0CFD4FDAE7CB7
+
+tests/powershell/Task4PlaytestRecorderTransition.Tests.ps1
+status: user-dirty, post-commit merged hunk; do not overwrite
+original frozen user blob: cc66924a34a545b9f8d1bd443550038436250f1c
+original frozen user SHA-256: 0102CB552105625B0CA6759F8D9B5EC38DDA72DAF0925A969B24CF9E3DC55C8D
+current merged blob: 535136f89126308c46efc5ff5d6a7ccecca02461
+current merged SHA-256: 15D8FE94A5EB29244658CF44764739C683D0CD2DD16AF2419020F0C91ED1F381

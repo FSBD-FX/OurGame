@@ -1,0 +1,9 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/presentation/PrologueMechanismVisual.cs" id="1_aayvw"]
+
+[node name="GraveLampVisual" type="Node2D" unique_id=1473887049]
+script = ExtResource("1_aayvw")
+
+[node name="TargetMarker" type="Marker2D" parent="." unique_id=2027056154]
+position = Vector2(0, -5)

@@ -1,0 +1,564 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/prologue/seamless/PrologueSector.cs" id="1_kvtlr"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonBackdropVisual.cs" id="2_k6j0n"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonPlatformVisual.cs" id="3_gi5qh"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonAnchorVisual.cs" id="4_q14v5"]
+[ext_resource type="Script" path="res://scripts/abilities/GrappleSurface2D.cs" id="5_0bqfp"]
+[ext_resource type="Script" path="res://scripts/prologue/traversal/TraversalSegment2D.cs" id="6_cv6a7"]
+[ext_resource type="Script" path="res://scripts/world/KillZone.cs" id="7_k3afl"]
+[ext_resource type="PackedScene" path="res://scenes/mechanisms/BellChainMechanism.tscn" id="8_pmvsc"]
+[ext_resource type="Script" path="res://scripts/mechanisms/BellChainMechanism.cs" id="9_edend"]
+[ext_resource type="Script" path="res://scripts/prologue/mechanisms/CanyonClawMechanism2D.cs" id="10_vvkln"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="11_5phr7"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="12_uetgm"]
+[ext_resource type="Script" path="res://scripts/prologue/CheckpointTrigger.cs" id="13_pq1r6"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/GraveLampVisual.tscn" id="14_4g8f2"]
+[ext_resource type="Script" path="res://scripts/presentation/PrologueMechanismVisual.cs" id="15_8sloj"]
+[ext_resource type="Script" path="res://scripts/boss/BossArenaController.cs" id="16_jwcvs"]
+[ext_resource type="PackedScene" path="res://scenes/boss/FallenBellkeeper.tscn" id="17_q4ay0"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_0ojvo"]
+size = Vector2(180, 24)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_xpjf7"]
+size = Vector2(180, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_fgwip"]
+size = Vector2(580, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_fy6sh"]
+size = Vector2(280, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_kspmq"]
+size = Vector2(440, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_rca6c"]
+size = Vector2(880, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_pprav"]
+size = Vector2(380, 24)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_pe58l"]
+radius = 24.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_p8xti"]
+radius = 34.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_37r57"]
+size = Vector2(1920, 16)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_kx6pb"]
+radius = 28.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_jppeg"]
+size = Vector2(52, 104)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ooa7b"]
+size = Vector2(36, 180)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_yuo53"]
+size = Vector2(36, 180)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_71qm3"]
+size = Vector2(90, 180)
+
+[node name="LostTemple" type="Node2D" unique_id=1906963442]
+script = ExtResource("1_kvtlr")
+SectorId = 4
+Bounds = Rect2(0, 0, 1920, 720)
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=133729755]
+
+[node name="Background" type="Node2D" parent="VisualRoot" unique_id=366628920]
+z_index = -40
+
+[node name="CanyonVoid" type="Polygon2D" parent="VisualRoot/Background" unique_id=1435727471]
+position = Vector2(960, 360)
+color = Color(0.09019608, 0.08235294, 0.11764706, 1)
+polygon = PackedVector2Array(-960, -360, 960, -360, 960, 360, -960, 360)
+
+[node name="DistantCanyon" type="Node2D" parent="VisualRoot/Background" unique_id=623897307]
+script = ExtResource("2_k6j0n")
+SectorId = 4
+SectorBounds = Rect2(0, 0, 1920, 720)
+DistantLayer = true
+
+[node name="Midground" type="Node2D" parent="VisualRoot" unique_id=792556609]
+z_index = -20
+
+[node name="CanyonRib1" type="Polygon2D" parent="VisualRoot/Midground" unique_id=462717599]
+position = Vector2(90, 583.2)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -136.8, 16, -136.8, 16, 136.8, -16, 136.8)
+
+[node name="CanyonRib2" type="Polygon2D" parent="VisualRoot/Midground" unique_id=927136368]
+position = Vector2(380, 554.4)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -165.59999, 16, -165.59999, 16, 165.59999, -16, 165.59999)
+
+[node name="CanyonRib3" type="Polygon2D" parent="VisualRoot/Midground" unique_id=1340457918]
+position = Vector2(670, 525.6)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -194.4, 16, -194.4, 16, 194.4, -16, 194.4)
+
+[node name="CanyonRib4" type="Polygon2D" parent="VisualRoot/Midground" unique_id=2117742216]
+position = Vector2(960, 583.2)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -136.8, 16, -136.8, 16, 136.8, -16, 136.8)
+
+[node name="CanyonRib5" type="Polygon2D" parent="VisualRoot/Midground" unique_id=1800085686]
+position = Vector2(1250, 554.4)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -165.59999, 16, -165.59999, 16, 165.59999, -16, 165.59999)
+
+[node name="CanyonRib6" type="Polygon2D" parent="VisualRoot/Midground" unique_id=330658815]
+position = Vector2(1540, 525.6)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -194.4, 16, -194.4, 16, 194.4, -16, 194.4)
+
+[node name="CanyonRib7" type="Polygon2D" parent="VisualRoot/Midground" unique_id=389759936]
+position = Vector2(1830, 583.2)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -136.8, 16, -136.8, 16, 136.8, -16, 136.8)
+
+[node name="CanyonLandmark" type="Node2D" parent="VisualRoot/Midground" unique_id=1688967521]
+script = ExtResource("2_k6j0n")
+SectorId = 4
+SectorBounds = Rect2(0, 0, 1920, 720)
+
+[node name="GameplayReadable" type="Node2D" parent="VisualRoot" unique_id=1658265425]
+z_index = -2
+
+[node name="MicroSceneReadability" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=606076948]
+
+[node name="OuterSealGuardWorkshop" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=737264842]
+position = Vector2(380, 360)
+color = Color(0.72, 0.58, 0.3, 0.04)
+polygon = PackedVector2Array(-376, -356, 376, -356, 376, 356, -376, 356)
+
+[node name="BellAntechamberBossHall" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=690721478]
+position = Vector2(1340, 360)
+color = Color(0.72, 0.58, 0.3, 0.04)
+polygon = PackedVector2Array(-576, -356, 576, -356, 576, 356, -576, 356)
+
+[node name="TempleSeamLanding" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1345977809]
+position = Vector2(90, 700)
+script = ExtResource("3_gi5qh")
+SurfaceMaterial = 1
+SkinSize = Vector2(180, 24)
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/TempleSeamLanding" unique_id=1270352504]
+position = Vector2(0, -9)
+color = Color(0.6627451, 0.78039217, 0.6156863, 1)
+polygon = PackedVector2Array(-90, -3, 90, -3, 90, 3, -90, 3)
+
+[node name="TempleSeamStep" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1830393680]
+position = Vector2(210, 660)
+script = ExtResource("3_gi5qh")
+SurfaceMaterial = 1
+SkinSize = Vector2(180, 32)
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/TempleSeamStep" unique_id=1255639868]
+position = Vector2(0, -13)
+color = Color(0.6627451, 0.78039217, 0.6156863, 1)
+polygon = PackedVector2Array(-90, -3, 90, -3, 90, 3, -90, 3)
+
+[node name="OuterWallFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1276978566]
+position = Vector2(550, 630)
+script = ExtResource("3_gi5qh")
+SurfaceMaterial = 1
+SkinSize = Vector2(580, 40)
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/OuterWallFloor" unique_id=1655210918]
+position = Vector2(0, -17)
+color = Color(0.6627451, 0.78039217, 0.6156863, 1)
+polygon = PackedVector2Array(-290, -3, 290, -3, 290, 3, -290, 3)
+
+[node name="MechanismDais" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1688830168]
+position = Vector2(470, 630)
+script = ExtResource("3_gi5qh")
+SurfaceMaterial = 1
+SkinSize = Vector2(280, 40)
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismDais" unique_id=356249413]
+position = Vector2(0, -17)
+color = Color(0.6627451, 0.78039217, 0.6156863, 1)
+polygon = PackedVector2Array(-140, -3, 140, -3, 140, 3, -140, 3)
+
+[node name="CheckpointFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1540865068]
+position = Vector2(850, 630)
+script = ExtResource("3_gi5qh")
+SurfaceMaterial = 1
+SkinSize = Vector2(440, 40)
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/CheckpointFloor" unique_id=2106342337]
+position = Vector2(0, -17)
+color = Color(0.6627451, 0.78039217, 0.6156863, 1)
+polygon = PackedVector2Array(-220, -3, 220, -3, 220, 3, -220, 3)
+
+[node name="ArenaFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1780717543]
+position = Vector2(1480, 630)
+script = ExtResource("3_gi5qh")
+SurfaceMaterial = 1
+SkinSize = Vector2(880, 40)
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ArenaFloor" unique_id=1892909012]
+position = Vector2(0, -17)
+color = Color(0.6627451, 0.78039217, 0.6156863, 1)
+polygon = PackedVector2Array(-440, -3, 440, -3, 440, 3, -440, 3)
+
+[node name="TempleCatch" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=340070294]
+position = Vector2(650, 690)
+script = ExtResource("3_gi5qh")
+SurfaceMaterial = 1
+SkinSize = Vector2(380, 24)
+CatchShelf = true
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/TempleCatch" unique_id=1429018487]
+position = Vector2(0, -9)
+color = Color(0.6627451, 0.78039217, 0.6156863, 1)
+polygon = PackedVector2Array(-190, -3, 190, -3, 190, 3, -190, 3)
+
+[node name="TempleAssist" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1348535813]
+position = Vector2(900, 360)
+script = ExtResource("4_q14v5")
+SurfaceMaterial = 1
+
+[node name="ForbiddenRelicFace" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=875021675]
+position = Vector2(1160, 360)
+script = ExtResource("4_q14v5")
+SurfaceMaterial = 4
+Radius = 34.0
+
+[node name="Foreground" type="Node2D" parent="VisualRoot" unique_id=326977764]
+z_index = 20
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=1917652521]
+z_index = 30
+
+[node name="SectorLabel" type="Label" parent="VisualRoot/Effects" unique_id=1187027398]
+visible = false
+modulate = Color(0.75, 0.82, 0.76, 0.55)
+offset_left = 42.0
+offset_top = 34.0
+offset_right = 42.0
+offset_bottom = 34.0
+text = "LostTemple"
+
+[node name="Gameplay" type="Node2D" parent="." unique_id=642005190]
+
+[node name="Collision" type="Node2D" parent="Gameplay" unique_id=129731048]
+
+[node name="TempleSeamLanding" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1343966023]
+position = Vector2(90, 700)
+collision_layer = 33
+collision_mask = 0
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/TempleSeamLanding" unique_id=854706212]
+script = ExtResource("5_0bqfp")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/TempleSeamLanding" unique_id=283097736]
+shape = SubResource("RectangleShape2D_0ojvo")
+
+[node name="TempleSeamStep" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1672186809]
+position = Vector2(210, 660)
+collision_layer = 33
+collision_mask = 0
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/TempleSeamStep" unique_id=1990199556]
+script = ExtResource("5_0bqfp")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/TempleSeamStep" unique_id=1341121626]
+shape = SubResource("RectangleShape2D_xpjf7")
+
+[node name="OuterWallFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1308804252]
+position = Vector2(550, 630)
+collision_layer = 33
+collision_mask = 0
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/OuterWallFloor" unique_id=2028732515]
+script = ExtResource("5_0bqfp")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/OuterWallFloor" unique_id=1047235409]
+shape = SubResource("RectangleShape2D_fgwip")
+
+[node name="MechanismDais" type="StaticBody2D" parent="Gameplay/Collision" unique_id=316647600]
+position = Vector2(470, 630)
+collision_layer = 33
+collision_mask = 0
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/MechanismDais" unique_id=213829822]
+script = ExtResource("5_0bqfp")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/MechanismDais" unique_id=570533889]
+shape = SubResource("RectangleShape2D_fy6sh")
+one_way_collision = true
+one_way_collision_margin = 16.0
+
+[node name="CheckpointFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1347348050]
+position = Vector2(850, 630)
+collision_layer = 33
+collision_mask = 0
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/CheckpointFloor" unique_id=1078065880]
+script = ExtResource("5_0bqfp")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/CheckpointFloor" unique_id=145780865]
+shape = SubResource("RectangleShape2D_kspmq")
+
+[node name="ArenaFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1177688443]
+position = Vector2(1480, 630)
+collision_layer = 33
+collision_mask = 0
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ArenaFloor" unique_id=310786007]
+script = ExtResource("5_0bqfp")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ArenaFloor" unique_id=90081781]
+shape = SubResource("RectangleShape2D_rca6c")
+
+[node name="TempleCatch" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1739211497]
+position = Vector2(650, 690)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/TempleCatch" unique_id=1490893419]
+script = ExtResource("5_0bqfp")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/TempleCatch" unique_id=1854810456]
+shape = SubResource("RectangleShape2D_pprav")
+one_way_collision = true
+one_way_collision_margin = 16.0
+
+[node name="GrappleSurfaces" type="Node2D" parent="Gameplay" unique_id=353367000]
+
+[node name="TempleAssist" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=912397841]
+position = Vector2(900, 360)
+script = ExtResource("5_0bqfp")
+Material = 1
+metadata/target_role = "boss-critical"
+
+[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/TempleAssist" unique_id=1190826203]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/TempleAssist/TargetCollision" unique_id=1446192629]
+shape = SubResource("CircleShape2D_pe58l")
+
+[node name="ForbiddenRelicFace" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=2057337375]
+position = Vector2(1160, 360)
+script = ExtResource("5_0bqfp")
+Material = 4
+metadata/target_role = "boundary"
+
+[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/ForbiddenRelicFace" unique_id=1603182690]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/ForbiddenRelicFace/TargetCollision" unique_id=1124246145]
+shape = SubResource("CircleShape2D_p8xti")
+
+[node name="TraversalContracts" type="Node2D" parent="Gameplay" unique_id=2077530544]
+
+[node name="temple_mechanism" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=543609383]
+script = ExtResource("6_cv6a7")
+SegmentId = &"temple_mechanism"
+RequiredAbilities = 1
+LaunchZone = Rect2(280, 550, 80, 48)
+LandingZone = Rect2(380, 550, 200, 48)
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/temple_mechanism" unique_id=840150370]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(280, 550, 360, 550, 360, 598, 280, 598)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/temple_mechanism" unique_id=811279428]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(380, 550, 580, 550, 580, 598, 380, 598)
+
+[node name="temple_checkpoint" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=504792562]
+script = ExtResource("6_cv6a7")
+SegmentId = &"temple_checkpoint"
+RequiredAbilities = 1
+LaunchZone = Rect2(450, 550, 100, 48)
+LandingZone = Rect2(720, 554, 220, 48)
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/temple_checkpoint" unique_id=919334451]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(450, 550, 550, 550, 550, 598, 450, 598)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/temple_checkpoint" unique_id=1254119460]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(720, 554, 940, 554, 940, 602, 720, 602)
+
+[node name="temple_boss_entry" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=990846699]
+script = ExtResource("6_cv6a7")
+SegmentId = &"temple_boss_entry"
+RequiredAbilities = 1
+LaunchZone = Rect2(930, 554, 100, 48)
+LandingZone = Rect2(1190, 554, 220, 48)
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/temple_boss_entry" unique_id=1298143754]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(930, 554, 1030, 554, 1030, 602, 930, 602)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/temple_boss_entry" unique_id=1176428160]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(1190, 554, 1410, 554, 1410, 602, 1190, 602)
+
+[node name="RouteMarkers" type="Node2D" parent="Gameplay" unique_id=869677545]
+
+[node name="PreviousSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=369705008]
+position = Vector2(2, 574)
+
+[node name="FallRecovery" type="Node2D" parent="Gameplay" unique_id=1434558922]
+
+[node name="RecoveryVolume" type="Area2D" parent="Gameplay/FallRecovery" unique_id=119755252]
+position = Vector2(960, 712)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("7_k3afl")
+RoomControllerPath = NodePath("../../../../../..")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume" unique_id=2079498614]
+shape = SubResource("RectangleShape2D_37r57")
+
+[node name="RecoveryLanding" type="Marker2D" parent="Gameplay/FallRecovery" unique_id=160731463]
+position = Vector2(120, 574)
+
+[node name="OptionalPaths" type="Node2D" parent="Gameplay" unique_id=1539672070]
+
+[node name="MicroScenes" type="Node2D" parent="Gameplay" unique_id=1403916310]
+
+[node name="OuterSealGuardWorkshop" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=1343113009]
+position = Vector2(380, 360)
+metadata/local_bounds = Rect2(0, 0, 760, 720)
+metadata/optional_subarea = false
+
+[node name="BellAntechamberBossHall" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=210478811]
+position = Vector2(1340, 360)
+metadata/local_bounds = Rect2(760, 0, 1160, 720)
+metadata/optional_subarea = false
+
+[node name="Mechanisms" type="Node2D" parent="Gameplay" unique_id=524182124]
+
+[node name="BellChain" type="Node2D" parent="Gameplay/Mechanisms" unique_id=608206241 instance=ExtResource("8_pmvsc")]
+position = Vector2(600, 400)
+script = ExtResource("9_edend")
+DoorHeight = 420.0
+
+[node name="BellBody" type="Node2D" parent="Gameplay/Mechanisms" unique_id=2052670804]
+position = Vector2(1020, 420)
+script = ExtResource("10_vvkln")
+Kind = 3
+
+[node name="LinkedNode" type="Node2D" parent="Gameplay/Mechanisms/BellBody" unique_id=1388713930]
+
+[node name="ReadableMechanism" type="Polygon2D" parent="Gameplay/Mechanisms/BellBody/LinkedNode" unique_id=1760061012]
+color = Color(0.6039216, 0.4627451, 0.2509804, 1)
+polygon = PackedVector2Array(-36, -36, 36, -36, 36, 36, -36, 36)
+
+[node name="ThreadTarget" type="Node2D" parent="Gameplay/Mechanisms/BellBody" unique_id=1890093827]
+position = Vector2(0, -64)
+script = ExtResource("11_5phr7")
+Kind = 3
+metadata/target_role = "mechanism"
+
+[node name="TargetCollision" type="Area2D" parent="Gameplay/Mechanisms/BellBody/ThreadTarget" unique_id=996820640]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/BellBody/ThreadTarget/TargetCollision" unique_id=910715346]
+shape = SubResource("CircleShape2D_kx6pb")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/Mechanisms/BellBody/ThreadTarget" unique_id=173357546]
+script = ExtResource("12_uetgm")
+
+[node name="BossApproachStart" type="Marker2D" parent="Gameplay" unique_id=743240014]
+position = Vector2(980, 574)
+
+[node name="TempleCheckpoint" type="Area2D" parent="Gameplay" unique_id=1011233184]
+position = Vector2(880, 574)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("13_pq1r6")
+EntranceId = &"temple_checkpoint"
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/TempleCheckpoint" unique_id=1479395833]
+shape = SubResource("RectangleShape2D_jppeg")
+
+[node name="Visual" type="Node2D" parent="Gameplay/TempleCheckpoint" unique_id=1473887049 instance=ExtResource("14_4g8f2")]
+position = Vector2(0, -22)
+script = ExtResource("15_8sloj")
+
+[node name="Doors" type="Node2D" parent="Gameplay" unique_id=772988940]
+
+[node name="Entry" type="StaticBody2D" parent="Gameplay/Doors" unique_id=1431066955]
+position = Vector2(1120, 520)
+collision_layer = 33
+collision_mask = 0
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Doors/Entry" unique_id=2132641277]
+script = ExtResource("5_0bqfp")
+Material = 4
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Doors/Entry" unique_id=1882832252]
+shape = SubResource("RectangleShape2D_ooa7b")
+
+[node name="ReadableDoor" type="Polygon2D" parent="Gameplay/Doors/Entry" unique_id=1113522738]
+color = Color(0.5568628, 0.41568628, 0.27450982, 1)
+polygon = PackedVector2Array(-18, -90, 18, -90, 18, 90, -18, 90)
+
+[node name="Exit" type="StaticBody2D" parent="Gameplay/Doors" unique_id=1360841774]
+position = Vector2(1840, 520)
+collision_layer = 33
+collision_mask = 0
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Doors/Exit" unique_id=263511473]
+script = ExtResource("5_0bqfp")
+Material = 4
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Doors/Exit" unique_id=709314258]
+shape = SubResource("RectangleShape2D_yuo53")
+
+[node name="ReadableDoor" type="Polygon2D" parent="Gameplay/Doors/Exit" unique_id=681651843]
+color = Color(0.5568628, 0.41568628, 0.27450982, 1)
+polygon = PackedVector2Array(-18, -90, 18, -90, 18, 90, -18, 90)
+
+[node name="BossRoot" type="Node2D" parent="Gameplay" unique_id=532880492]
+
+[node name="ActivationTrigger" type="Area2D" parent="Gameplay" unique_id=1307649115]
+position = Vector2(1200, 520)
+collision_layer = 0
+collision_mask = 2
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/ActivationTrigger" unique_id=927486053]
+shape = SubResource("RectangleShape2D_71qm3")
+
+[node name="BossArenaController" type="Node" parent="Gameplay" unique_id=668852875]
+script = ExtResource("16_jwcvs")
+BossScene = ExtResource("17_q4ay0")
+BossSpawnPosition = Vector2(1500, 574)

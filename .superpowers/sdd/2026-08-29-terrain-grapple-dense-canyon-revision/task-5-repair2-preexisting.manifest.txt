@@ -1,0 +1,31 @@
+Task 5 recovery-timing repair preflight — HEAD 65bf253704a7c656d925fbb9656e207560ddb735
+
+scripts/prologue/ProloguePlaytestRecorder.cs
+status: clean relative to HEAD
+blob: b958fe9c7f6e7b50212a209bb6a5563c23eda0bd
+SHA-256: 00BBEBF687D5A0E39A7642C7CFDBD19AC58E230B92AE31ED7784FB3C3638723C
+
+scripts/player/PlayerInputReader.cs
+status: clean relative to HEAD
+blob: 3f63e7eeea3b63e0a926ef8507b16062a62a3f1c
+SHA-256: 23D3CA96BD4A85A07BB71332E6BFFA860C887D58B4CEB566F47E7E515A0FD678
+
+scripts/prologue/PrologueLevelController.cs
+status: clean relative to HEAD; inspected only, not owned by this repair
+blob: fc3e694d47c175997cb7f82958fea88887eb80c5
+SHA-256: 84CEF8E4B2A3407036AB54148CD5FB6BD3601EC45ECD71A0277061DCEB0A3456
+
+tests/integration/ProloguePlaytestRecorderTests.cs
+status: clean relative to HEAD
+blob: 88d85d83cd65fe5fa51c01e1432c805308f499a3
+SHA-256: 8D33DC3B9982B08821C4DD5B03D1B1F5DAE18FEDE0D790B909F72BCCDA3ABDE1
+
+tests/unit/ProloguePlaytestSessionTests.cs
+status: clean relative to HEAD
+blob: 261b7c2d5cb79dcf8850796e0f2a0cf5afbef917
+SHA-256: 2603BF0721D84BFEE57BA8FB91C3EF31988DC7A08FE78612C43A62986587143C
+
+tests/powershell/Task4PlaytestRecorderTransition.Tests.ps1
+status: user-dirty; preserve and append only Task 5 repair contract
+blob: 2d993ec13cae200483d6e284208327206ed28f2e
+SHA-256: 5D978179B410619F5819C02A091396D5450DEA89BC5D80E9617E274F17D00146

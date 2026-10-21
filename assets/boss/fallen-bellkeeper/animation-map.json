@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "clips": [
+    "dormant", "intro", "open_phase", "transition", "armor_closed",
+    "hammer_telegraph", "hammer_thrown", "chain_pull", "exposed", "recovery", "defeated"
+  ],
+  "independentParts": ["Body", "ArmorShell", "Hammer", "Chain", "Core"]
+}

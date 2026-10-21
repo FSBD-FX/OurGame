@@ -1,0 +1,9 @@
+knight V1
+Archive date: 2026-10-21
+Archive type: current Godot development source snapshot; not final QA acceptance.
+GitHub version: V1 (tag), codex/knight-v1 (archive branch).
+Source scope and known limitations: docs/releases/V1.md
+Launch: Play-Knight.cmd
+Status: development playtest candidate; player acceptance is not complete.
+Historical provenance only: the superseded version file described Knight Prologue 2026.09.08-r2,
+base revision 719af81d9f7880a0035976427e3957b0270e9510, material-specific terrain/grapple skins.

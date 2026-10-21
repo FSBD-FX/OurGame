@@ -1,0 +1,87 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "prologue.ui",
+      "category": "ui",
+      "runtimePath": "res://assets/ui/prologue-ui-theme.json",
+      "source": "Knight local production",
+      "license": "Project-owned",
+      "final": true
+    },
+    {
+      "id": "prologue.player",
+      "category": "player",
+      "runtimePath": "res://assets/player/formal/player-layers.png",
+      "source": "Knight local production",
+      "license": "Project-owned",
+      "final": true
+    },
+    {
+      "id": "prologue.enemies",
+      "category": "enemies",
+      "runtimePath": "res://assets/enemies/formal/enemy-atlas.png",
+      "source": "Knight local production",
+      "license": "Project-owned",
+      "final": true
+    },
+    {
+      "id": "prologue.boss",
+      "category": "boss",
+      "runtimePath": "res://assets/boss/fallen-bellkeeper/fallen-bellkeeper.png",
+      "source": "Knight local production",
+      "license": "Project-owned",
+      "final": true
+    },
+    {
+      "id": "prologue.environment",
+      "category": "environment",
+      "runtimePath": "res://assets/environment/nameless-belfry/environment-atlas.png",
+      "source": "Knight local production",
+      "license": "Project-owned",
+      "final": true
+    },
+    {
+      "id": "prologue.vfx",
+      "category": "vfx",
+      "runtimePath": "res://assets/vfx/prologue-vfx.png",
+      "source": "Knight local production",
+      "license": "Project-owned",
+      "final": true
+    },
+    {
+      "id": "prologue.audio",
+      "category": "audio",
+      "runtimePath": "res://assets/audio/prologue/audio-manifest.json",
+      "source": "Knight local production",
+      "license": "Project-owned",
+      "final": true
+    },
+    {
+      "id": "prologue.localization",
+      "category": "localization",
+      "runtimePath": "res://assets/localization/prologue-ui.json",
+      "source": "Knight local production",
+      "license": "Project-owned",
+      "final": true
+    }
+  ],
+  "replacementSlots": [
+    { "id": "slot.hud.energy", "scope": "hud", "stablePath": "Hud/FormalHud/ResourceCluster/Energy" },
+    { "id": "slot.hud.heat", "scope": "hud", "stablePath": "Hud/FormalHud/ResourceCluster/Heat" },
+    { "id": "slot.hud.mode.attack", "scope": "hud", "stablePath": "Hud/FormalHud/ModeSelector/Attack" },
+    { "id": "slot.hud.mode.grapple", "scope": "hud", "stablePath": "Hud/FormalHud/ModeSelector/Grapple" },
+    { "id": "slot.hud.loadout.1", "scope": "hud", "stablePath": "Hud/FormalHud/Loadout/Slot1" },
+    { "id": "slot.hud.loadout.2", "scope": "hud", "stablePath": "Hud/FormalHud/Loadout/Slot2" },
+    { "id": "slot.hud.loadout.3", "scope": "hud", "stablePath": "Hud/FormalHud/Loadout/Slot3" },
+    { "id": "slot.hud.loadout.4", "scope": "hud", "stablePath": "Hud/FormalHud/Loadout/Slot4" },
+    { "id": "slot.hud.aim-reticle", "scope": "hud", "stablePath": "Hud/FormalHud/AimReticle" },
+    { "id": "slot.player.shield", "scope": "player", "stablePath": "Player/VisualRoot/Shield" },
+    { "id": "slot.player.mechanical-claw", "scope": "player", "stablePath": "Player/VisualRoot/MechanicalClaw" },
+    { "id": "slot.sector.background", "scope": "sector", "stablePath": "VisualRoot/Background" },
+    { "id": "slot.sector.midground", "scope": "sector", "stablePath": "VisualRoot/Midground" },
+    { "id": "slot.sector.gameplay-readable", "scope": "sector", "stablePath": "VisualRoot/GameplayReadable" },
+    { "id": "slot.sector.foreground", "scope": "sector", "stablePath": "VisualRoot/Foreground" },
+    { "id": "slot.sector.effects", "scope": "sector", "stablePath": "VisualRoot/Effects" }
+  ]
+}

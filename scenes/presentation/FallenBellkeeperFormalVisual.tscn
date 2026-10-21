@@ -1,0 +1,77 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/boss/FallenBellkeeperFormalVisual.cs" id="1_65bx8"]
+[ext_resource type="Script" path="res://scripts/boss/FallenBellkeeperFormalPart.cs" id="2_l760p"]
+
+[node name="FallenBellkeeperFormalVisual" type="Node2D" unique_id=794443177]
+script = ExtResource("1_65bx8")
+metadata/profile_bounds = Rect2(-86, -82, 220, 165)
+
+[node name="Body" type="Node2D" parent="." unique_id=1646525916]
+z_index = 1
+script = ExtResource("2_l760p")
+metadata/semantic_layer = "body"
+metadata/atlas_source = Rect2(0, 0, 128, 176)
+metadata/atlas_origin = Vector2(64, 88)
+metadata/atlas_content = Rect2(12, 15, 100, 156)
+metadata/pivot = Vector2(0, 0)
+metadata/draw_bounds = Rect2(-52, -73, 100, 156)
+
+[node name="FacingIndicator" type="Polygon2D" parent="Body" unique_id=1843897541]
+position = Vector2(20, -58)
+color = Color(0.88235295, 0.85882354, 0.78039217, 1)
+polygon = PackedVector2Array(0, 0, 12, 4, 0, 8)
+
+[node name="FootContact" type="Line2D" parent="Body" unique_id=1482107768]
+position = Vector2(0, 75)
+points = PackedVector2Array(-39, 0, 34, 0)
+width = 5.0
+default_color = Color(0.77254903, 0.7411765, 0.6509804, 0.82)
+
+[node name="Core" type="Node2D" parent="." unique_id=476008209]
+z_index = 2
+position = Vector2(0, -24)
+script = ExtResource("2_l760p")
+Kind = 4
+metadata/semantic_layer = "core"
+metadata/atlas_source = Rect2(128, 0, 80, 80)
+metadata/atlas_origin = Vector2(168, 40)
+metadata/atlas_content = Rect2(132, 18, 73, 45)
+metadata/pivot = Vector2(0, -24)
+metadata/draw_bounds = Rect2(-35, -38, 70, 76)
+
+[node name="ArmorShell" type="Node2D" parent="." unique_id=972733667]
+z_index = 3
+position = Vector2(-8, -15)
+script = ExtResource("2_l760p")
+Kind = 1
+metadata/semantic_layer = "armorshell"
+metadata/atlas_source = Rect2(240, 0, 176, 144)
+metadata/atlas_origin = Vector2(328, 72)
+metadata/atlas_content = Rect2(250, 6, 151, 127)
+metadata/pivot = Vector2(-8, -15)
+metadata/draw_bounds = Rect2(-78, -66, 151, 127)
+
+[node name="Chain" type="Node2D" parent="." unique_id=1482814713]
+z_index = 4
+position = Vector2(30, -44)
+script = ExtResource("2_l760p")
+Kind = 3
+metadata/semantic_layer = "chain"
+metadata/atlas_source = Rect2(128, 80, 112, 80)
+metadata/atlas_origin = Vector2(161, 112)
+metadata/atlas_content = Rect2(152, 103, 79, 47)
+metadata/pivot = Vector2(30, -44)
+metadata/draw_bounds = Rect2(-9, -9, 78, 55)
+
+[node name="Hammer" type="Node2D" parent="." unique_id=1617853973]
+z_index = 5
+position = Vector2(34, -2)
+script = ExtResource("2_l760p")
+Kind = 2
+metadata/semantic_layer = "hammer"
+metadata/atlas_source = Rect2(240, 144, 128, 112)
+metadata/atlas_origin = Vector2(264, 210)
+metadata/atlas_content = Rect2(248, 148, 101, 106)
+metadata/pivot = Vector2(34, -2)
+metadata/draw_bounds = Rect2(-17, -62, 102, 106)

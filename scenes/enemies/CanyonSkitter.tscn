@@ -1,0 +1,94 @@
+[gd_scene format=3 uid="uid://d3nixelgeeyhk"]
+
+[ext_resource type="Script" path="res://scripts/enemies/skitter/CanyonSkitter.cs" id="1_n43av"]
+[ext_resource type="Script" path="res://scripts/enemies/skitter/CanyonSkitterSettings.cs" id="2_6kkun"]
+[ext_resource type="Script" path="res://scripts/combat/HealthComponent.cs" id="3_5ajhi"]
+[ext_resource type="Script" path="res://scripts/combat/Hurtbox.cs" id="4_7bqvg"]
+[ext_resource type="Script" path="res://scripts/combat/Hitbox.cs" id="5_b6dtp"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="6_gcvtt"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="7_qkntd"]
+[ext_resource type="Script" path="res://scripts/enemies/skitter/CanyonSkitterPresentation.cs" id="8_7td3k"]
+[ext_resource type="Script" path="res://scripts/enemies/skitter/CanyonSkitterVisual.cs" id="9_6eb15"]
+[ext_resource type="Script" path="res://scripts/presentation/AttackTelegraphVisual.cs" id="10_n6cx7"]
+
+[sub_resource type="Resource" id="Resource_wi7w1"]
+script = ExtResource("2_6kkun")
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_44mxb"]
+size = Vector2(28, 22)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_n2l77"]
+size = Vector2(28, 22)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ubavq"]
+size = Vector2(16, 16)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_ocba6"]
+radius = 25.0
+
+[node name="CanyonSkitter" type="CharacterBody2D" unique_id=142125795]
+collision_layer = 4
+script = ExtResource("1_n43av")
+Settings = SubResource("Resource_wi7w1")
+
+[node name="BodyCollider" type="CollisionShape2D" parent="." unique_id=609216585]
+position = Vector2(0, -12)
+shape = SubResource("RectangleShape2D_44mxb")
+
+[node name="Health" type="Node" parent="." unique_id=1241779946]
+script = ExtResource("3_5ajhi")
+MaxHealth = 2
+InvulnerabilitySeconds = 0.0
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=792026907]
+collision_layer = 4
+collision_mask = 8
+script = ExtResource("4_7bqvg")
+
+[node name="HurtboxCollider" type="CollisionShape2D" parent="Hurtbox" unique_id=1664455511]
+position = Vector2(0, -12)
+shape = SubResource("RectangleShape2D_n2l77")
+
+[node name="RushHitbox" type="Area2D" parent="." unique_id=747724001]
+collision_layer = 16
+collision_mask = 2
+monitoring = false
+monitorable = false
+script = ExtResource("5_b6dtp")
+Knockback = 120.0
+
+[node name="HitCollider" type="CollisionShape2D" parent="RushHitbox" unique_id=2094042745]
+shape = SubResource("RectangleShape2D_ubavq")
+
+[node name="ThreadTarget" type="Node2D" parent="." unique_id=802899520]
+script = ExtResource("6_gcvtt")
+Kind = 1
+Material = 1
+AssistRadius = 26.0
+
+[node name="TargetCollision" type="Area2D" parent="ThreadTarget" unique_id=722729925]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="ThreadTarget/TargetCollision" unique_id=1091599889]
+position = Vector2(0, -12)
+shape = SubResource("CircleShape2D_ocba6")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="ThreadTarget" unique_id=2072325381]
+script = ExtResource("7_qkntd")
+
+[node name="Presentation" type="Node" parent="." unique_id=1342776503]
+script = ExtResource("8_7td3k")
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=1229628236]
+
+[node name="SkitterVisual" type="Node2D" parent="VisualRoot" unique_id=1611691850]
+scale = Vector2(1.35, 1.35)
+script = ExtResource("9_6eb15")
+
+[node name="AttackTelegraph" type="Node2D" parent="VisualRoot" unique_id=1186955391]
+z_index = 6
+script = ExtResource("10_n6cx7")
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=680936887]
+z_index = 10

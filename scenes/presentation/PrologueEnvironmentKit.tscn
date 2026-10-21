@@ -1,0 +1,46 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/presentation/RoomFormalVisual.cs" id="1_p12al"]
+[ext_resource type="Script" path="res://scripts/presentation/ForegroundOccluder.cs" id="2_rk6fa"]
+
+[node name="PrologueEnvironmentKit" type="Node2D" unique_id=667826034]
+script = ExtResource("1_p12al")
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=2088010559]
+
+[node name="Background" type="Node2D" parent="VisualRoot" unique_id=2052536173]
+
+[node name="Midground" type="Node2D" parent="VisualRoot" unique_id=1585304290]
+
+[node name="GameplayReadable" type="Node2D" parent="VisualRoot" unique_id=1961698177]
+
+[node name="Foreground" type="Node2D" parent="VisualRoot" unique_id=898675625]
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=1824250170]
+
+[node name="Far" type="Node2D" parent="." unique_id=485732720]
+
+[node name="Back" type="Node2D" parent="." unique_id=2113557616]
+
+[node name="Mid" type="Node2D" parent="." unique_id=2050027795]
+
+[node name="Platforms" type="Node2D" parent="." unique_id=1547601145]
+
+[node name="Props" type="Node2D" parent="." unique_id=1053618685]
+
+[node name="Front" type="Node2D" parent="." unique_id=1210154880]
+
+[node name="ForegroundOccluder" type="Node2D" parent="Front" unique_id=1994775566]
+script = ExtResource("2_rk6fa")
+
+[node name="LeftFrame" type="Polygon2D" parent="Front/ForegroundOccluder" unique_id=2040983455]
+position = Vector2(-560, 0)
+color = Color(0.09411765, 0.14509805, 0.16470589, 1)
+polygon = PackedVector2Array(-90, -360, 90, -360, 90, 360, -90, 360)
+
+[node name="RightFrame" type="Polygon2D" parent="Front/ForegroundOccluder" unique_id=218868736]
+position = Vector2(560, 0)
+color = Color(0.09411765, 0.14509805, 0.16470589, 1)
+polygon = PackedVector2Array(-90, -360, 90, -360, 90, 360, -90, 360)
+
+[node name="Atmosphere" type="Node2D" parent="." unique_id=289887499]

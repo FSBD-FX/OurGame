@@ -1,0 +1,143 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/player/PlayerInputReader.cs" id="1_ynd1d"]
+[ext_resource type="Script" path="res://scripts/player/PlayerActionModeController.cs" id="2_oy246"]
+[ext_resource type="Script" path="res://scripts/abilities/MechanicalClawController.cs" id="3_8yhvq"]
+[ext_resource type="Script" path="res://scripts/interactions/EnvironmentInteractionController.cs" id="4_1mib4"]
+[ext_resource type="Script" path="res://scripts/player/PlayerMotor.cs" id="5_c4fv0"]
+[ext_resource type="Script" path="res://scripts/config/PlayerTuning.cs" id="6_pshlw"]
+[ext_resource type="Script" path="res://scripts/config/MobilityModuleDefinition.cs" id="7_80rld"]
+[ext_resource type="Script" path="res://scripts/combat/HealthComponent.cs" id="8_76873"]
+[ext_resource type="Script" path="res://scripts/player/PlayerGuardedDamageReceiver.cs" id="9_8wfg2"]
+[ext_resource type="Script" path="res://scripts/combat/Hurtbox.cs" id="10_ut1wq"]
+[ext_resource type="Script" path="res://scripts/player/PlayerCombat.cs" id="11_bkomt"]
+[ext_resource type="Script" path="res://scripts/combat/Hitbox.cs" id="12_pvyl7"]
+[ext_resource type="Script" path="res://scripts/player/PlayerShieldController.cs" id="13_18s7u"]
+[ext_resource type="Script" path="res://scripts/player/PlayerEnergyController.cs" id="14_7g1v6"]
+[ext_resource type="Script" path="res://scripts/config/PlayerEnergyTuning.cs" id="15_6al3t"]
+[ext_resource type="Script" path="res://scripts/presentation/PlayerPresentationCoordinator.cs" id="16_k2cnv"]
+[ext_resource type="Script" path="res://scripts/config/PresentationProfile.cs" id="17_dpwn6"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/PlayerFormalVisual.tscn" id="18_u0xb3"]
+[ext_resource type="Script" path="res://scripts/presentation/PlayerFormalVisual.cs" id="19_udvo7"]
+[ext_resource type="Script" path="res://scripts/vfx/ThreadShuttleVisual.cs" id="20_xqbs7"]
+[ext_resource type="Script" path="res://scripts/vfx/ThreadLineVisual.cs" id="21_c4r1w"]
+[ext_resource type="Script" path="res://scripts/presentation/PlayerShieldPlaceholderVisual.cs" id="22_sxrty"]
+
+[sub_resource type="Resource" id="Resource_y7r3h"]
+script = ExtResource("6_pshlw")
+
+[sub_resource type="Resource" id="Resource_q05wf"]
+script = ExtResource("7_80rld")
+ModuleId = "mobility.short-jet.standard.v1"
+BurnDuration = 0.18
+ThrustAcceleration = 5600.0
+PoweredProjectionLimit = 850.0
+GroundFriction = 1800.0
+AirDragRate = 1.6
+GroundReverseBrake = 4000.0
+AirReverseBrake = 3000.0
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_lyxxd"]
+radius = 20.0
+height = 72.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_4cjvf"]
+size = Vector2(36, 28)
+
+[sub_resource type="Resource" id="Resource_p5o4v"]
+script = ExtResource("15_6al3t")
+
+[sub_resource type="Resource" id="Resource_ina46"]
+script = ExtResource("17_dpwn6")
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_ygm20"]
+radius = 20.0
+height = 72.0
+
+[node name="Player" type="CharacterBody2D" unique_id=2140447183]
+collision_layer = 2
+
+[node name="Input" type="Node" parent="." unique_id=1139038403]
+process_physics_priority = -300
+script = ExtResource("1_ynd1d")
+
+[node name="ActionModes" type="Node" parent="." unique_id=1443496284]
+process_physics_priority = -200
+script = ExtResource("2_oy246")
+
+[node name="MechanicalClaw" type="Node" parent="." unique_id=1606438109]
+process_physics_priority = -100
+script = ExtResource("3_8yhvq")
+
+[node name="EnvironmentInteraction" type="Node2D" parent="." unique_id=1415611446]
+process_physics_priority = -50
+z_index = 10
+script = ExtResource("4_1mib4")
+
+[node name="Motor" type="Node" parent="." unique_id=55435142]
+script = ExtResource("5_c4fv0")
+Tuning = SubResource("Resource_y7r3h")
+InitialMobilityModule = SubResource("Resource_q05wf")
+
+[node name="Health" type="Node" parent="." unique_id=693387837]
+script = ExtResource("8_76873")
+
+[node name="GuardedDamage" type="Node" parent="." unique_id=1135432480]
+script = ExtResource("9_8wfg2")
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=1275172384]
+collision_layer = 2
+collision_mask = 0
+script = ExtResource("10_ut1wq")
+DamageReceiverPath = NodePath("../GuardedDamage")
+
+[node name="HurtboxCollider" type="CollisionShape2D" parent="Hurtbox" unique_id=82835016]
+shape = SubResource("CapsuleShape2D_lyxxd")
+
+[node name="Combat" type="Node2D" parent="." unique_id=500925910]
+script = ExtResource("11_bkomt")
+Tuning = SubResource("Resource_y7r3h")
+
+[node name="AttackHitbox" type="Area2D" parent="Combat" unique_id=1898906223]
+collision_layer = 8
+collision_mask = 4
+monitoring = false
+monitorable = false
+script = ExtResource("12_pvyl7")
+
+[node name="AttackCollider" type="CollisionShape2D" parent="Combat/AttackHitbox" unique_id=2139299693]
+shape = SubResource("RectangleShape2D_4cjvf")
+
+[node name="Shield" type="Node" parent="." unique_id=705688481]
+script = ExtResource("13_18s7u")
+
+[node name="Energy" type="Node" parent="." unique_id=1870701091]
+script = ExtResource("14_7g1v6")
+Tuning = SubResource("Resource_p5o4v")
+
+[node name="Presentation" type="Node" parent="." unique_id=879285991]
+script = ExtResource("16_k2cnv")
+Profile = SubResource("Resource_ina46")
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=333776990]
+
+[node name="Formal" type="Node2D" parent="VisualRoot" unique_id=1983593310 instance=ExtResource("18_u0xb3")]
+script = ExtResource("19_udvo7")
+
+[node name="MechanicalClaw" type="Node2D" parent="VisualRoot" unique_id=1835748523]
+script = ExtResource("20_xqbs7")
+
+[node name="Line" type="Line2D" parent="VisualRoot/MechanicalClaw" unique_id=343218383]
+z_index = -1
+script = ExtResource("21_c4r1w")
+
+[node name="Shield" type="Node2D" parent="VisualRoot" unique_id=164399776]
+z_index = 4
+script = ExtResource("22_sxrty")
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=1035375401]
+
+[node name="BodyCollider" type="CollisionShape2D" parent="." unique_id=1858154514]
+shape = SubResource("CapsuleShape2D_ygm20")
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=466575754]

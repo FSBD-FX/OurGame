@@ -1,0 +1,654 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/PrologueUiRoot.cs" id="1_xmp50"]
+[ext_resource type="Script" path="res://scripts/ui/PrologueMainMenu.cs" id="2_fxr6k"]
+[ext_resource type="Script" path="res://scripts/ui/PrologueSettingsMenu.cs" id="3_c65by"]
+[ext_resource type="Script" path="res://scripts/ui/PrologueControlsView.cs" id="4_yyt6l"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_pb4w5"]
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
+bg_color = Color(0.055, 0.086, 0.11, 0.45)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.6666667, 0.64705884, 0.56078434, 0.2)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_w2hwb"]
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
+bg_color = Color(0, 0, 0, 0)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_7j2ah"]
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
+bg_color = Color(0.085, 0.13, 0.16, 0.98)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.8392157, 0.6627451, 0.28235295, 1)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_ovug2"]
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
+bg_color = Color(0.085, 0.13, 0.16, 0.72)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.8392157, 0.6627451, 0.28235295, 0.45)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_od5wr"]
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
+bg_color = Color(0.04, 0.18, 0.18, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.44705883, 0.8509804, 0.81960785, 1)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_g8m84"]
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
+bg_color = Color(0.085, 0.13, 0.16, 0.98)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.8392157, 0.6627451, 0.28235295, 0.5)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_lc1gr"]
+content_margin_left = 18.0
+content_margin_top = 10.0
+content_margin_right = 18.0
+content_margin_bottom = 10.0
+bg_color = Color(0.055, 0.086, 0.11, 0.96)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.8392157, 0.6627451, 0.28235295, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+
+[sub_resource type="Theme" id="Theme_4mkbr"]
+Button/colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+Button/colors/font_disabled_color = Color(0.6666667, 0.64705884, 0.56078434, 0.45)
+Button/colors/font_focus_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+Button/colors/font_hover_color = Color(0.8392157, 0.6627451, 0.28235295, 1)
+Button/colors/font_pressed_color = Color(0.44705883, 0.8509804, 0.81960785, 1)
+Button/font_sizes/font_size = 20
+Button/styles/disabled = SubResource("StyleBoxFlat_pb4w5")
+Button/styles/focus = SubResource("StyleBoxFlat_w2hwb")
+Button/styles/hover = SubResource("StyleBoxFlat_7j2ah")
+Button/styles/normal = SubResource("StyleBoxFlat_ovug2")
+Button/styles/pressed = SubResource("StyleBoxFlat_od5wr")
+CheckButton/colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+CheckButton/font_sizes/font_size = 18
+Label/colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+Label/font_sizes/font_size = 20
+OptionButton/colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+OptionButton/font_sizes/font_size = 18
+OptionButton/styles/normal = SubResource("StyleBoxFlat_g8m84")
+Panel/styles/panel = SubResource("StyleBoxFlat_lc1gr")
+
+[node name="PrologueUi" type="CanvasLayer" unique_id=623407601]
+layer = 50
+script = ExtResource("1_xmp50")
+
+[node name="Backdrop" type="ColorRect" parent="." unique_id=280945831]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.043137256, 0.06666667, 0.09411765, 0.97)
+
+[node name="MainMenu" type="Control" parent="." unique_id=1424854891]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("2_fxr6k")
+
+[node name="Panel" type="Panel" parent="MainMenu" unique_id=1355429613]
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -270.0
+offset_top = -305.0
+offset_right = 270.0
+offset_bottom = 305.0
+theme = SubResource("Theme_4mkbr")
+
+[node name="Title" type="Label" parent="MainMenu/Panel" unique_id=771864966]
+layout_mode = 0
+offset_left = 50.0
+offset_top = 38.0
+offset_right = 490.0
+offset_bottom = 92.0
+theme_override_font_sizes/font_size = 31
+theme_override_colors/font_color = Color(0.8392157, 0.6627451, 0.28235295, 1)
+text = "THE NAMELESS BELFRY"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Subtitle" type="Label" parent="MainMenu/Panel" unique_id=1855851791]
+layout_mode = 0
+offset_left = 50.0
+offset_top = 92.0
+offset_right = 490.0
+offset_bottom = 126.0
+theme_override_font_sizes/font_size = 17
+theme_override_colors/font_color = Color(0.6666667, 0.64705884, 0.56078434, 1)
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TopRule" type="ColorRect" parent="MainMenu/Panel" unique_id=1196857080]
+layout_mode = 0
+offset_left = 70.0
+offset_top = 142.0
+offset_right = 470.0
+offset_bottom = 144.0
+mouse_filter = 2
+color = Color(0.8392157, 0.6627451, 0.28235295, 0.7)
+
+[node name="Buttons" type="VBoxContainer" parent="MainMenu/Panel" unique_id=252463564]
+layout_mode = 0
+offset_left = 60.0
+offset_top = 174.0
+offset_right = 480.0
+offset_bottom = 504.0
+theme = SubResource("Theme_4mkbr")
+theme_override_constants/separation = 12
+alignment = 1
+
+[node name="Start" type="Button" parent="MainMenu/Panel/Buttons" unique_id=1411386437]
+custom_minimum_size = Vector2(420, 54)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Continue" type="Button" parent="MainMenu/Panel/Buttons" unique_id=1257051376]
+custom_minimum_size = Vector2(420, 54)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Settings" type="Button" parent="MainMenu/Panel/Buttons" unique_id=944840122]
+custom_minimum_size = Vector2(420, 54)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Controls" type="Button" parent="MainMenu/Panel/Buttons" unique_id=880441132]
+custom_minimum_size = Vector2(420, 54)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Quit" type="Button" parent="MainMenu/Panel/Buttons" unique_id=1642531237]
+custom_minimum_size = Vector2(420, 54)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Footer" type="Label" parent="MainMenu/Panel" unique_id=1547976326]
+layout_mode = 0
+offset_left = 50.0
+offset_top = 552.0
+offset_right = 490.0
+offset_bottom = 580.0
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.6666667, 0.64705884, 0.56078434, 1)
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="SettingsMenu" type="Control" parent="." unique_id=1116438946]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("3_c65by")
+
+[node name="Panel" type="Panel" parent="SettingsMenu" unique_id=240761700]
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -410.0
+offset_top = -312.0
+offset_right = 410.0
+offset_bottom = 312.0
+theme = SubResource("Theme_4mkbr")
+
+[node name="Title" type="Label" parent="SettingsMenu/Panel" unique_id=480197855]
+layout_mode = 0
+offset_left = 50.0
+offset_top = 30.0
+offset_right = 770.0
+offset_bottom = 74.0
+theme_override_font_sizes/font_size = 28
+theme_override_colors/font_color = Color(0.8392157, 0.6627451, 0.28235295, 1)
+text = "SETTINGS"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TopRule" type="ColorRect" parent="SettingsMenu/Panel" unique_id=66653703]
+layout_mode = 0
+offset_left = 70.0
+offset_top = 86.0
+offset_right = 750.0
+offset_bottom = 88.0
+mouse_filter = 2
+color = Color(0.8392157, 0.6627451, 0.28235295, 0.7)
+
+[node name="Rows" type="VBoxContainer" parent="SettingsMenu/Panel" unique_id=511693265]
+layout_mode = 0
+offset_left = 70.0
+offset_top = 100.0
+offset_right = 750.0
+offset_bottom = 596.0
+theme = SubResource("Theme_4mkbr")
+theme_override_constants/separation = 2
+
+[node name="Master" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=234735994]
+custom_minimum_size = Vector2(680, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/Master" unique_id=722486664]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/Master" unique_id=186205236]
+custom_minimum_size = Vector2(330, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 1.0
+step = 0.01
+
+[node name="Music" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1452315774]
+custom_minimum_size = Vector2(680, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/Music" unique_id=302756585]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/Music" unique_id=1600388231]
+custom_minimum_size = Vector2(330, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 1.0
+step = 0.01
+
+[node name="Effects" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1834489057]
+custom_minimum_size = Vector2(680, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/Effects" unique_id=1184397639]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/Effects" unique_id=831884713]
+custom_minimum_size = Vector2(330, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 1.0
+step = 0.01
+
+[node name="Ambience" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1631681109]
+custom_minimum_size = Vector2(680, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/Ambience" unique_id=1429954583]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/Ambience" unique_id=1715460563]
+custom_minimum_size = Vector2(330, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 1.0
+step = 0.01
+
+[node name="UiVolume" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=158512499]
+custom_minimum_size = Vector2(680, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/UiVolume" unique_id=2108147309]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/UiVolume" unique_id=362868438]
+custom_minimum_size = Vector2(330, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 1.0
+step = 0.01
+
+[node name="WindowMode" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1269899237]
+custom_minimum_size = Vector2(680, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/WindowMode" unique_id=531480127]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="OptionButton" parent="SettingsMenu/Panel/Rows/WindowMode" unique_id=1109841622]
+custom_minimum_size = Vector2(330, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+selected = 0
+item_count = 3
+popup/item_0/text = "Windowed"
+popup/item_0/id = 0
+popup/item_1/text = "Borderless"
+popup/item_1/id = 1
+popup/item_2/text = "Fullscreen"
+popup/item_2/id = 2
+
+[node name="Resolution" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=896726112]
+custom_minimum_size = Vector2(680, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/Resolution" unique_id=711981565]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="OptionButton" parent="SettingsMenu/Panel/Rows/Resolution" unique_id=1788919091]
+custom_minimum_size = Vector2(330, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+selected = 0
+item_count = 4
+popup/item_0/text = "1280×720"
+popup/item_0/id = 0
+popup/item_1/text = "1920×1080"
+popup/item_1/id = 1
+popup/item_2/text = "2560×1440"
+popup/item_2/id = 2
+popup/item_3/text = "3840×2160"
+popup/item_3/id = 3
+
+[node name="VSync" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1513640293]
+custom_minimum_size = Vector2(680, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/VSync" unique_id=91759163]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="CheckButton" parent="SettingsMenu/Panel/Rows/VSync" unique_id=1906646365]
+custom_minimum_size = Vector2(120, 34)
+layout_mode = 2
+
+[node name="UiScale" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1246523928]
+custom_minimum_size = Vector2(680, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/UiScale" unique_id=1665427530]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/UiScale" unique_id=1511786907]
+custom_minimum_size = Vector2(330, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 0.8
+max_value = 1.5
+step = 0.05
+value = 0.8
+
+[node name="ScreenShake" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=127340896]
+custom_minimum_size = Vector2(680, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/ScreenShake" unique_id=360532277]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/ScreenShake" unique_id=442010905]
+custom_minimum_size = Vector2(330, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 1.0
+step = 0.05
+
+[node name="ReduceFlashes" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=2012924964]
+custom_minimum_size = Vector2(680, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/ReduceFlashes" unique_id=1493990162]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="CheckButton" parent="SettingsMenu/Panel/Rows/ReduceFlashes" unique_id=633179048]
+custom_minimum_size = Vector2(120, 34)
+layout_mode = 2
+
+[node name="ReducedFog" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=341170660]
+custom_minimum_size = Vector2(680, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/ReducedFog" unique_id=1809202901]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="CheckButton" parent="SettingsMenu/Panel/Rows/ReducedFog" unique_id=1460621446]
+custom_minimum_size = Vector2(120, 34)
+layout_mode = 2
+
+[node name="Language" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1819999378]
+custom_minimum_size = Vector2(680, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/Language" unique_id=712444235]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="OptionButton" parent="SettingsMenu/Panel/Rows/Language" unique_id=646854071]
+custom_minimum_size = Vector2(330, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+selected = 0
+item_count = 2
+popup/item_0/text = "简体中文"
+popup/item_0/id = 0
+popup/item_1/text = "English"
+popup/item_1/id = 1
+
+[node name="Back" type="Button" parent="SettingsMenu/Panel" unique_id=601899625]
+layout_mode = 0
+offset_left = 50.0
+offset_top = 30.0
+offset_right = 200.0
+offset_bottom = 74.0
+theme = SubResource("Theme_4mkbr")
+
+[node name="ControlsView" type="Control" parent="." unique_id=1718336644]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("4_yyt6l")
+
+[node name="Panel" type="Panel" parent="ControlsView" unique_id=1951550181]
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -410.0
+offset_top = -312.0
+offset_right = 410.0
+offset_bottom = 312.0
+theme = SubResource("Theme_4mkbr")
+
+[node name="Title" type="Label" parent="ControlsView/Panel" unique_id=191861957]
+layout_mode = 0
+offset_left = 50.0
+offset_top = 30.0
+offset_right = 770.0
+offset_bottom = 74.0
+theme_override_font_sizes/font_size = 28
+theme_override_colors/font_color = Color(0.8392157, 0.6627451, 0.28235295, 1)
+text = "CONTROLS"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TopRule" type="ColorRect" parent="ControlsView/Panel" unique_id=117988105]
+layout_mode = 0
+offset_left = 70.0
+offset_top = 86.0
+offset_right = 750.0
+offset_bottom = 88.0
+mouse_filter = 2
+color = Color(0.8392157, 0.6627451, 0.28235295, 0.7)
+
+[node name="Rows" type="VBoxContainer" parent="ControlsView/Panel" unique_id=707418084]
+layout_mode = 0
+offset_left = 60.0
+offset_top = 104.0
+offset_right = 760.0
+offset_bottom = 524.0
+theme = SubResource("Theme_4mkbr")
+theme_override_constants/separation = 5
+
+[node name="Move" type="Label" parent="ControlsView/Panel/Rows" unique_id=286097157]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+vertical_alignment = 1
+
+[node name="Aim" type="Label" parent="ControlsView/Panel/Rows" unique_id=1132077900]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+vertical_alignment = 1
+
+[node name="Jump" type="Label" parent="ControlsView/Panel/Rows" unique_id=1752614337]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+vertical_alignment = 1
+
+[node name="Dash" type="Label" parent="ControlsView/Panel/Rows" unique_id=222317283]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+vertical_alignment = 1
+
+[node name="AttackMode" type="Label" parent="ControlsView/Panel/Rows" unique_id=948242890]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+vertical_alignment = 1
+
+[node name="GrappleMode" type="Label" parent="ControlsView/Panel/Rows" unique_id=1501893400]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+vertical_alignment = 1
+
+[node name="Shield" type="Label" parent="ControlsView/Panel/Rows" unique_id=31942559]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+vertical_alignment = 1
+
+[node name="Interact" type="Label" parent="ControlsView/Panel/Rows" unique_id=352326245]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+vertical_alignment = 1
+
+[node name="Loadout" type="Label" parent="ControlsView/Panel/Rows" unique_id=101712890]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+vertical_alignment = 1
+
+[node name="Pause" type="Label" parent="ControlsView/Panel/Rows" unique_id=795461398]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+vertical_alignment = 1
+
+[node name="Back" type="Button" parent="ControlsView/Panel" unique_id=2031591618]
+layout_mode = 0
+offset_left = 590.0
+offset_top = 548.0
+offset_right = 760.0
+offset_bottom = 596.0
+theme = SubResource("Theme_4mkbr")
