@@ -97,8 +97,8 @@ public partial class RunTask18TempleGateTests : SceneTree
         string storage = Trim(Path.GetFullPath(raw));
         string caseRoot = Path.GetDirectoryName(storage)!;
         string expectedTemp = Path.Combine(caseRoot, "unit-temp");
-        string evidence = Trim(Path.GetFullPath("E:/OurGame/Knight/.evidence/september09-continuous-canyon/task18"));
-        string repo = Trim(Path.GetFullPath("E:/OurGame/Knight/.worktrees/task6-certified-final-20260902T0555"));
+        string evidence = Trim(Path.GetFullPath("G:/knight/验证证据/september09-continuous-canyon/task18"));
+        string repo = Trim(Path.GetFullPath("G:/knight/Knight"));
         string userData = Trim(Path.GetFullPath("C:/Users/22499/AppData/Roaming/Godot/app_userdata/Knight"));
         if (!string.Equals(Path.GetDirectoryName(caseRoot), evidence, StringComparison.OrdinalIgnoreCase) ||
             !Regex.IsMatch(Path.GetFileName(caseRoot), "^[a-z0-9-]{1,40}-[0-9]{8}T[0-9]{9}-[0-9a-f]{32}$") ||

@@ -31,6 +31,8 @@ public static class RangedWeaponProjectileRuntimeTests
         await SmallerGuidanceRateAndBudgetAreHonored(tree);
         await MissileLosingSightOrTargetKeepsItsLastHeading(tree);
         await MissileAgeAndTravelEachBoundItsLifetime(tree);
+        await FinalRangeStepStillResolvesNativeContacts(tree);
+        await NativeTravelBudgetEndsAtRepresentableWorldEndpoint(tree);
         await MissileContactExplodesOnceWithoutDirectDamage(tree);
         await MissileExplosionRespectsRealWorldOcclusion(tree);
         await MissileBoundaryKeepsTheWholeBlastLegal(tree);
@@ -501,6 +503,126 @@ public static class RangedWeaponProjectileRuntimeTests
                 "maximum travel independently terminates a young missile at its exact range");
         }
         finally { await f.Dispose(); }
+    }
+
+    // Mutation caught: range termination before the last native Sweep/ledger,
+    // or changing missile contact to a direct hit / duplicate blast.
+    private static async Task FinalRangeStepStillResolvesNativeContacts(SceneTree tree)
+    {
+        int controls = 0;
+        foreach (var role in new[] { RangedWeaponRole.Burst, RangedWeaponRole.Scatter, RangedWeaponRole.Missile })
+        foreach (string mode in new[] { "target", "wall-before", "coincident" })
+        {
+            var f = new Fixture(tree, "FinalRange_" + role + mode.Replace('-', '_'));
+            try
+            {
+                Vector2 origin = new(4533, 3459);
+                Target target = f.AddTarget(origin + Vector2.Right * 39.5f, 10);
+                // Projectile radius5 + target radius10 => target contact24.5.
+                // Thin wall front29/29.5 => World contact24/24.5 respectively.
+                if (mode != "target") f.AddWall(origin + Vector2.Right * (mode == "wall-before" ? 29.5f : 30), new Vector2(1, 60));
+                await f.Synchronize();
+                using var settings = ShotSettings();
+                settings.Role = role; settings.ProjectileSpeed = 100; settings.MaximumTravel = 25;
+                int retirements = 0, explosions = 0, damages = 0;
+                target.Health.Damaged += (_, _) => damages++;
+                var p = f.Launch(settings, origin, Vector2.Right, 82,
+                    area: new Rect2(-2000, -2000, 10000, 10000), beforeLaunch: shot =>
+                    {
+                        shot.Retired += _ => retirements++;
+                        shot.ExplosionResolved += (_, _) => explosions++;
+                    });
+                p._PhysicsProcess(.2);
+                TestAssert.True(!p.IsRetired && MathF.Abs(p.TravelledDistance - 20) < .01f &&
+                    target.Health.CurrentHealth == 10, "final range contact setup retains full last-five-pixel Sweep");
+                p._PhysicsProcess(.05);
+                TestAssert.True(p.IsRetired && retirements == 1 &&
+                    p.TravelledDistance is >= 23.8f and <= 25.001f &&
+                    target.Health.CurrentHealth == (mode == "target" ? 9 : 10) &&
+                    damages == (mode == "target" ? 1 : 0) &&
+                    explosions == (role == RangedWeaponRole.Missile ? 1 : 0) &&
+                    p.Telegraph.CurrentFrame.Timeline.Phase == AttackPhase.None,
+                    $"RANGE_LAST_CONTACT_RED role={role} mode={mode} travel={p.TravelledDistance:R} " +
+                    $"hp={target.Health.CurrentHealth} damage={damages} explosions={explosions} retired={retirements}");
+                controls++;
+            }
+            finally { await f.Dispose(); }
+        }
+        GD.Print($"RANGE_LAST_CONTACT_OK cases={controls} roles=3 world_before_and_coincident=true " +
+            "target_damage_once=true missile_blast_once=true native_geometry=true manual_steps=true");
+    }
+
+    // Mutation caught: actual endpoint quantization leaves a small positive range
+    // remainder forever, even though the configured last travel step was spent.
+    private static async Task NativeTravelBudgetEndsAtRepresentableWorldEndpoint(SceneTree tree)
+    {
+        var failures = new List<string>();
+        foreach (var role in new[] { RangedWeaponRole.Burst, RangedWeaponRole.Scatter, RangedWeaponRole.Missile })
+        foreach (Vector2 origin in new[] { Vector2.Zero, new Vector2(4533, 3459) })
+        {
+            var f = new Fixture(tree, "NativeRange_" + role + (origin == Vector2.Zero ? "Small" : "Large"));
+            BasinBoardingTickObserver observer = null;
+            try
+            {
+                await f.Synchronize();
+                using var settings = ShotSettings();
+                settings.Role = role; settings.ProjectileSpeed = 440; settings.MaximumTravel = 560;
+                Vector2 aim = new(.9276568f, -.37343386f);
+                int retired = 0, explosions = 0, samples = 0, stationaryTail = 0;
+                double elapsed = 0;
+                bool retiredBeforeCap = false, finite = true;
+                Vector2 previous = origin;
+                float previousTravel = 0;
+                var p = f.Launch(settings, origin, aim, 81,
+                    area: new Rect2(-2000, -2000, 10000, 10000), beforeLaunch: shot =>
+                    {
+                        shot.Retired += _ => retired++;
+                        shot.ExplosionResolved += (_, _) => explosions++;
+                    });
+                TestAssert.True(!p.IsRetired && p.Telegraph.ImpactVisible, "native range fixture launches a real unobstructed leaf");
+                observer = new BasinBoardingTickObserver
+                {
+                    ProcessPhysicsPriority = 100,
+                    Sample = delta =>
+                    {
+                        samples++; elapsed += delta;
+                        if (elapsed < 1.25) retiredBeforeCap |= p.IsRetired;
+                        finite &= Finite(p.GlobalPosition) && float.IsFinite(p.TravelledDistance);
+                        if (!p.IsRetired && p.TravelledDistance > 559 && p.GlobalPosition == previous &&
+                            p.TravelledDistance == previousTravel) stationaryTail++;
+                        previous = p.GlobalPosition; previousTravel = p.TravelledDistance;
+                    }
+                };
+                f.Root.AddChild(observer);
+                p.SetPhysicsProcess(true); // Production node scheduling, no manual _PhysicsProcess calls.
+                ulong started = Engine.GetPhysicsFrames();
+                for (int pair = 0; pair < 100; pair++)
+                {
+                    await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+                    await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                }
+                observer.Sample = null;
+                GD.Print($"RANGE_NATIVE_TERMINAL_SAMPLE role={role} origin={origin} position={p.GlobalPosition} " +
+                    $"travel={p.TravelledDistance:R} samples={samples} physics_delta={Engine.GetPhysicsFrames() - started} " +
+                    $"elapsed={elapsed:R} retired={p.IsRetired} retirements={retired} explosions={explosions} " +
+                    $"early={retiredBeforeCap} stationary_tail={stationaryTail} processing={p.IsPhysicsProcessing()} " +
+                    $"can_process={p.CanProcess()} paused={tree.Paused} phase={p.Telegraph.CurrentFrame.Timeline.Phase} " +
+                    $"remaining={p.Telegraph.CurrentFrame.Timeline.PhaseRemainingSeconds:R} manual_ticks=false");
+                if (!finite || retiredBeforeCap || samples < 95 || elapsed < 1.5 || !p.IsRetired || retired != 1 ||
+                    p.TravelledDistance < 559.9f || p.TravelledDistance > 560.001f ||
+                    p.GlobalPosition.DistanceTo(origin + aim.Normalized() * 560) > .05f ||
+                    p.Telegraph.CurrentFrame.Timeline.Phase != AttackPhase.None ||
+                    explosions != (role == RangedWeaponRole.Missile ? 1 : 0))
+                    failures.Add($"{role}/{origin}/retired={p.IsRetired}/travel={p.TravelledDistance:R}/stationary={stationaryTail}");
+            }
+            finally
+            {
+                if (GodotObject.IsInstanceValid(observer)) observer.Sample = null;
+                await f.Dispose();
+            }
+        }
+        TestAssert.True(failures.Count == 0, "RANGE_NATIVE_TERMINAL_RED: " + string.Join("; ", failures));
+        GD.Print("RANGE_NATIVE_TERMINAL_OK roles=3 origins=2 actual_physics=true before_cap_alive=true terminal_once=true fake_travel=false");
     }
 
     // Mutation caught: contact delivers direct damage and then blast damage, or retirement re-explodes.

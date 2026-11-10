@@ -1,0 +1,73 @@
+{
+  "SourceRows": 1959,
+  "SourceSHA": "89BC4C7032F19D687F6C65A68AF86A43EF34BACF9BD14C16D9B887A83BD35C13",
+  "BinarySHA": "6D05258CFAE5EDEA9E36E1E3870C2FDFA3B6A028EB88DEB4B58CF0CDE31A252D",
+  "ProtectedRows": 109,
+  "ProtectedSHA": "9FB16DF51BCFF000716DD65D370370578225501481FDD95977BB8740C48DF604",
+  "Cases": 6,
+  "StrictPass": 6,
+  "StrictFail": 0,
+  "PhysicalSnapshotFiles": 2958,
+  "PhysicalBinaryCopies": 36,
+  "GuardedHelperPaths": 10,
+  "TerminalContracts": 14,
+  "NonzeroTerminalExits": 0,
+  "Timeouts": 0,
+  "NativeConsumers": 0,
+  "Results": [
+    {
+      "Phase": "abyss-profile",
+      "Case": "abyss-profile-20261111-014153-096-3ca00ea2969b423e945e6f1e2c57627c",
+      "StrictPass": true,
+      "NativeMs": 634,
+      "Exit": 0,
+      "Contracts": 2,
+      "Failure": null
+    },
+    {
+      "Phase": "forecourt-column",
+      "Case": "forecourt-column-20261111-013647-076-e1111e222f504f388f39a170c5697bb3",
+      "StrictPass": true,
+      "NativeMs": 17789,
+      "Exit": 0,
+      "Contracts": 2,
+      "Failure": null
+    },
+    {
+      "Phase": "forecourt-mid-route",
+      "Case": "forecourt-mid-route-20261111-013207-832-f1e20864bcdd48bbafba97c2d3045eeb",
+      "StrictPass": true,
+      "NativeMs": 35938,
+      "Exit": 0,
+      "Contracts": 3,
+      "Failure": null
+    },
+    {
+      "Phase": "forecourt-terrain",
+      "Case": "forecourt-terrain-20261111-013736-612-092c8cb48eec4faaa68d7fc297152bf8",
+      "StrictPass": true,
+      "NativeMs": 4598,
+      "Exit": 0,
+      "Contracts": 3,
+      "Failure": null
+    },
+    {
+      "Phase": "models",
+      "Case": "models-20261111-013818-149-3cc7458a88d34c31ab6a485f949b1f48",
+      "StrictPass": true,
+      "NativeMs": 616,
+      "Exit": 0,
+      "Contracts": 2,
+      "Failure": null
+    },
+    {
+      "Phase": "prologue-pre",
+      "Case": "prologue-pre-20261111-013852-865-b673543ca64247528cd4640d6984ee64",
+      "StrictPass": true,
+      "NativeMs": 140379,
+      "Exit": 0,
+      "Contracts": 2,
+      "Failure": null
+    }
+  ]
+}

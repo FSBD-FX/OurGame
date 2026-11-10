@@ -4,6 +4,8 @@ using Knight.Combat;
 using Knight.Player;
 using Knight.Localization;
 using Knight.Settings;
+using Knight.Shared;
+using Knight.Ui;
 
 namespace Knight.Interactions;
 
@@ -44,7 +46,17 @@ public partial class EnvironmentInteractionController : Node2D
     }
 
     public string CurrentPromptText => CurrentCandidate is { } candidate
-        ? PrologueStrings.Get(candidate.InteractionTextKey, _language) : string.Empty;
+        ? FormatPrompt(candidate) : string.Empty;
+
+    private string FormatPrompt(IEnvironmentInteractable candidate)
+    {
+        const string token = "{interact}";
+        string template = PrologueStrings.Get(candidate.InteractionTextKey, _language);
+        return template.Contains(token, System.StringComparison.Ordinal)
+            ? template.Replace(token, InputGlyphResolver.LiveKeyboardText(InputActions.Interact, _language),
+                System.StringComparison.Ordinal)
+            : template;
+    }
 
     public void SetLanguage(GameLanguage language)
     {
@@ -110,7 +122,7 @@ public partial class EnvironmentInteractionController : Node2D
         if (candidate == null) return;
         Vector2 position = ToLocal(candidate.InteractionNode.GlobalPosition) + new Vector2(0f, -30f);
         DrawCircle(position, 5f, new Color(.45f, 1f, .82f, .9f));
-        DrawString(ThemeDB.FallbackFont, position + new Vector2(-100f, -10f), CurrentPromptText,
+        DrawString(ThemeDB.FallbackFont, position + new Vector2(-100f, -10f), FormatPrompt(candidate),
             HorizontalAlignment.Center, 200f, 16, new Color(.9f, 1f, .93f));
     }
 

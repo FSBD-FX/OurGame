@@ -337,6 +337,21 @@ public static class PrologueFormalHudTests
             // otherwise its default Chinese locale can overwrite the first English sample.
             for (int frame = 0; frame < 6 && flow.State != PrologueGameFlowState.Playing; frame++)
                 await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            if (flow.State != PrologueGameFlowState.Playing)
+            {
+                var world = level.GetNode<Knight.Prologue.Seamless.SeamlessPrologueWorld>("WorldRoot/Sectors");
+                GD.Print("HUD_RESOURCE_LABEL_STARTUP_FAILURE " + System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    State = flow.State.ToString(), Pending = level.ResidentPreparationPending,
+                    Failure = level.ResidentPreparationFailure, Rejected = flow.LastRejectedTransition,
+                    LoadStatus = flow.LoadResult?.Status.ToString(), Needs = level.NeedsResidentPreparation,
+                    Layout = world.LayoutVersion, Content = level.ResidentContent.ToString(),
+                    Physics = Engine.GetPhysicsFrames(), Process = Engine.GetProcessFrames(),
+                    Position = level.Player.GlobalPosition.ToString(), Velocity = level.Player.Velocity.ToString(),
+                    CanProcess = level.Player.CanProcess(), PlayerMode = level.Player.ProcessMode.ToString(),
+                    WorldMode = world.ProcessMode.ToString(), Visible = level.Player.IsVisibleInTree()
+                }));
+            }
             TestAssert.Equal(PrologueGameFlowState.Playing, flow.State,
                 "resource-label fixture finishes deferred settings initialization before language measurements");
             PrologueFormalHud formal = level.GetNode<PrologueFormalHud>("Hud/FormalHud");
@@ -475,6 +490,7 @@ public static class PrologueFormalHudTests
                 $"loadout content stays contained at supported UI scale {scale}");
             AssertPanelContentsContained(formal, "ResourceCluster",
                 $"resource cluster content stays contained at supported UI scale {scale}");
+            AssertPromptGeometryBeforeQueries(formal, resolution, scale);
             AssertDoesNotOverlap(formal.GetNode<Control>("Prompt/Glyph"),
                 formal.GetNode<Control>("Prompt/Text"),
                 $"compound prompt glyph stays separate from copy at supported UI scale {scale}");
@@ -499,5 +515,53 @@ public static class PrologueFormalHudTests
         viewport.Size = originalResolution;
         formal.SetUiScale(1f);
         await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+        await AssertPromptDownscaleAfterShapedLargeText(tree, formal);
+        GD.Print("FORMAL_HUD_PROMPT_SCALE_LAYOUT_OK combinations=12 original_waits=true original_overlap_assertions=true");
+    }
+
+    private static async Task AssertPromptDownscaleAfterShapedLargeText(SceneTree tree, PrologueFormalHud formal)
+    {
+        Label glyph = formal.GetNode<Label>("Prompt/Glyph");
+        Label copy = formal.GetNode<Label>("Prompt/Text");
+        formal.SetUiScale(1.5f);
+        await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+        Vector2 shapedLargeMinimum = glyph.GetCombinedMinimumSize();
+        formal.SetUiScale(.8f);
+        Rect2 smallGlyph = glyph.GetGlobalRect(), smallCopy = copy.GetGlobalRect();
+        Vector2 smallMinimum = glyph.GetCombinedMinimumSize();
+        GD.Print("HUD_PROMPT_DOWNSCALE_FACTS " + System.Text.Json.JsonSerializer.Serialize(new
+        {
+            LargeMinimumX = shapedLargeMinimum.X, SmallMinimumX = smallMinimum.X,
+            GlyphX = smallGlyph.Position.X, GlyphWidth = smallGlyph.Size.X,
+            CopyX = smallCopy.Position.X, CopyWidth = smallCopy.Size.X,
+            FontSize = glyph.GetThemeFontSize("font_size"), WaitAfterDownscale = false
+        }));
+        TestAssert.True(!smallGlyph.Intersects(smallCopy),
+            $"PROMPT_SHAPED_DOWNSCALE_RED: switching large to small UI keeps complete glyph separate from copy immediately; glyph={smallGlyph} copy={smallCopy}");
+        formal.SetUiScale(1f);
+    }
+
+    private static void AssertPromptGeometryBeforeQueries(PrologueFormalHud formal, Vector2I resolution, float scale)
+    {
+        Label glyph = formal.GetNode<Label>("Prompt/Glyph");
+        Label copy = formal.GetNode<Label>("Prompt/Text");
+        Rect2 glyphBefore = glyph.GetGlobalRect(), copyBefore = copy.GetGlobalRect();
+        int fontSize = glyph.GetThemeFontSize("font_size");
+        Vector2 minimum = glyph.GetCombinedMinimumSize();
+        Vector2 measured = glyph.GetThemeFont("font").GetStringSize(glyph.Text,
+            HorizontalAlignment.Left, -1f, fontSize);
+        GD.Print("HUD_PROMPT_GEOMETRY_FACTS " + System.Text.Json.JsonSerializer.Serialize(new
+        {
+            Width = resolution.X, Height = resolution.Y, UiScale = scale, GlyphText = glyph.Text,
+            FontSize = fontSize, GlyphX = glyphBefore.Position.X, GlyphY = glyphBefore.Position.Y,
+            GlyphWidth = glyphBefore.Size.X, GlyphHeight = glyphBefore.Size.Y,
+            CustomMinimumX = glyph.CustomMinimumSize.X, CustomMinimumY = glyph.CustomMinimumSize.Y,
+            CombinedMinimumX = minimum.X, CombinedMinimumY = minimum.Y,
+            MeasuredTextWidth = measured.X, CopyX = copyBefore.Position.X, CopyY = copyBefore.Position.Y,
+            CopyWidth = copyBefore.Size.X, CopyHeight = copyBefore.Size.Y,
+            GeometryChangedDuringQueries = glyphBefore != glyph.GetGlobalRect() || copyBefore != copy.GetGlobalRect()
+        }));
+        TestAssert.True(!glyphBefore.Intersects(copyBefore),
+            $"PROMPT_NATIVE_TRANSITION_RED: prompt rectangles captured before font/minimum queries do not overlap at {resolution}, scale={scale}; glyph={glyphBefore} copy={copyBefore}");
     }
 }

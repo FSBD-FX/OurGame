@@ -207,6 +207,8 @@ public static class PrologueAccessibilityTests
     {
         PackedScene packed = GD.Load<PackedScene>("res://scenes/prologue/PrologueLevel.tscn");
         PrologueLevelController level = packed.Instantiate<PrologueLevelController>();
+        try
+        {
         IsolatedPrologueFixture.Configure(level, nameof(PrologueAccessibilityTests));
         level.GetNode<PrologueAudioDirector>("Audio").PlaybackEnabled = false;
         tree.Root.AddChild(level);
@@ -231,16 +233,36 @@ public static class PrologueAccessibilityTests
             "English accessibility path is readable");
         ui.ShowControls();
         ui.SetLastInputDevice(InputDeviceKind.Gamepad);
-        TestAssert.True(ui.GetNode<Label>("ControlsView/Panel/Rows/Jump").Text.Contains("[A]"),
+        TestAssert.True(ui.GetNode<Label>("ControlsView/Panel/Scroll/Rows/Jump").Text.Contains("[A]"),
             "gamepad controls expose the active glyph");
         ui.SetLastInputDevice(InputDeviceKind.KeyboardMouse);
-        TestAssert.True(ui.GetNode<Label>("ControlsView/Panel/Rows/Jump").Text.Contains("[SPACE]"),
+        TestAssert.True(ui.GetNode<Label>("ControlsView/Panel/Scroll/Rows/Jump").Text.Contains("[SPACE]"),
             "keyboard controls expose the active glyph");
-        TestAssert.True(ui.GetNode<Label>("ControlsView/Panel/Rows/AttackMode").Text.Contains("[Q / LMB]") &&
-                        ui.GetNode<Label>("ControlsView/Panel/Rows/GrappleMode").Text.Contains("[E / LMB]") &&
-                        ui.GetNode<Label>("ControlsView/Panel/Rows/Shield").Text.Contains("[RMB]") &&
-                        ui.GetNode<Label>("ControlsView/Panel/Rows/Loadout").Text.Contains("[1 / 2 / 3 / 4]"),
-            "Task10 English controls present coherent current keyboard and mouse bindings");
+        string attack = ui.GetNode<Label>("ControlsView/Panel/Scroll/Rows/AttackMode").Text;
+        string grapple = ui.GetNode<Label>("ControlsView/Panel/Scroll/Rows/GrappleMode").Text;
+        string shield = ui.GetNode<Label>("ControlsView/Panel/Scroll/Rows/Shield").Text;
+        string interact = ui.GetNode<Label>("ControlsView/Panel/Scroll/Rows/Interact").Text;
+        TestAssert.Equal("Attack (energy cost)    [J]", attack,
+            "English attack controls name the independent J attack and its energy cost");
+        TestAssert.Equal("Claw / press again to cancel    [K]\n" +
+                         "WASD aims; a hit pulls automatically\n" +
+                         "After arrival: A/D optional swing\n" +
+                         "SPACE leap-release anytime; J/L ends claw", grapple,
+            "English K controls preserve aiming, automatic pull, arrival, leap-release and explicit cancellation");
+        TestAssert.Equal("Cloak Energy Shield    [L]", shield,
+            "English shield controls name the independent L shield");
+        TestAssert.Equal("Nearby grounded interaction    [Q]", interact,
+            "English Q controls name nearby grounded interaction, not attack-mode selection");
+        string keyboardControls = string.Join("\n", attack, grapple, shield, interact);
+        TestAssert.True(!keyboardControls.Contains("LMB", StringComparison.OrdinalIgnoreCase) &&
+                        !keyboardControls.Contains("RMB", StringComparison.OrdinalIgnoreCase) &&
+                        !keyboardControls.Contains("ATTACK MODE", StringComparison.OrdinalIgnoreCase) &&
+                        !keyboardControls.Contains("GRAPPLE MODE", StringComparison.OrdinalIgnoreCase) &&
+                        !keyboardControls.Contains("[Q /", StringComparison.Ordinal) &&
+                        !keyboardControls.Contains("[E /", StringComparison.Ordinal),
+            "current keyboard controls never restore obsolete mouse bindings or Q/E mode switching");
+        TestAssert.True(ui.GetNode<Label>("ControlsView/Panel/Scroll/Rows/Loadout").Text.Contains("[1 / 2 / 3 / 4]"),
+            "English controls retain all four loadout slot bindings");
         TestAssert.True(!string.IsNullOrWhiteSpace(PrologueStrings.Get("controls.shield",
                             GameLanguage.ChineseSimplified)) &&
                         !string.IsNullOrWhiteSpace(PrologueStrings.Get("controls.shield", GameLanguage.English)) &&
@@ -269,7 +291,12 @@ public static class PrologueAccessibilityTests
                         PrologueProductionAudit.ValidateUiScale(1.5f),
             "supported UI-scale endpoints remain valid");
 
-        level.QueueFree();
-        await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+        }
+        finally
+        {
+            tree.Paused = false;
+            if (GodotObject.IsInstanceValid(level)) level.QueueFree();
+            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+        }
     }
 }

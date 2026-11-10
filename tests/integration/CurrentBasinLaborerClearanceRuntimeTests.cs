@@ -8,6 +8,7 @@ using Knight.Enemies.Laborer;
 using Knight.Player;
 using Knight.Prologue;
 using Knight.Prologue.Seamless;
+using Knight.Prologue.Residents;
 
 namespace Knight.Tests.Integration;
 
@@ -62,7 +63,7 @@ public static class CurrentBasinLaborerClearanceRuntimeTests
         finally { level.Free(); }
     }
 
-    private sealed record ClearanceObservation(bool ApproachSeen, float MovedTowardPlayer,
+    private sealed record ClearanceObservation(bool ApproachSeen, float MovedTowardPlayer, float MovedDuringPlaying,
         int LongestSupport, bool ActorSupported, bool PlayerSupported, bool SamePlayerWorld,
         int Recoveries, ulong AttackId, int Telegraph, int Active, int Recovery, bool BlockerContact);
 
@@ -70,7 +71,7 @@ public static class CurrentBasinLaborerClearanceRuntimeTests
     {
         TestAssert.True(sample.ApproachSeen,
             "real SteamValves Laborer must see and approach the player on the same layer");
-        TestAssert.True(sample.MovedTowardPlayer >= 100f,
+        TestAssert.True(sample.MovedTowardPlayer >= 100f && sample.MovedDuringPlaying >= 100f,
             "current SteamValves passage must let its unchanged Laborer approach at least 100px instead of wedging under the shortcut walkway");
         TestAssert.True(sample.LongestSupport >= 12 && sample.ActorSupported,
             "current Laborer must retain native trench-floor support while approaching and attacking");
@@ -89,6 +90,19 @@ public static class CurrentBasinLaborerClearanceRuntimeTests
             .Instantiate<PrologueLevelController>();
         BellBackLaborer actor = null;
         RectangleShape2D blockerShape = null;
+        StaticBody2D blocker = null;
+        SeamlessPrologueWorld observedWorld = null;
+        Action<PrologueSector> mountedObserver = null;
+        int blockerMounts = 0;
+        ulong blockerMountPhysics = 0;
+        Node observedActors = null;
+        BellBackLaborer birthActor = null;
+        Node.ChildEnteredTreeEventHandler birthObserver = null;
+        Action birthReady = null;
+        int births = 0;
+        bool birthSnapshotComplete = false, birthReadySubscribed = false;
+        ulong birthActorId = 0;
+        Rect2 birthBodyBounds = default, birthBlockerBounds = default;
         Action<AttackPresentationFrame> observe = null;
         int recoveries = 0;
         void Recovered(string _) => recoveries++;
@@ -102,6 +116,50 @@ public static class CurrentBasinLaborerClearanceRuntimeTests
             var world = level.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors");
             TestAssert.Equal(2, world.LayoutVersion, "current clearance must use the saved full layout2 Main");
             world.InitialSector = PrologueSectorId.CanyonBasin;
+            observedWorld = world;
+            // Install the negative ahead of the first native AI tick, rather
+            // than letting hidden session preparation walk through the lane.
+            mountedObserver = sector =>
+            {
+                if (sector.SectorId != PrologueSectorId.CanyonBasin) return;
+                if (blocked)
+                {
+                    blockerMounts++;
+                    blockerMountPhysics = Engine.GetPhysicsFrames();
+                    blockerShape = new RectangleShape2D { Size = new Vector2(70, 14) };
+                    blocker = new StaticBody2D { Name = "ClearanceNegativeSoffit",
+                        CollisionLayer = CombatCollisionLayers.World, CollisionMask = CombatCollisionLayers.None };
+                    blocker.AddChild(new CollisionShape2D { Name = "Collision", Shape = blockerShape });
+                    sector.GetNode("Gameplay/Collision").AddChild(blocker);
+                    blocker.GlobalPosition = new Vector2(3515, 4151);
+                }
+                observedActors = sector.GetNode("Gameplay/Actors");
+                birthObserver = child =>
+                {
+                    if (child is not BellBackLaborer candidate ||
+                        child.Name != "canyon_v2_encounter_steam-valves_batch0_1") return;
+                    births++;
+                    birthActor = candidate;
+                    birthReady = () =>
+                    {
+                        var shape = candidate.GetNode<CollisionShape2D>("BodyCollider");
+                        birthActorId = candidate.GetInstanceId();
+                        birthBodyBounds = shape.GlobalTransform * shape.Shape.GetRect();
+                        if (blocked)
+                        {
+                            var obstacle = blocker.GetNode<CollisionShape2D>("Collision");
+                            birthBlockerBounds = obstacle.GlobalTransform * obstacle.Shape.GetRect();
+                        }
+                        birthSnapshotComplete = true;
+                        candidate.Ready -= birthReady;
+                        birthReadySubscribed = false;
+                    };
+                    birthReadySubscribed = true;
+                    candidate.Ready += birthReady;
+                };
+                observedActors.ChildEnteredTree += birthObserver;
+            };
+            world.SectorMounted += mountedObserver;
             var flow = level.GetNode<PrologueGameFlowController>("GameFlow");
             flow.HeadlessAutoStart = false;
             flow.AutomationAutoStart = true;
@@ -111,13 +169,18 @@ public static class CurrentBasinLaborerClearanceRuntimeTests
             ulong worldId = world.GetInstanceId();
             tree.Root.AddChild(level);
             await Frames(tree, 4);
+            await BasinAscentCameraRuntimeTests.WaitForPlaying(tree, level);
             var group = level.CurrentSectorRoot.FindChildren("*", null, true, false)
                 .OfType<CanyonEncounterGroup>().Single(item => item.EncounterId ==
                     new StringName("canyon.v2.encounter.steam-valves"));
             TestAssert.True(group.IsActive && group.CurrentBatch == 0 && group.LiveActorCount == 1,
                 "actual SteamValves trigger must spawn its authored first batch, not a hand-added actor");
-            actor = level.CurrentSectorRoot.GetNode("Gameplay/Actors").GetChildren()
-                .OfType<BellBackLaborer>().Single();
+            actor = level.CurrentSectorRoot.GetNode<BellBackLaborer>(
+                "Gameplay/Actors/canyon_v2_encounter_steam-valves_batch0_1");
+            TestAssert.True(actor.SceneFilePath == "res://scenes/enemies/BellBackLaborer.tscn" &&
+                actor.GetNodeOrNull<ResidentSceneBinding>("ResidentBinding") == null &&
+                births == 1 && birthSnapshotComplete && birthActorId == actor.GetInstanceId(),
+                "clearance observes the original authored wave actor, not a same-class resident");
             var floor = level.CurrentSectorRoot.GetNode<StaticBody2D>("Gameplay/Collision/SteamTrenchFloor");
             var roofShape = level.CurrentSectorRoot.GetNode<CollisionShape2D>(
                 "Gameplay/Collision/ShortcutBasinWalkway/Collision");
@@ -132,23 +195,35 @@ public static class CurrentBasinLaborerClearanceRuntimeTests
                 (floor.CollisionLayer & CombatCollisionLayers.World) != 0 &&
                 (roofShape.GetParent<StaticBody2D>().CollisionLayer & CombatCollisionLayers.World) != 0,
                 "saved native floor/soffit preserve92px clearance and the unchanged84px/radius28 capsule and upper top4116");
-            StaticBody2D blocker = null;
             if (blocked)
             {
-                // Isolated extension below the real soffit, ahead of the native
-                // spawn (not intersecting it or the player). Never saved to disk.
-                blockerShape = new RectangleShape2D { Size = new Vector2(70, 14) };
-                blocker = new StaticBody2D { Name = "ClearanceNegativeSoffit",
-                    CollisionLayer = CombatCollisionLayers.World,
-                    CollisionMask = CombatCollisionLayers.None };
-                blocker.AddChild(new CollisionShape2D { Name = "Collision", Shape = blockerShape });
-                level.CurrentSectorRoot.GetNode("Gameplay/Collision").AddChild(blocker);
-                blocker.GlobalPosition = new Vector2(3515, 4151);
-                TestAssert.True(actor.GlobalPosition.X - capsule.Radius > 3550f &&
-                    player.GlobalPosition.X + 20f < 3480f && floorTop - (4151f + 7f) == 78f,
+                var bodyShape = actor.GetNode<CollisionShape2D>("BodyCollider");
+                var obstruction = blocker?.GetNode<CollisionShape2D>("Collision");
+                Rect2 actualBlocker = obstruction == null ? default : obstruction.GlobalTransform * obstruction.Shape.GetRect();
+                GD.Print($"CURRENT_BASIN_NEGATIVE_SETUP physics={Engine.GetPhysicsFrames()} mounted_physics={blockerMountPhysics} mounts={blockerMounts} " +
+                    $"blocker_exists={blocker != null} expected_position={blocker?.GlobalPosition == new Vector2(3515, 4151)} " +
+                    $"actor_ahead={actor.GlobalPosition.X - capsule.Radius > 3550f} player_clear={player.GlobalPosition.X + 20f < 3480f} " +
+                    $"actor={actor.GlobalPosition} local={actor.Position} actor_bounds={bodyShape.GlobalTransform * capsule.GetRect()} " +
+                    $"player={player.GlobalPosition} blocker={blocker?.GlobalPosition} blocker_bounds={actualBlocker} " +
+                    $"blocker_layer={blocker?.CollisionLayer} disabled={obstruction?.Disabled} actual_gap={floorTop - actualBlocker.End.Y} " +
+                    $"phase={actor.CurrentState} observation_only=true");
+                TestAssert.True(blocker != null && blocker.GlobalPosition == new Vector2(3515, 4151) &&
+                    blockerMounts == 1 && births == 1 && birthActorId == actor.GetInstanceId() &&
+                    birthBodyBounds.Position.X > birthBlockerBounds.End.X &&
+                    !birthBodyBounds.Intersects(birthBlockerBounds) &&
+                    player.GlobalPosition.X + 20f < actualBlocker.Position.X &&
+                    floorTop - actualBlocker.End.Y == 78f,
                     "negative narrow segment is ahead of the actual actor, clear of both initial bodies, with78px headroom");
+                GD.Print($"CURRENT_BASIN_NEGATIVE_BIRTH_OK actor={birthActorId} body={birthBodyBounds} blocker={birthBlockerBounds} " +
+                    "actual_ready_snapshot=true initial_nonintersection=true actual_gap=78");
             }
-            float startX = actor.GlobalPosition.X;
+            // Total displacement uses the same real Ready baseline in both
+            // cases. Also require >=100px during Playing for the positive; a
+            // preparation move cannot satisfy its traversal contract. The
+            // blocked capsule can depenetrate a few hundredths of a pixel
+            // after Playing, which is not a negative approach from birth.
+            float startX = birthBodyBounds.GetCenter().X;
+            float playingStartX = actor.GlobalPosition.X;
             var phases = new List<(ulong Id, AttackPhase Phase)>();
             observe = frame =>
             {
@@ -157,6 +232,7 @@ public static class CurrentBasinLaborerClearanceRuntimeTests
             };
             actor.AttackFrameChanged += observe;
             int stable = 0, longestSupport = 0;
+            ulong completedAttack = 0;
             bool approachSeen = false, blockerContact = false;
             for (int tick = 0; tick < 300; tick++)
             {
@@ -166,24 +242,39 @@ public static class CurrentBasinLaborerClearanceRuntimeTests
                     blockerContact |= actor.GetSlideCollision(contact).GetCollider() == blocker;
                 stable = SupportedBy(actor, floor) ? stable + 1 : 0;
                 longestSupport = Math.Max(longestSupport, stable);
-                if (phases.Any(item => item.Phase == AttackPhase.Recovery)) break;
+                completedAttack = phases.Where(item => item.Phase == AttackPhase.Telegraph)
+                    .Select(item => item.Id).Distinct().FirstOrDefault(id =>
+                    {
+                        int warning = phases.FindIndex(item => item.Id == id && item.Phase == AttackPhase.Telegraph);
+                        int activePhase = phases.FindIndex(item => item.Id == id && item.Phase == AttackPhase.Active);
+                        int recoveryPhase = phases.FindIndex(item => item.Id == id && item.Phase == AttackPhase.Recovery);
+                        return id != 0 && activePhase > warning && recoveryPhase > activePhase;
+                    });
+                if (completedAttack != 0) break;
             }
             float moved = startX - actor.GlobalPosition.X;
             GD.Print($"CURRENT_BASIN_LABORER_SAMPLE blocked={blocked} gap={floorTop - roofBottom} capsule={capsule.Height} " +
-                $"start_x={startX} actor={actor.GlobalPosition} moved_left={moved} " +
+                $"start_x={startX} baseline=actual_ready playing_start_x={playingStartX} actor={actor.GlobalPosition} " +
+                $"moved_left={moved} moved_during_playing={playingStartX - actor.GlobalPosition.X} " +
                 $"support_ticks={longestSupport} player={player.GlobalPosition} recoveries={recoveries} " +
                 $"blocker_contact={blockerContact} phases={string.Join(",", phases.Distinct())}");
-            ulong id = phases.FirstOrDefault(item => item.Phase == AttackPhase.Telegraph).Id;
+            ulong id = completedAttack;
             int telegraph = phases.FindIndex(item => item.Id == id && item.Phase == AttackPhase.Telegraph);
             int active = phases.FindIndex(item => item.Id == id && item.Phase == AttackPhase.Active);
             int recovery = phases.FindIndex(item => item.Id == id && item.Phase == AttackPhase.Recovery);
-            return new ClearanceObservation(approachSeen, moved, longestSupport, SupportedBy(actor, floor),
+            return new ClearanceObservation(approachSeen, moved, playingStartX - actor.GlobalPosition.X, longestSupport, SupportedBy(actor, floor),
                 player.IsOnFloor(), player.GetInstanceId() == playerId && world.GetInstanceId() == worldId &&
                     level.CurrentSector == PrologueSectorId.CanyonBasin && world.LayoutVersion == 2,
                 recoveries, id, telegraph, active, recovery, blockerContact);
         }
         finally
         {
+            if (GodotObject.IsInstanceValid(observedWorld) && mountedObserver != null)
+                observedWorld.SectorMounted -= mountedObserver;
+            if (GodotObject.IsInstanceValid(observedActors) && birthObserver != null)
+                observedActors.ChildEnteredTree -= birthObserver;
+            if (GodotObject.IsInstanceValid(birthActor) && birthReady != null && birthReadySubscribed)
+                birthActor.Ready -= birthReady;
             if (GodotObject.IsInstanceValid(actor) && observe != null) actor.AttackFrameChanged -= observe;
             if (GodotObject.IsInstanceValid(level))
             {
@@ -217,6 +308,7 @@ public static class CurrentBasinLaborerClearanceRuntimeTests
             level.RecoveryCompleted += Recovered;
             tree.Root.AddChild(level);
             await Frames(tree, 8);
+            await BasinAscentCameraRuntimeTests.WaitForPlaying(tree, level);
             var walkway = level.CurrentSectorRoot.GetNode<StaticBody2D>("Gameplay/Collision/ShortcutBasinWalkway");
             for (int tick = 0; tick < 24; tick++)
             {

@@ -7,12 +7,15 @@ using Knight.Abilities;
 using Knight.Build.Prologue;
 using Knight.Combat;
 using Knight.Enemies;
+using Knight.Enemies.Moth;
 using Knight.Enemies.Ranged;
 using Knight.Player;
 using Knight.Presentation;
 using Knight.Prologue;
 using Knight.Prologue.Seamless;
+using Knight.Prologue.Residents;
 using Knight.Tests.Presentation;
+using Knight.Shared;
 using Knight.World;
 
 namespace Knight.Tests.Integration;
@@ -27,10 +30,779 @@ public static class RangedWeaponPlacementRuntimeTests
 
     public enum MixedCounterProof { None, RejectShort, Connect, EarlyWarnings, TightWarning }
 
-    public static async Task RunMixedThreatPolicy(SceneTree tree, bool resourcePolicy = false,
-        int preparationAttacks = 0, MixedCounterProof counterProof = MixedCounterProof.None)
+    // Real-key control: current support alone misses the post-release coast.
+    // The full Main v224 caller failure is retained as the integration RED.
+    public static async Task RunMixedCooldownSupport(SceneTree tree, bool duringAttack=false)
     {
+        foreach (bool bounded in new[] { false, true })
+        {
+            ReleaseFairnessKeys();
+            var root=new RangedFairnessRecoveryProbe { Name=bounded ? "BoundedCooldown" : "LegacyCooldownControl" };
+            var floor=new StaticBody2D { Position=new(500,396),CollisionLayer=CombatCollisionLayers.World };
+            floor.AddChild(new CollisionShape2D { Shape=new RectangleShape2D { Size=new(200,20) } });
+            var player=GD.Load<PackedScene>("res://scenes/player/Player.tscn").Instantiate<CharacterBody2D>();
+            player.Position=new(450,350);player.GetNode<Camera2D>("Camera2D").Enabled=false;
+            root.AddChild(floor);root.AddChild(player);
+            var input=player.GetNode<PlayerInputReader>("Input");
+            var motor=player.GetNode<PlayerMotor>("Motor");
+            var health=player.GetNode<HealthComponent>("Health");
+            var combat=player.GetNode<PlayerCombat>("Combat");
+            var attackHitbox=combat.GetNode<Hitbox>("AttackHitbox");
+            int attacks=0,contacts=0,actualAttackDirection=-1;
+            PlayerCombat.AttackStartedEventHandler onAttack=(_,direction)=>{attacks++;actualAttackDirection=direction;};
+            PlayerCombat.AttackConnectedEventHandler onContact=_=>contacts++;
+            combat.AttackStarted+=onAttack;
+            combat.AttackConnected+=onContact;
+            KeyboardRouteInputDriver driver=null;
+            bool watching=false,lost=false;
+            bool attackWatching=false,sawActive=false,sawRecovery=false,sawEnded=false,scaleRetained=true;
+            int samples=0,held=0,denied=0;
+            float minimum=float.PositiveInfinity,peakSpeed=0;
+            root.AddChild(new ThrusterPostMotorObserver { ProcessPhysicsPriority=100,Observe=() =>
+            {
+                if(attackWatching)
+                {
+                    scaleRetained&=motor.EffectiveMovementScale==1f;
+                    sawActive|=attackHitbox.Monitoring;
+                    sawRecovery|=sawActive && !attackHitbox.Monitoring && combat.IsAttacking;
+                    sawEnded|=sawRecovery && !combat.IsAttacking;
+                }
+                if(!watching)return;
+                samples++;minimum=MathF.Min(minimum,player.GlobalPosition.X);
+                peakSpeed=MathF.Max(peakSpeed,MathF.Abs(player.Velocity.X));
+                lost|=!PrologueCanyonGeneratedMainRouteTests.TryTask10FullFloorSupport(player,out ulong id) ||
+                    id!=floor.GetInstanceId();
+            } });
+            tree.Root.AddChild(root);
+            try
+            {
+                await ThrusterPlayerRuntimeTests.Frames(tree,input,8);
+                var capsule=(CapsuleShape2D)player.GetNode<CollisionShape2D>("BodyCollider").Shape;
+                TestAssert.True(capsule.Radius==20 && capsule.Height==72 &&
+                    player.GetNode<CollisionShape2D>("BodyCollider").Transform==Transform2D.Identity &&
+                    PrologueCanyonGeneratedMainRouteTests.TryTask10FullFloorSupport(player,out ulong initialFloor) &&
+                    initialFloor==floor.GetInstanceId() && motor.EffectiveMovementScale==1f &&
+                    player.Velocity==Vector2.Zero,
+                    "MIXED_COOLDOWN_FIXTURE_RED: actual saved capsule and original full support must be ready");
+                driver=KeyboardRouteInputDriver.Begin(player);
+                if(duringAttack)
+                {
+                    attackWatching=true;
+                    driver.Command(InputActions.Attack,true);await Frames(tree,2);
+                    driver.Command(InputActions.Attack,false);
+                    for(int wait=0;wait<32 && !sawRecovery;wait++)await Frames(tree,1);
+                    TestAssert.True(attacks==1 && contacts==0 && sawActive && sawRecovery && combat.IsAttacking &&
+                        !attackHitbox.Monitoring && actualAttackDirection==(int)AttackDirection.Horizontal &&
+                        input.KeyboardAimDirection==Vector2.Right && scaleRetained,
+                        "MIXED_ATTACK_SPACING_SETUP_RED: one real horizontal J reaches natural non-active Recovery without movement locking");
+                }
+                watching=true;
+                for(int tick=0;tick<7;tick++)
+                {
+                    bool required=PrologueCanyonGeneratedMainRouteTests.Task10OrdinaryBackoffSupportRequired(
+                        !duringAttack,false,6.9285f);
+                    bool admit=!bounded || !required || PrologueCanyonGeneratedMainRouteTests.Task10PostHopBackoffSupported(
+                        player.Velocity.X,-1,motor.EffectiveMovementScale,motor.MotionSettings,motor.ThrusterState.Module,
+                        player.GetPhysicsProcessDeltaTime(),60-tick,player.GlobalPosition.X-20,
+                        player.GlobalPosition.X+20,400,600);
+                    if(denied>0)admit=false; // Real release is never silently re-armed.
+                    if(admit)held++;else denied++;
+                    driver.Command(InputActions.MoveLeft,admit);
+                    int before=samples;
+                    if(duringAttack)await Frames(tree,1); // Main's actual pre-node decision cadence.
+                    else await ThrusterPlayerRuntimeTests.Frames(tree,input,1);
+                    TestAssert.True(samples-before is >=1 and <=2,
+                        "original decision cadence fits the two real held-sample forecast");
+                }
+                driver.Command(InputActions.MoveLeft,false);
+                for(int tick=0;tick<30 && (player.Velocity.X!=0 || input.Current.MoveAxis!=0);tick++)
+                    if(duringAttack)await Frames(tree,1);
+                    else await ThrusterPlayerRuntimeTests.Frames(tree,input,1);
+                if(duringAttack)
+                {
+                    for(int tick=0;tick<24 && !sawEnded;tick++)await Frames(tree,1);
+                    TestAssert.True(sawEnded && !combat.IsAttacking && scaleRetained,
+                        "actual horizontal J naturally ends with unchanged movement scale, no cancellation or second J");
+                }
+                watching=attackWatching=false;
+                TestAssert.True(samples>=7 && peakSpeed>100 && player.Velocity.X==0 && input.Current.MoveAxis==0 &&
+                    !Input.IsPhysicalKeyPressed(Key.A) && motor.AcceptedJumpCount==0 && motor.AcceptedDashCount==0 &&
+                    driver.AttackEdges==(duringAttack?1:0) && attacks==(duringAttack?1:0) && contacts==0 &&
+                    driver.ClawEdges==0 && driver.ShieldEdges==0 &&
+                    health.CurrentHealth==5 && root.RecoveryRequests==0,
+                    "MIXED_COOLDOWN_RELEASE_RED: measured natural stop uses no rescue, attack, jump, jet, claw or recovery");
+                TestAssert.True(bounded ? held>0 && denied>0 && !lost && minimum>=420 :
+                    held==7 && denied==0 && lost && minimum<420,
+                    $"{(duringAttack?"MIXED_ATTACK_SPACING_SUPPORT_RED":"MIXED_COOLDOWN_SUPPORT_RED")}: bounded={bounded} held={held} denied={denied} lost={lost} minimum={minimum:R}");
+                GD.Print($"MIXED_COOLDOWN_NATIVE_SUPPORT_OK during_attack={duringAttack} bounded={bounded} held={held} denied={denied} samples={samples} " +
+                    $"lost_full_support={lost} minimum_x={minimum:R} peak_speed={peakSpeed:R} stopped=true actual_motor=true no_rescue=true main=false");
+                if(duringAttack)GD.Print($"MIXED_ATTACK_SPACING_NATIVE_OK bounded={bounded} J={attacks} contacts={contacts} " +
+                    $"active={sawActive} recovery={sawRecovery} ended={sawEnded} scale1={scaleRetained} main_cadence=true post_motor_samples={samples}");
+            }
+            finally
+            {
+                watching=attackWatching=false;
+                if(GodotObject.IsInstanceValid(combat))
+                {combat.AttackStarted-=onAttack;combat.AttackConnected-=onContact;}
+                try { driver?.Dispose(); }
+                finally {ReleaseFairnessKeys();await TestSceneTeardown.FreeSceneAfterAudioDrain(tree,root);}
+            }
+        }
+        if(!duringAttack)await CharacterizeDiagonalGuardMovement(tree);
+        else AssertOrdinaryBackoffClassification();
+    }
+
+    private static void AssertOrdinaryBackoffClassification()
+    {
+        var cases=new (bool Cooldown,bool Vertical,float Gap,bool Want)[]
+        {
+            (true,false,100,true),(true,true,float.NaN,true),
+            (false,false,6.9285f,true),(false,false,0,true),(false,false,-3,true),
+            (false,false,8,false),(false,false,64,false),(false,true,6.9285f,false),
+            (false,false,float.NaN,false),(false,false,float.PositiveInfinity,false),
+            (false,false,float.NegativeInfinity,false)
+        };
+        foreach(var item in cases)
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10OrdinaryBackoffSupportRequired(
+                item.Cooldown,item.Vertical,item.Gap)==item.Want,
+                $"MIXED_ORDINARY_BACKOFF_POLICY_RED cooldown={item.Cooldown} vertical={item.Vertical} gap={item.Gap:R}");
+        GD.Print($"MIXED_ORDINARY_BACKOFF_POLICY_OK cases={cases.Length} finite_horizontal_close_gap=true cooldown_preserved=true");
+    }
+
+    private static async Task CharacterizeDiagonalGuardMovement(SceneTree tree)
+    {
+        ReleaseFairnessKeys();
+        var root=new RangedFairnessRecoveryProbe { Name="DiagonalGuardActualMovement" };
+        var floor=new StaticBody2D { Position=new(500,396),CollisionLayer=CombatCollisionLayers.World };
+        floor.AddChild(new CollisionShape2D { Shape=new RectangleShape2D { Size=new(1000,20) } });
+        var player=GD.Load<PackedScene>("res://scenes/player/Player.tscn").Instantiate<CharacterBody2D>();
+        player.Position=new(500,350);player.GetNode<Camera2D>("Camera2D").Enabled=false;
+        root.AddChild(floor);root.AddChild(player);tree.Root.AddChild(root);
+        var input=player.GetNode<PlayerInputReader>("Input");
+        var motor=player.GetNode<PlayerMotor>("Motor");
+        var shield=player.GetNode<PlayerShieldController>("Shield");
+        KeyboardRouteInputDriver driver=null;
+        try
+        {
+            await ThrusterPlayerRuntimeTests.Frames(tree,input,8);driver=KeyboardRouteInputDriver.Begin(player);
+            float before=player.GlobalPosition.X;
+            for(int tick=0;tick<12;tick++)
+            {
+                driver.PointerButton(MouseButton.Right,true,player,player.GlobalPosition+new Vector2(-80,80),stopForGuard:true);
+                await ThrusterPlayerRuntimeTests.Frames(tree,input,1);
+            }
+            TestAssert.True(Input.IsPhysicalKeyPressed(Key.A) && Input.IsPhysicalKeyPressed(Key.S) &&
+                Input.IsPhysicalKeyPressed(Key.L) && input.Current.MoveAxis==-1 && shield.IsActive &&
+                shield.GuardDirection.Dot(new Vector2(-1,1).Normalized())>.99f && motor.EffectiveMovementScale==.65f &&
+                player.Velocity.X<0 && player.GlobalPosition.X<before-5 &&
+                PrologueCanyonGeneratedMainRouteTests.TryTask10FullFloorSupport(player,out ulong id) && id==floor.GetInstanceId(),
+                "MIXED_DIAGONAL_GUARD_CONTRACT_RED: empty planner movement/stopForGuard is not stationary diagonal keyboard guard");
+            float heldX=player.GlobalPosition.X;
+            driver.PointerButton(MouseButton.Right,false,player,Vector2.Zero);
+            for(int tick=0;tick<30 && (player.Velocity.X!=0 || input.Current.ShieldHeld);tick++)
+                await ThrusterPlayerRuntimeTests.Frames(tree,input,1);
+            TestAssert.True(!shield.IsActive && input.Current.MoveAxis==0 && player.Velocity.X==0 &&
+                player.GlobalPosition.X<heldX && !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.S) &&
+                motor.AcceptedJumpCount==0 && motor.AcceptedDashCount==0 && driver.AttackEdges==0 && driver.ClawEdges==0 &&
+                player.GetNode<HealthComponent>("Health").CurrentHealth==5 && root.RecoveryRequests==0,
+                "diagonal release really coasts to rest; no diagonal aim latch or synthetic pose/velocity reset");
+            GD.Print($"MIXED_DIAGONAL_GUARD_NATIVE_CONTRACT_OK held_dx={heldX-before:R} release_dx={player.GlobalPosition.X-heldX:R} " +
+                "actual_A_S_L=true planner_move=false actual_axis=-1 stationary=false stopped_after_release=true production_rules_unchanged=true");
+        }
+        finally
+        {
+            try {driver?.Dispose();}
+            finally {ReleaseFairnessKeys();await TestSceneTeardown.FreeSceneAfterAudioDrain(tree,root);}
+        }
+    }
+
+    // Mutation caught: a harmless owner Recovery boundary is treated as new
+    // damage even though the captured model still owes a full next warning.
+    public static async Task RunRecoveryCounterClock(SceneTree tree)
+    {
+        AssertHopCycleAdmission();
+        var live=new RangedWeaponInput(Vector2.Zero,new Vector2(100,0),true,false,false);
+        foreach(int exit in new[]{0,1,2})
+        {
+            using var settings=RangedWeaponSettings.ForRole(RangedWeaponRole.Burst);
+            var model=new RangedWeaponModel(settings);
+            model.Step(live,0);model.Step(live,1.10);model.Step(live,.42);
+            settings.TelegraphSeconds=.2f;settings.DirectionLockSeconds=.1f;
+            TestAssert.Near(1.10f,model.AttackTelegraphSeconds,.000001f,"captured warning ignores later authoring edits");
+            if(exit==0) model.Step(live,100);
+            else if(exit==1) model.CancelAttack();
+            else {model.Step(live with { StunRequested=true },0);model.Step(live,100);}
+            var entry=model.Step(live,100);
+            TestAssert.True(entry.State==RangedWeaponState.Telegraph && entry.EmissionsDue==0 &&
+                entry.AttackTimeline.PhaseRemainingSeconds>1.09f,
+                "normal/cancel/stun exits cannot credit surplus delta or bypass the next captured warning");
+            var fullCounter=model.Step(live,.43333334);
+            TestAssert.True(fullCounter.State==RangedWeaponState.Telegraph && fullCounter.EmissionsDue==0,
+                "complete J plus original eight ticks remains before the next active edge");
+        }
+        GD.Print("RANGED_RECOVERY_MODEL_CLOCK_OK exits=3 frozen_warning=true no_recovery_credit=true full_J_plus8=true");
+        ReleaseFairnessKeys();
+        const string encounter="recovery.clock";
+        var root=new RangedFairnessRecoveryProbe { Name="RecoveryClockNative" };
+        var floor=new StaticBody2D { Position=new(500,396),CollisionLayer=CombatCollisionLayers.World };
+        floor.AddChild(new CollisionShape2D { Shape=new RectangleShape2D { Size=new(1000,20) } });
+        var actors=new Node2D { Name="Actors" };
+        var burst=GD.Load<PackedScene>(Burst).Instantiate<RangedWeaponEnemy>();
+        burst.Name="recovery_clock_burst";burst.Position=new(555,352);
+        burst.ConfigureEncounterEnvelope(new Rect2(0,0,1000,600));actors.AddChild(burst);
+        var player=GD.Load<PackedScene>("res://scenes/player/Player.tscn").Instantiate<CharacterBody2D>();
+        player.Position=new(500,350);player.AddToGroup("player");player.GetNode<Camera2D>("Camera2D").Enabled=false;
+        root.AddChild(floor);root.AddChild(actors);root.AddChild(player);tree.Root.AddChild(root);
+        KeyboardRouteInputDriver driver=null;
+        var leaves=new List<AttackTelegraphVisual>();
+        var hp=player.GetNode<HealthComponent>("Health");
+        var enemyHp=burst.GetNode<HealthComponent>("Health");
+        var combat=player.GetNode<PlayerCombat>("Combat");
+        var energy=player.GetNode<PlayerEnergyController>("Energy");
+        var input=player.GetNode<PlayerInputReader>("Input");
+        var shield=player.GetNode<PlayerShieldController>("Shield");
+        int started=0,contacts=0,healed=0,deaths=0,active=0,shots=0,vetoes=0;
+        bool watching=false;
+        void OnFrame(RangedWeaponFrame frame){if(watching && frame.State==RangedWeaponState.Active)active++;}
+        void OnShot(ulong id,Vector2 origin){if(watching)shots++;}
+        void OnStart(ulong id,int chain){started++;}
+        void OnContact(Hurtbox target){if(target==burst.GetNode<Hurtbox>("Hurtbox"))contacts++;}
+        void OnHeal(int amount,int remaining){healed++;}
+        void OnDeath(){deaths++;}
+        burst.FrameChanged+=OnFrame;burst.ShotEmitted+=OnShot;combat.AttackStarted+=OnStart;
+        combat.AttackConnected+=OnContact;hp.Healed+=OnHeal;hp.Died+=OnDeath;
+        try
+        {
+            await Frames(tree,8);driver=KeyboardRouteInputDriver.Begin(player);
+            bool observed=false;float remaining=0;RangedWeaponState? lastState=null;
+            for(int tick=0;tick<300;tick++)
+            {
+                var danger=PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(actors,encounter,burst,false,leaves);
+                var timeline=burst.CurrentFrame.AttackTimeline;
+                if(lastState!=burst.CurrentFrame.State)
+                {
+                    lastState=burst.CurrentFrame.State;
+                    GD.Print($"RECOVERY_CLOCK_SETUP tick={tick} state={lastState} remaining={timeline.PhaseRemainingSeconds:R} threat={danger.Threat} safe={danger.SafeCounterSeconds:R} leaves={leaves.Count} player={player.GlobalPosition} enemy={burst.GlobalPosition} hp={hp.CurrentHealth}");
+                }
+                if(burst.CurrentFrame.State==RangedWeaponState.Active ||
+                    leaves.Any(leaf=>leaf.CurrentFrame.Timeline.Phase==AttackPhase.Active))
+                {
+                    TestAssert.True(danger.SafeCounterSeconds==0,"owner Recovery never forgives a real active leaf or committed gap");vetoes++;
+                }
+                if(timeline.Phase==AttackPhase.Recovery && timeline.PhaseRemainingSeconds is > .15f and < .34f &&
+                    !danger.Threat && burst.HasPresentationAuthority)
+                {
+                    remaining=timeline.PhaseRemainingSeconds;
+                    TestAssert.True(energy.EnergyRatio*energy.Tuning.MaxEnergy>=24 && player.IsOnFloor() && hp.CurrentHealth==5,
+                        "native clock setup has ordinary supported five-HP player and real two-hit resources");
+                    TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10MixedCounterWindow(combat,energy,danger),
+                        $"RANGED_RECOVERY_CLOCK_RED: short harmless Recovery still owes full captured next warning remaining={remaining:R} observed_safe={danger.SafeCounterSeconds:R} captured={burst.AttackTelegraphSeconds:R}");
+                    observed=true;break;
+                }
+                driver.PointerButton(MouseButton.Right,PrologueCanyonGeneratedMainRouteTests.Task10MixedDefendWindow(shield,danger),player,danger.GuardSource);
+                await Frames(tree,1);await tree.ToSignal(tree,SceneTree.SignalName.ProcessFrame);
+            }
+            TestAssert.True(observed && vetoes>0,$"real short recovery and prior active veto must actually occur observed={observed} vetoes={vetoes} state={lastState} player={player.GlobalPosition} enemy={burst.GlobalPosition} hp={hp.CurrentHealth}");
+            driver.PointerButton(MouseButton.Right,false,player,burst.GlobalPosition);
+            for(int wait=0;wait<3 && input.Current.ShieldHeld;wait++)await Frames(tree,1);
+            var fresh=PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(actors,encounter,burst,false,leaves);
+            TestAssert.True(!input.Current.ShieldHeld && !shield.IsActive &&
+                PrologueCanyonGeneratedMainRouteTests.Task10MixedCounterWindow(combat,energy,fresh),
+                "real release must reobserve timing and energy before issuing J");
+            float beforeEnergy=energy.EnergyRatio*energy.Tuning.MaxEnergy;int beforeHp=enemyHp.CurrentHealth;
+            watching=true;
+            driver.Command(Knight.Shared.InputActions.MoveRight,true);
+            driver.Command(Knight.Shared.InputActions.PrimaryAction,true);
+            await Frames(tree,2);
+            driver.Command(Knight.Shared.InputActions.PrimaryAction,false);
+            driver.Command(Knight.Shared.InputActions.MoveRight,false);
+            TestAssert.True(started==1 && energy.EnergyRatio*energy.Tuning.MaxEnergy<=beforeEnergy-11f,
+                "one real J is accepted and spends its ordinary twelve energy");
+            for(int wait=0;wait<24 && combat.IsAttacking;wait++)await Frames(tree,1);
+            ulong completed=Engine.GetPhysicsFrames();
+            await Frames(tree,8);await tree.ToSignal(tree,SceneTree.SignalName.ProcessFrame);watching=false;
+            TestAssert.True(!combat.IsAttacking && started==1 && contacts==1 && enemyHp.CurrentHealth==beforeHp-1 &&
+                active==0 && shots==0 && hp.CurrentHealth==5 && healed==0 && deaths==0 && root.RecoveryRequests==0 &&
+                Engine.GetPhysicsFrames()>=completed+8 && player.IsOnFloor(),
+                $"RANGED_RECOVERY_J_RED: actual J plus eight completion ticks must precede new danger starts={started} contacts={contacts} active={active} shots={shots} hp={hp.CurrentHealth}");
+            GD.Print($"RANGED_RECOVERY_NATIVE_CLOCK_OK short_recovery={remaining:R} real_J=1 contact=1 player_hp=5 active=0 shots=0 post_completion_ticks=8 native_active_vetoes={vetoes} isolated_layout=true whole_main=false");
+        }
+        finally
+        {
+            watching=false;burst.FrameChanged-=OnFrame;burst.ShotEmitted-=OnShot;combat.AttackStarted-=OnStart;
+            combat.AttackConnected-=OnContact;hp.Healed-=OnHeal;hp.Died-=OnDeath;
+            try { driver?.Dispose(); }
+            finally
+            {
+                ReleaseFairnessKeys();
+                await TestSceneTeardown.FreeSceneAfterAudioDrain(tree,root);
+            }
+        }
+    }
+
+    private static void AssertHopCycleAdmission()
+    {
+        var admission=typeof(PrologueCanyonGeneratedMainRouteTests).GetMethod("Task10HopCycleAdmission",
+            System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic);
+        TestAssert.True(admission!=null,"MIXED_HOP_CYCLE_ADMISSION_RED: proof-cycle admission must wait for the real completed Rust return");
+        var frame=new RangedWeaponFrame(RangedWeaponState.Telegraph,Vector2.Right,
+            new(5,EnemyAttackKind.BeltBurstShot,AttackPhase.Telegraph,1.1f,.55f,new(100,0),true),-1,0);
+        int cases=0;
+        void Check(string label,RangedWeaponFrame value,bool want=false,int stage=1,ulong cycle=0,
+            bool completed=true,bool retained=true,int shots=0,int acknowledged=0)
+        {
+            cases++;
+            bool actual=(bool)admission.Invoke(null,new object[]{stage,cycle,value,completed,retained,shots,acknowledged});
+            TestAssert.True(actual==want,"MIXED_HOP_CYCLE_ADMISSION_RED: "+label);
+        }
+        Check("fresh locked cycle after completed return",frame,true);
+        Check("source-bound is not completed return",frame,completed:false);
+        Check("source unavailable",frame,retained:false);
+        Check("no source-bound stage",frame,stage:0);
+        Check("already issued Space",frame,stage:2);
+        Check("completed trial",frame,stage:5);
+        Check("cannot replace claimed cycle",frame,cycle:4);
+        Check("cannot adopt an already observed shot",frame,shots:1);
+        Check("cannot adopt acknowledged emissions",frame,acknowledged:1);
+        Check("Active emission is not fresh warning",frame with { State=RangedWeaponState.Active,FirstEmissionIndex=0,EmissionsDue=1 });
+        Check("Recovery cannot be claimed late",frame with { State=RangedWeaponState.Recovery });
+        Check("phase mismatch",frame with { AttackTimeline=frame.AttackTimeline with { Phase=AttackPhase.Active } });
+        Check("wrong attack kind",frame with { AttackTimeline=frame.AttackTimeline with { Kind=EnemyAttackKind.RivetScatterShot } });
+        Check("missing attack identity",frame with { AttackTimeline=frame.AttackTimeline with { AttackId=0 } });
+        Check("not locked",frame with { AttackTimeline=frame.AttackTimeline with { HasLockedTarget=false } });
+        Check("invalid endpoint",frame with { AttackTimeline=frame.AttackTimeline with { LockedWorldTarget=new(float.NaN,0) } });
+        Check("zero aim",frame with { AimDirection=Vector2.Zero });
+        Check("invalid aim",frame with { AimDirection=new(float.NaN,0) });
+        Check("pending emission interval",frame with { FirstEmissionIndex=0 });
+        Check("pending emission count",frame with { EmissionsDue=1 });
+        GD.Print($"MIXED_HOP_CYCLE_ADMISSION_OK cases={cases} source_binding_preserved=true prerequisite_before_ledger=true retirement_contract_unchanged=true actual_main=false");
+    }
+
+    // Virtual selector queries only; not a combat, geometry-traversal or route
+    // pass. The saved group births its first wave without killing a prior wave.
+    private static async Task VerifyMothResidentPursuitSelection(SceneTree tree)
+    {
+        Node2D root = null;
+        try
+        {
+            root = new Node2D { Name = "SavedMothPursuitSelection" };
+            var sector = GD.Load<PackedScene>("res://scenes/prologue/sectors/CanyonAscent.tscn")
+                .Instantiate<PrologueSector>();
+            sector.Position = CanyonWorldLayout.SectorBounds[PrologueSectorId.CanyonAscent].Position;
+            root.AddChild(sector);
+            var player = GD.Load<PackedScene>("res://scenes/player/Player.tscn").Instantiate<CharacterBody2D>();
+            player.Position = new Vector2(4100, 3500);
+            player.AddToGroup("player");
+            root.AddChild(player);
+            var group = sector.GetNode<CanyonEncounterGroup>("Gameplay/Encounters/CounterweightLiftEncounter");
+            var actors = sector.GetNode<Node2D>("Gameplay/Actors");
+            group.ApplyProgress(new PrologueProgress());
+            tree.Root.AddChild(root);
+            foreach (var other in Descendants(sector).OfType<CanyonEncounterGroup>())
+                if (other != group) other.SetPhysicsProcess(false);
+            await Frames(tree, 4);
+            Node2D owned = Children(actors).OfType<Node2D>().Single(group.OwnsLiveActor);
+            TestAssert.True(group.LiveActorCount == 1 && group.CurrentBatch == 0 && owned is GraveLampMoth,
+                "MOTH_PURSUIT_SETUP actual saved first wave, no artificial kill or wave completion");
+            var slot = ResidentAuthoredLayout.Load().Single(site =>
+                site.Definition.StableId == "canyon.v2.resident.counterweight-lift.03").Definition;
+            var subtype = ResidentSceneRegistry.Select(ResidentContentMode.DevelopmentV001)
+                .Single(type => type.Id == slot.SubtypeId);
+            CharacterBody2D resident = ResidentSceneBinding.Instantiate(
+                GD.Load<PackedScene>(subtype.ScenePath), subtype, slot, allowPlaceholder: true);
+            resident.Position = slot.Placement.WorldSpawn - actors.GlobalPosition;
+            actors.AddChild(resident);
+            var residentHp = resident.GetNode<HealthComponent>("Health");
+            var ownedHp = owned.GetNode<HealthComponent>("Health");
+            Vector2 residentPosition = resident.GlobalPosition, ownedPosition = owned.GlobalPosition,
+                playerPosition = player.GlobalPosition;
+            int residentHealth = residentHp.CurrentHealth, ownedHealth = ownedHp.CurrentHealth;
+            TestAssert.True(resident is GraveLampMoth && !group.OwnsLiveActor(resident) &&
+                resident.GetNode<ResidentSceneBinding>("ResidentBinding").Profile.SubtypeId == slot.SubtypeId,
+                "MOTH_PURSUIT_SETUP actual saved bound resident, not a renamed wave actor");
+            Vector2 farQuery = residentPosition + new Vector2(-100, 56);
+            Vector2 closeQuery = residentPosition + new Vector2(-24, 56);
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                    actors, group, farQuery, false) == resident,
+                "MOTH_PURSUIT_LEGACY actual nearer resident wins at out-of-J-range query");
+            Node2D filtered = PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                actors, group, farQuery, false, restrictMothResidentPursuit: true);
+            var observedSources = new HashSet<ulong>();
+            var leaves = new List<AttackTelegraphVisual>();
+            try
+            {
+                PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(actors,
+                    group.EncounterId.ToString(), filtered, false, leaves,
+                    counterObserver: (id, _, _, _, _, _) => observedSources.Add(id));
+            }
+            finally { leaves.Clear(); }
+            TestAssert.True(observedSources.Contains(resident.GetInstanceId()) &&
+                observedSources.Contains(owned.GetInstanceId()),
+                "MOTH_PURSUIT_DANGER unselected resident and owned wave both retain danger admission");
+            TestAssert.True(filtered == owned && group.OwnsLiveActor(filtered),
+                "MOTH_PURSUIT_REACH_RED out-of-J-range optional Moth cannot displace the actual unfinished wave");
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                    actors, group, closeQuery, false, restrictMothResidentPursuit: true) == resident,
+                "MOTH_PURSUIT_REACH in-J-range resident remains selectable, not a global blacklist");
+            var geometryCases = new (float X, float Y, bool Reachable)[]
+            {
+                (100, -56, false), (24, -56, true), (36, -74, true), (36.001f, -74, false),
+                (-36, -10, true), (0, -9.999f, false), (0, -74.001f, false), (0, -74, true),
+                (64, 32, true), (-64, -32, true), (64.001f, 0, false), (8, 0, true),
+                (7.999f, 0, false), (64, 32.001f, false), (0, 0, false),
+                (float.NaN, -40, false), (24, float.PositiveInfinity, false), (float.NegativeInfinity, 0, false)
+            };
+            foreach (var sample in geometryCases)
+                TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10MothStrikeGeometry(
+                    new Vector2(sample.X, sample.Y), out _, out _) == sample.Reachable,
+                    $"MOTH_PURSUIT_GEOMETRY original J union boundary ({sample.X:R},{sample.Y:R})");
+            TestAssert.True(player.GlobalPosition == playerPosition && resident.GlobalPosition == residentPosition &&
+                owned.GlobalPosition == ownedPosition && residentHp.CurrentHealth == residentHealth &&
+                ownedHp.CurrentHealth == ownedHealth && group.LiveActorCount == 1 && !group.IsComplete,
+                "MOTH_PURSUIT_READONLY selectors/scanners do not move, damage or complete actual actors");
+            GD.Print($"MOTH_PURSUIT_SELECTION_OK resident={resident.GetInstanceId()} scene={resident.SceneFilePath} " +
+                $"owned={owned.GetInstanceId()} far_delta=100,-56 close_delta=24,-56 danger_sources={observedSources.Count} " +
+                $"geometry_cases={geometryCases.Length} virtual_queries_only=true live_pose_HP_writes=false " +
+                "combat_proved=false whole_route=false");
+        }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(root)) await TestSceneTeardown.FreeSceneAfterAudioDrain(tree, root);
+        }
+    }
+
+    private static async Task VerifyLaterClawAttackIntentHandoff(SceneTree tree)
+    {
+        Node2D root = null;
+        try
+        {
+            root = new Node2D { Name = "MixedLaterClawAttackHandoff" };
+            var player = GD.Load<PackedScene>("res://scenes/player/Player.tscn").Instantiate<CharacterBody2D>();
+            root.AddChild(player);
+            tree.Root.AddChild(root);
+            await Frames(tree, 8);
+            var input = player.GetNode<PlayerInputReader>("Input");
+            var claw = player.GetNode<MechanicalClawController>("MechanicalClaw");
+            var combat = player.GetNode<PlayerCombat>("Combat");
+            using var driver = KeyboardRouteInputDriver.Begin(player);
+            int started = 0;
+            combat.AttackStarted += (_, _) => started++;
+            TestAssert.True(claw.CurrentFrame.State == MechanicalClawState.Idle,
+                "later handoff fixture starts from actual saved-player Idle");
+            driver.Command(Knight.Shared.InputActions.SelectGrappleMode, true);
+            driver.Command(Knight.Shared.InputActions.SelectGrappleMode, false);
+            PrologueCanyonGeneratedMainRouteTests.Task10MixedLaterClawAttackIntentHandoff();
+            int oldJ = driver.AttackEdges, oldK = driver.ClawEdges, sampledJ = 0, sampledK = 0;
+            ulong sequence = input.CurrentFrameSequence;
+            driver.Command(Knight.Shared.InputActions.PrimaryAction, true);
+            for (int tick = 0; tick < 4; tick++)
+            {
+                await Frames(tree, 1);
+                if (input.CurrentFrameSequence == sequence) continue;
+                sequence = input.CurrentFrameSequence;
+                if (input.CurrentFrame.AttackPressed) sampledJ++;
+                if (input.CurrentFrame.ClawPressed) sampledK++;
+                TestAssert.True(!input.CurrentFrame.PrimaryPressed && !input.CurrentFrame.PrimaryHeld,
+                    "later handoff emits no legacy primary action");
+            }
+            driver.Command(Knight.Shared.InputActions.PrimaryAction, false);
+            TestAssert.True(driver.AttackEdges == oldJ + 1 && driver.ClawEdges == oldK &&
+                sampledJ == 1 && sampledK == 0 && started == 1 && input.CurrentFrame.KeyboardActions,
+                $"MIXED_LATER_K_ATTACK_HANDOFF_RED: actual next primary must be J not K; " +
+                $"J={driver.AttackEdges-oldJ} K={driver.ClawEdges-oldK} sampled_J={sampledJ} sampled_K={sampledK} started={started}");
+            GD.Print("MIXED_LATER_K_ATTACK_HANDOFF_OK saved_player=true sampled_J=1 sampled_K=0 attack_started=1 raw_J_edge=1 raw_K_edge=0 legacy_primary=false");
+        }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(root)) root.QueueFree();
+            await Frames(tree, 4);
+        }
+    }
+
+    public static async Task RunMixedThreatPolicy(SceneTree tree, bool resourcePolicy = false,
+        int preparationAttacks = 0, MixedCounterProof counterProof = MixedCounterProof.None,
+        bool traceResourceBoundary = false)
+    {
+        var controlQuiet = new PrologueCanyonGeneratedMainRouteTests.Task10EncounterDanger(false,Vector2.Zero,false);
+        AssertPostHopRustRepeatContracts();
+        AssertPostHopSupportedBrakeContracts();
+        AssertPostHopSupportedSideContracts();
+        foreach (var sample in new[]
+        {
+            (Valid:true,Danger:controlQuiet,Want:true,Name:"valid instantaneous quiet"),
+            (Valid:false,Danger:controlQuiet,Want:false,Name:"invalid observation"),
+            (Valid:true,Danger:controlQuiet with { Threat=true,Phase=AttackPhase.Active },Want:false,Name:"active"),
+            (Valid:true,Danger:controlQuiet with { Threat=true,Phase=AttackPhase.Telegraph,RemainingSeconds=100 },Want:false,Name:"warning"),
+            (Valid:true,Danger:controlQuiet with { MissingGuardSourceCount=1 },Want:false,Name:"missing source"),
+            (Valid:true,Danger:controlQuiet with { NearContactUnknownActive=true },Want:false,Name:"unknown active"),
+            (Valid:true,Danger:controlQuiet with { NearContactOverlappingActive=true },Want:false,Name:"overlapping active"),
+            (Valid:true,Danger:controlQuiet with { CandidateObserverFaults=1 },Want:false,Name:"observer fault"),
+            (Valid:true,Danger:controlQuiet with { Threat=true,SafeCounterSeconds=float.PositiveInfinity },Want:false,Name:"infinite clock cannot clear threat")
+        })
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10BottomControlPreparationQuiet(
+                sample.Valid,sample.Danger)==sample.Want,$"BOTTOM_CONTROL_PREPARATION_RED {sample.Name}");
+        GD.Print("BOTTOM_CONTROL_PREPARATION_POLICY_OK cases=9 future_safety_proved=false");
+        var observationFixture = new Node { Name="BottomPreparationObservationFixture" };
+        var queuedAncestor = new Node { Name="Gameplay" };
+        var liveIntermediate = new Node { Name="LiveIntermediate" };
+        var liveActors = new Node { Name="Actors" };
+        observationFixture.AddChild(queuedAncestor);
+        queuedAncestor.AddChild(liveIntermediate); liveIntermediate.AddChild(liveActors);
+        tree.Root.AddChild(observationFixture);
+        try
+        {
+            // RunRangedWeaponTests invokes us from _Initialize. Wait for actual
+            // tree entry before testing the separate pre-delete-flush boundary.
+            await tree.ToSignal(tree,SceneTree.SignalName.ProcessFrame);
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10BottomControlActorRootReadable(liveActors,tree),
+                "BOTTOM_CONTROL_OBSERVATION reads actual live original-tree fixture");
+            queuedAncestor.QueueFree();
+            TestAssert.True(queuedAncestor.IsQueuedForDeletion() && liveActors.IsInsideTree() &&
+                !liveActors.IsQueuedForDeletion() && !liveIntermediate.IsQueuedForDeletion(),
+                "BOTTOM_CONTROL_OBSERVATION reaches pre-flush ancestor-only invalidation");
+            bool valid = PrologueCanyonGeneratedMainRouteTests.Task10BottomControlActorRootReadable(liveActors,tree);
+            TestAssert.True(!valid && !PrologueCanyonGeneratedMainRouteTests.Task10BottomControlPreparationQuiet(valid,default),
+                "BOTTOM_CONTROL_ANCESTOR_RED queued ancestor cannot turn unscanned default into quiet");
+        }
+        finally
+        {
+            observationFixture.QueueFree();
+            await tree.ToSignal(tree,SceneTree.SignalName.ProcessFrame);
+        }
+        GD.Print("BOTTOM_CONTROL_ANCESTOR_OBSERVATION_OK actual_nodes=true before_delete_flush=true");
+        foreach (var sample in new (float X,float Y,float Clearance,float Height,Vector2 Want)[]
+        {
+            (34,72,29,72,Vector2.Down), (35,29,9,72,Vector2.Down), (-34,72,0,72,Vector2.Down),
+            (3,1,0,72,Vector2.Down), (4,1,0,72,Vector2.Zero), (10,-100,4,72,Vector2.Up),
+            (100,0,0,72,Vector2.Zero), (0,0,0,72,Vector2.Zero),
+            (0,100,144,72,Vector2.Down), (0,100,144.01f,72,Vector2.Zero),
+            (float.NaN,1,0,72,Vector2.Zero), (1,float.PositiveInfinity,0,72,Vector2.Zero),
+            (1,100,float.PositiveInfinity,72,Vector2.Zero), (1,100,-1,72,Vector2.Zero),
+            (1,100,0,0,Vector2.Zero), (1,100,0,float.NaN,Vector2.Zero)
+        })
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10BottomVerticalGuardIntent(
+                new Vector2(sample.X,sample.Y),sample.Clearance,sample.Height)==sample.Want,
+                $"BOTTOM_FLIGHT_GUARD_GEOMETRY_RED actual approved shield cone/finite near-geometry ({sample.X},{sample.Y})");
+        GD.Print("BOTTOM_FLIGHT_GUARD_GEOMETRY_OK cases=16 physical_guard_proved=false");
+        if (!resourcePolicy) await VerifyMothResidentPursuitSelection(tree);
         const string encounterId = "canyon.v2.encounter.counterweight-lift";
+        AssertRustGuardPolicy();
+        AssertRecoveryHopTrigger();
+        var stripFailures = new List<string>();
+        foreach (var sample in new (string Name, float X, float Predicted, float Left, float Right, bool Want)[] {
+            ("actual already-Top right side is not ready", 5054.8467f, 5054.8467f, 4930.075f, 4999.925f, false),
+            ("old grounded midpoint is ready", 4965f, 4965f, 4930.075f, 4999.925f, true),
+            ("current in strip but coasts outside", 4965f, 5054.8467f, 4930.075f, 4999.925f, false),
+            ("coast endpoint alone cannot skip approach", 5054.8467f, 4965f, 4930.075f, 4999.925f, false),
+            ("closed left boundary", 4930.075f, 4930.075f, 4930.075f, 4999.925f, true),
+            ("closed right boundary", 4999.925f, 4999.925f, 4930.075f, 4999.925f, true),
+            ("nonfinite pose", float.NaN, 4965f, 4930.075f, 4999.925f, false),
+            ("empty strip", 4965f, 4965f, 5000f, 4930f, false),
+            ("nonfinite forecast", 4965f, float.PositiveInfinity, 4930.075f, 4999.925f, false),
+            ("nonfinite bounds", 4965f, 4965f, float.NegativeInfinity, 4999.925f, false) })
+            if (PrologueCanyonTraversalTests.Task4SteamTopReturnStripAccepted(sample.X,
+                    sample.Predicted, sample.Left, sample.Right) != sample.Want) stripFailures.Add(sample.Name);
+        TestAssert.True(stripFailures.Count == 0,
+            "STEAM_TOP_RETURN_STRIP_RED: " + string.Join("; ", stripFailures));
+        GD.Print("STEAM_TOP_RETURN_STRIP_OK cases=10 actual_and_forecast_required=true native_support_separate=true");
+        var observationFailures = new List<string>();
+        foreach (var sample in new (string Name, bool Scope, bool PostShot, bool Finish, bool Frozen, bool Want)[] {
+            ("outside encounter", false, true, true, true, false),
+            ("legacy original finish", true, false, true, false, true),
+            ("legacy no obligation", true, false, false, false, false),
+            ("optin before first proof", true, true, false, false, false),
+            ("optin original finish", true, true, true, false, true),
+            ("optin retains other dangers after Burst death", true, true, false, true, true),
+            ("default does not inherit optin lifetime", true, false, false, true, false),
+            ("outside scope after proof", false, true, false, true, false) })
+            if (PrologueCanyonGeneratedMainRouteTests.Task10MixedLateObservationEnabled(
+                sample.Scope, sample.PostShot, sample.Finish, sample.Frozen) != sample.Want)
+                observationFailures.Add(sample.Name);
+        TestAssert.True(observationFailures.Count == 0,
+            "MIXED_LATE_LIFETIME_RED: " + string.Join("; ", observationFailures));
+        GD.Print("MIXED_LATE_LIFETIME_OK cases=8 original_default_retained=true post_defeat_other_dangers_observed=true extra_scans=0");
+        foreach (var sample in new (bool Policy, int Frozen, int Current, int Start, int Want)[] {
+            (false, 12, 14, 11, 3), (true, 12, 14, 11, 1), (true, -1, 14, 11, 3),
+            (false, -1, 14, 11, 3), (false, 12, 12, 11, 1), (true, -1, 11, 11, 0) })
+            TestAssert.Equal(sample.Want, PrologueCanyonGeneratedMainRouteTests.Task10MixedClawTerminalEdges(
+                sample.Policy, sample.Frozen, sample.Current, sample.Start),
+                $"MIXED_K_POLICY_SCOPE_RED: default consumer keeps total raw edges; postShot={sample.Policy}");
+        GD.Print("MIXED_K_POLICY_SCOPE_OK cases=6 default_total_edges=true optin_frozen_first=true");
+        var phasePolicyFailures = new List<string>();
+        int lateCases = 0, leaseCases = 0, returnCases = 0;
+        foreach (var sample in new (float Remaining, float Lead, float Active, bool Want)[] {
+            (.56666666f, 8f/60f, .14f, false), (.26f, 8f/60f, .14f, true),
+            (.125f, .125f, .125f, false), (.1251f, .125f, .125f, true),
+            (.25f, .125f, .125f, true), (.2501f, .125f, .125f, false),
+            (float.NaN, .125f, .125f, false), (float.PositiveInfinity, .125f, .125f, false),
+            (float.NegativeInfinity, .125f, .125f, false), (-1f, .125f, .125f, false),
+            (.2f, 0f, .125f, false), (.2f, -1f, .125f, false),
+            (.2f, float.NaN, .125f, false), (.2f, .125f, 0f, false),
+            (.2f, .125f, -1f, false), (.2f, .125f, float.PositiveInfinity, false),
+            (float.MaxValue, float.MaxValue, float.MaxValue, false) })
+        {
+            lateCases++;
+            if (PrologueCanyonGeneratedMainRouteTests.Task10MixedRustLateWindow(
+                sample.Remaining, sample.Lead, sample.Active) != sample.Want)
+                phasePolicyFailures.Add($"late[{lateCases}]");
+        }
+        var returnReceipt = new PrologueCanyonGeneratedMainRouteTests.Task10RustGuardReceipt(21,31,41,5,1,101,90,7,2);
+        foreach (var sample in new (bool Current, ulong Sequence, ulong Consumed, bool Enabled, bool Support, bool Competing, bool Want)[] {
+            (true,90,7,true,true,false,true), (true,91,7,true,true,false,true),
+            (false,91,7,true,true,false,false), (true,89,7,true,true,false,false),
+            (true,91,8,true,true,false,false), (true,91,7,false,true,false,false),
+            (true,91,7,true,false,false,false), (true,91,7,true,true,true,false) })
+        {
+            leaseCases++;
+            if (PrologueCanyonGeneratedMainRouteTests.Task10RustReturnLeaseGranted(returnReceipt,
+                sample.Current,sample.Sequence,sample.Consumed,sample.Enabled,sample.Support,sample.Competing) != sample.Want)
+                phasePolicyFailures.Add($"lease[{leaseCases}]");
+        }
+        if (PrologueCanyonGeneratedMainRouteTests.Task10RustReturnLeaseGranted(default,true,91,7,true,true,false))
+            phasePolicyFailures.Add("lease[zero_receipt]");
+        foreach (var sample in new (bool Current, ulong Sequence, ulong Consumed, ulong Returned, bool Want)[] {
+            (true,91,7,0,true), (true,91,7,6,true), (true,90,7,0,false),
+            (true,89,7,0,false), (false,91,7,0,false), (true,91,8,0,false), (true,91,7,7,false) })
+        {
+            returnCases++;
+            if (PrologueCanyonGeneratedMainRouteTests.Task10RustReturnSampleAccepted(returnReceipt,
+                sample.Current,sample.Sequence,sample.Consumed,sample.Returned) != sample.Want)
+                phasePolicyFailures.Add($"return[{returnCases}]");
+        }
+        if (PrologueCanyonGeneratedMainRouteTests.Task10RustReturnSampleAccepted(default,false,91,7,0))
+            phasePolicyFailures.Add("return[expired_zero_receipt]");
+        TestAssert.True(phasePolicyFailures.Count == 0,
+            "MIXED_PHASE_RETURN_POLICY_RED: late input/current lease/later sampled return: " + string.Join(",",phasePolicyFailures));
+        GD.Print($"MIXED_PHASE_RETURN_POLICY_OK late_cases={lateCases} lease_cases={leaseCases+1} return_cases={returnCases+1} " +
+            "policy_only=true actual_guard_claim=false exact_same_epoch_matcher_retained=true");
+        // Catch fatal-J scheduling that starves the original foreign-K branch.
+        // Literal inputs exercise only this extra veto, never certify an actual K.
+        foreach (var sample in new (bool Enabled, bool Captured, int Hp, bool Jet, bool RustK, bool Want)[] {
+            (true, true, 1, true, false, true), (true, true, 1, true, true, false),
+            (true, true, 2, true, false, false), (false, true, 1, true, false, false),
+            (true, false, 1, true, false, false), (true, true, 1, false, false, false),
+            (true, true, 0, true, false, false), (true, true, 3, true, false, false),
+            (true, true, -1, true, false, false) })
+            TestAssert.Equal(sample.Want,
+                PrologueCanyonGeneratedMainRouteTests.Task10MixedForeignPreludeBlocksFatal(
+                    sample.Enabled, sample.Captured, sample.Hp, sample.Jet, sample.RustK),
+                "MIXED_FOREIGN_PRELUDE_RED: captured HP1 after Jet must retain engagement for original Rust K before fatal J; this is an additional veto only");
+        GD.Print("MIXED_FOREIGN_PRELUDE_POLICY_OK cases=9 HP2_setup_unblocked=true default_retained=true " +
+            "accepted_flag_releases_only_veto=true policy_only=true actual_K_claim=false");
+        // A later legitimate K must not invalidate the frozen first exact-one
+        // receipt; nor may extra raw edges disappear behind a >=1 assertion.
+        var later = new PrologueCanyonGeneratedMainRouteTests.MixedLaterClawReceipt(
+            5, 6, 1, 12, 21, 31, 41, 41, 51, 120, 126, 1,
+            true, true, true, false, false, 2, 2);
+        var ledgerFailures = new List<string>();
+        void LedgerCase(string name,
+            PrologueCanyonGeneratedMainRouteTests.MixedLaterClawReceipt[] entries,
+            int edges, bool want, bool pending = false, int faults = 0)
+        {
+            if (PrologueCanyonGeneratedMainRouteTests.Task10MixedLaterClawLedgerAccepted(
+                5, edges, 11, 110, 21, 41, entries, pending, faults) != want)
+                ledgerFailures.Add(name);
+        }
+        LedgerCase("no later K is required", Array.Empty<PrologueCanyonGeneratedMainRouteTests.MixedLaterClawReceipt>(), 5, true);
+        LedgerCase("one later certified K", new[] { later }, 6, true);
+        LedgerCase("two ordered certified K", new[] { later, later with {
+            EdgeStart = 6, EdgeEnd = 7, CastId = 13, ActorId = 32, TargetId = 52,
+            PressSequence = 130, HandoffSequence = 136 } }, 7, true);
+        LedgerCase("unledgered raw edge", new[] { later }, 7, false);
+        LedgerCase("missing all receipts", Array.Empty<PrologueCanyonGeneratedMainRouteTests.MixedLaterClawReceipt>(), 6, false);
+        LedgerCase("pending at terminal", new[] { later }, 6, false, pending: true);
+        LedgerCase("callback fault", new[] { later }, 6, false, faults: 1);
+        foreach (var invalid in new[] {
+            later with { EdgeStart = 4 }, later with { EdgeEnd = 7 }, later with { Samples = 0 },
+            later with { Samples = 2 }, later with { CastId = 11 }, later with { PlayerId = 22 },
+            later with { ActorId = 0 }, later with { ParentId = 0 }, later with { EndParentId = 42 },
+            later with { TargetId = 0 }, later with { PressSequence = 110 },
+            later with { HandoffSequence = 119 }, later with { ApplicationDelta = 0 },
+            later with { ApplicationDelta = 2 }, later with { Latched = false },
+            later with { EffectPublished = false }, later with { Idle = false },
+            later with { Aborted = true }, later with { Failed = true },
+            later with { HpAfter = 1 }, later with { HpBefore = 0, HpAfter = 0 } })
+            LedgerCase("invalid later receipt " + invalid, new[] { invalid }, invalid.EdgeEnd, false);
+        LedgerCase("duplicate cast cannot cover another edge", new[] { later, later with {
+            EdgeStart = 6, EdgeEnd = 7, PressSequence = 130, HandoffSequence = 136 } }, 7, false);
+        LedgerCase("next press precedes previous handoff", new[] { later, later with {
+            EdgeStart = 6, EdgeEnd = 7, CastId = 13, PressSequence = 125, HandoffSequence = 136 } }, 7, false);
+        TestAssert.True(ledgerFailures.Count == 0,
+            "MIXED_LATER_K_LEDGER_RED: " + string.Join("; ", ledgerFailures));
+        GD.Print("MIXED_LATER_K_LEDGER_CONTRACT_OK cases=30 frozen_first_exact_one=true contiguous_edges=true actual_handoff_required=true");
+        if (counterProof == MixedCounterProof.TightWarning)
+            await VerifyLaterClawAttackIntentHandoff(tree);
+        var postShotFailures = new List<string>();
+        foreach (var sample in new (string Name, bool Debt, bool Shot, bool Window, bool Complete,
+                     bool Short, bool Aborted, bool Accepted)[]
+        {
+            ("early debt waits through foreign danger", true, false, false, false, false, false, true),
+            ("own Shot arrives before legal window", true, true, false, false, false, false, true),
+            ("live post-shot window permits pending cast", true, true, true, false, true, false, true),
+            ("actual receipt wins same-tick expiry", true, true, true, true, false, false, true),
+            ("started window expires without receipt", true, true, true, false, false, false, false),
+            ("window cannot precede own Shot", true, false, true, false, true, false, false),
+            ("completion cannot precede Shot and window", true, false, false, true, false, false, false),
+            ("no opportunity is not invented", false, false, false, false, false, false, true),
+            ("window cannot erase its debt", false, true, true, false, true, false, false),
+            ("abort invalidates completed summary", true, true, true, true, true, true, false),
+            ("abort cannot become a waiting state", true, false, false, false, false, true, false),
+            ("completion requires an actual started window", true, true, false, true, false, false, false)
+        })
+            if (PrologueCanyonGeneratedMainRouteTests.Task10MixedPostShotOpportunityAccepted(
+                    sample.Debt, sample.Shot, sample.Window, sample.Complete, sample.Short, sample.Aborted)
+                != sample.Accepted) postShotFailures.Add(sample.Name);
+        foreach (var sample in new (string Name, bool Captured, bool Shot, bool Owed,
+                     bool Complete, bool Handoff, bool Allowed)[]
+        {
+            ("another actor remains unchanged", false, false, false, false, false, true),
+            ("own lethal J requires own Shot", true, false, false, false, false, false),
+            ("no K debt does not invent one", true, true, false, false, false, true),
+            ("owed K cannot be skipped by lethal J", true, true, true, false, false, false),
+            ("receipt without real handoff is insufficient", true, true, true, true, false, false),
+            ("own Shot and real completed handoff allow J", true, true, true, true, true, true),
+            ("completed K never substitutes for own Shot", true, false, true, true, true, false)
+        })
+            if (PrologueCanyonGeneratedMainRouteTests.Task10MixedPostShotLethalAllowed(sample.Captured,
+                    sample.Shot, sample.Owed, sample.Complete, sample.Handoff) != sample.Allowed)
+                postShotFailures.Add(sample.Name);
+        TestAssert.True(postShotFailures.Count == 0,
+            "MIXED_POST_SHOT_POLICY_RED: " + string.Join("; ", postShotFailures));
+        GD.Print("MIXED_POST_SHOT_POLICY_CONTRACT_OK policy_cases=12 lethal_cases=7 old_early_contract_retained=true");
+        var simultaneous = PrologueCanyonGeneratedMainRouteTests.Task10MixedClawCompletionBoundary(
+            true, false, false, false, 1, true, true, 1, 1, false);
+        TestAssert.True(simultaneous.Completed && simultaneous.OpportunityAccepted,
+            "MIXED_K_SIMULTANEOUS_RED: actual one-cast interruption receipts win over same-tick window expiry");
+        foreach (var invalid in new (int Delta, bool Stunned, bool Latched, int Samples, int Edges, bool Aborted)[]
+        {
+            (0, true, true, 1, 1, false),
+            (2, true, true, 1, 1, false), (1, false, true, 1, 1, false),
+            (1, true, false, 1, 1, false), (1, true, true, 0, 1, false),
+            (1, true, true, 2, 1, false), (1, true, true, 1, 2, false),
+            (1, true, true, 1, 1, true)
+        })
+        {
+            var rejected = PrologueCanyonGeneratedMainRouteTests.Task10MixedClawCompletionBoundary(
+                true, false, false, false, invalid.Delta, invalid.Stunned, invalid.Latched,
+                invalid.Samples, invalid.Edges, invalid.Aborted);
+            TestAssert.True(!rejected.Completed && !rejected.OpportunityAccepted,
+                "simultaneous expiry cannot invent application, Stunned, same-cast latch or single-edge evidence");
+        }
+        TestAssert.True(!PrologueCanyonGeneratedMainRouteTests.Task10MixedClawTerminalAccepted(
+                true, false, false, 0, 0, false),
+            "MIXED_K_TERMINAL_RED: skipped K after an observed opportunity cannot pass terminal completion");
+        TestAssert.True(!PrologueCanyonGeneratedMainRouteTests.Task10MixedClawTerminalAccepted(
+                true, true, false, 1, 1, false),
+            "MIXED_K_TERMINAL_RED: retirement/completion before the actual handoff is not success");
+        TestAssert.True(!PrologueCanyonGeneratedMainRouteTests.Task10MixedClawTerminalAccepted(
+                true, true, true, 1, 1, true) &&
+            !PrologueCanyonGeneratedMainRouteTests.Task10MixedClawTerminalAccepted(true, true, true, 2, 1, false) &&
+            !PrologueCanyonGeneratedMainRouteTests.Task10MixedClawTerminalAccepted(true, true, true, 1, 2, false),
+            "mixed terminal rejects aborted or duplicate-edge evidence");
+        TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10MixedClawTerminalAccepted(
+                true, true, true, 1, 1, false) &&
+            PrologueCanyonGeneratedMainRouteTests.Task10MixedClawTerminalAccepted(false, false, false, 0, 0, false),
+            "mixed terminal distinguishes one fully handed-off K from no eligible opportunity");
         Transform2D canvas = tree.Root.CanvasTransform;
         RangedFairnessRecoveryProbe root = null;
         PrologueSector sector = null;
@@ -58,9 +830,27 @@ public static class RangedWeaponPlacementRuntimeTests
             }
             group.ApplyProgress(new PrologueProgress());
             var births = new Dictionary<ulong, Vector2>();
+            bool bornCounterObserved = false, bornCounterPrerequisites = false, bornCounterAdmitted = false;
+            float bornCounterSeconds = float.NaN;
             actors.ChildEnteredTree += child => child.Ready += () =>
             {
                 if (child is Node2D actor) births[actor.GetInstanceId()] = actor.GlobalPosition;
+                if (child is not RangedWeaponEnemy bornBurst || bornBurst.SceneFilePath != Burst) return;
+                RustShellSquire bornRust = Children(actors).OfType<RustShellSquire>().Single();
+                var bornLeaves = new List<AttackTelegraphVisual>(8);
+                var bornDanger = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(
+                    actors, encounterId, bornRust, false, bornLeaves);
+                bornCounterObserved = true;
+                bornCounterPrerequisites = bornRust.CurrentState == RustShellState.Idle &&
+                    bornRust.CurrentFrame.AttackTimeline.Phase == AttackPhase.None &&
+                    bornBurst.CurrentFrame.State == RangedWeaponState.Idle &&
+                    bornBurst.CurrentFrame.AttackTimeline.Phase == AttackPhase.None &&
+                    bornBurst.HasPresentationAuthority && !bornDanger.Threat && bornDanger.HasRanged &&
+                    bornRust.GetNode<HealthComponent>("Health").CurrentHealth > 0 &&
+                    bornBurst.GetNode<HealthComponent>("Health").CurrentHealth > 0;
+                bornCounterSeconds = bornDanger.SafeCounterSeconds;
+                bornCounterAdmitted = PrologueCanyonGeneratedMainRouteTests.Task10MixedCounterWindow(
+                    player.GetNode<PlayerCombat>("Combat"), player.GetNode<PlayerEnergyController>("Energy"), bornDanger);
             };
             tree.Root.AddChild(root);
             foreach (KillZone zone in Descendants(sector).OfType<KillZone>()) zone.RoomControllerPath = zone.GetPathTo(root);
@@ -113,7 +903,22 @@ public static class RangedWeaponPlacementRuntimeTests
                 MathF.Abs(health.InvulnerabilitySeconds - .35f) < .0001f &&
                 (preparationAttacks == 0 ? energy.EnergyRatio > .99f : energy.EnergyRatio is > 0f and < .45f),
                 "MIXED_POLICY_SETUP: retain saved five HP/grace and explicitly prepared ordinary resources");
-            Kill(actors.GetChild(0)); // Real prior-actor Health death; not group completion.
+            Node2D oldMoth = (Node2D)actors.GetChild(0);
+            Kill(oldMoth); // Real prior-actor Health death; not group completion.
+            TestAssert.True(group.CurrentBatch == 1 && group.LiveActorCount == 0 &&
+                GodotObject.IsInstanceValid(oldMoth) && oldMoth.IsQueuedForDeletion() &&
+                PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                    actors, group, player.GlobalPosition, compareAllOwned: false) == oldMoth &&
+                PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                    actors, group, player.GlobalPosition, compareAllOwned: true) == oldMoth &&
+                PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                    actors, group, player.GlobalPosition, compareAllOwned: true, preferLiveOwnedAfterHop: true) == oldMoth,
+                "MIXED_TARGET_PENDING_RED: new comparison must preserve original selection before mixed actors actually exist");
+            GD.Print("MIXED_TARGET_PENDING_OK actual_previous_death=true next_batch=1 live_owned=0 original_queued_actor=true");
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                    actors, group, player.GlobalPosition, compareAllOwned: false,
+                    restrictMothResidentPursuit: true) == oldMoth && !group.IsComplete,
+                "MOTH_PURSUIT_PENDING opt-in cannot fabricate a live replacement or completion before actual next-wave birth");
             for (int frame = 0; frame < 60 && group.LiveActorCount != 2; frame++) await Frames(tree, 1);
             TestAssert.True(group.CurrentBatch == 1 && group.LiveActorCount == 2,
                 "MIXED_POLICY_SETUP: real .60s warning produces the live original pair");
@@ -124,6 +929,46 @@ public static class RangedWeaponPlacementRuntimeTests
                 actors.GetChildren().OfType<Node2D>().First() == rust &&
                 rust.SceneFilePath == CanyonEncounterCatalog.RustShellScene && burst.SceneFilePath == Burst,
                 "MIXED_POLICY_SETUP: actual saved birth/order has selected Rust left and nonselected Burst right");
+            // Recorded normal-Main arrival, not a player teleport or an easier
+            // combat fixture. The original saved actors remain where they are.
+            Vector2 normalArrival = new(4701.148f, 3423.933f);
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                    actors, group, normalArrival, compareAllOwned: false) == rust,
+                "MIXED_TARGET_LEGACY: default keeps original owned-first selection");
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                    actors, group, normalArrival, compareAllOwned: true) == burst,
+                "MIXED_TARGET_RED: nearer second owned Burst participates at the recorded Main arrival");
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                    actors, group, new Vector2(4700, 3424), compareAllOwned: true) == rust,
+                "MIXED_TARGET_CENTER: distance, not an unconditional ranged preference, selects the saved Rust");
+            GD.Print("MIXED_TARGET_SELECTION_OK saved_pair=true recorded_arrival=true legacy_first=true center_nearest=true player_moved=false");
+            TestAssert.True(burst.GetNode<HealthComponent>("Health").CurrentHealth == 2 && group.OwnsLiveActor(burst) &&
+                PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(actors, group, new Vector2(4700,3424),
+                    compareAllOwned:true, continuedOwnedBurst:burst) == rust,
+                "MIXED_SETUP_RETENTION_SETUP: actual saved HP2 Burst does not bypass the legacy HP1 continuation by default");
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(actors, group,
+                    new Vector2(4700,3424), compareAllOwned:true, continuedOwnedBurst:burst, continueSetupAfterK:true) == burst,
+                "MIXED_SETUP_RETENTION_RED: explicit post-K setup policy must retain actual same-group HP2 Burst instead of selecting the nearer Rust");
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                    sector.GetNode<Node2D>("Gameplay"), group, new Vector2(4700,3424), compareAllOwned:true,
+                    continuedOwnedBurst:burst, continueSetupAfterK:true) != burst,
+                "setup continuation cannot cross the real saved actor-root boundary");
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10MixedContinuationHealthAccepted(1,false) &&
+                PrologueCanyonGeneratedMainRouteTests.Task10MixedContinuationHealthAccepted(1,true) &&
+                !PrologueCanyonGeneratedMainRouteTests.Task10MixedContinuationHealthAccepted(2,false) &&
+                PrologueCanyonGeneratedMainRouteTests.Task10MixedContinuationHealthAccepted(2,true) &&
+                !PrologueCanyonGeneratedMainRouteTests.Task10MixedContinuationHealthAccepted(0,true) &&
+                !PrologueCanyonGeneratedMainRouteTests.Task10MixedContinuationHealthAccepted(3,true),
+                "setup exception is exact HP2 opt-in, never any positive health or a relaxed default fatal-J rule");
+            GD.Print("MIXED_SETUP_RETENTION_CONTRACT_OK actual_saved_pair=true actual_group_owned=true wrong_root_rejected=true default_HP1_preserved=true HP2_optin=true policy_only=true prior_K_claim=false J_damage_claim=false");
+            TestAssert.True(bornCounterObserved && bornCounterPrerequisites,
+                "MIXED_IDLE_REARM_SETUP: actual saved pair is alive Idle/None before its first physics tick, with ranged authority");
+            TestAssert.True(float.IsFinite(bornCounterSeconds) && bornCounterSeconds is > .649f and <= .65f &&
+                (preparationAttacks != 0 || bornCounterAdmitted),
+                $"MIXED_IDLE_REARM_RED: both idle actors still owe their complete natural warning before damage; " +
+                $"safe={bornCounterSeconds:R} admitted={bornCounterAdmitted}");
+            GD.Print($"MIXED_IDLE_REARM_OK safe={bornCounterSeconds:R} admitted={bornCounterAdmitted} preparation={preparationAttacks}");
+            if (!resourcePolicy) VerifyRequiredWavePriority(actors, group, player, rust, burst);
             var hurtbox = player.GetNode<Hurtbox>("Hurtbox");
             var guardedReceiver = player.GetNode<PlayerGuardedDamageReceiver>("GuardedDamage");
             var observer = new RangedDamageObservation { Name = "MixedDamageObservation", Inner = guardedReceiver };
@@ -161,9 +1006,24 @@ public static class RangedWeaponPlacementRuntimeTests
             }
             Vector2 previous = player.GlobalPosition;
             bool testedNonselected = false, testedPause = false, testedCommittedGap = false;
+            bool departedActiveControl = false, departedRecoveryControl = false;
             bool lateShieldSample = false, lowEnergyActiveGuard = false;
             bool shortCounterRejected = false, counterConnected = false;
             int counterStarts = 0, rustCounterContacts = 0;
+            bool observeCandidates = traceResourceBoundary && preparationAttacks == 0;
+            if (observeCandidates) AssertCircleGuardPriority();
+            var candidateRows = new List<PrologueCanyonGeneratedMainRouteTests.Task10DangerCandidate>(8);
+            bool candidateFaultInjected = false, candidateGapObserved = false;
+            int candidateSamplesObserved = 0, candidateMultiPasses = 0, candidateFaults = 0;
+            void ObserveCandidate(PrologueCanyonGeneratedMainRouteTests.Task10DangerCandidate row)
+            {
+                candidateRows.Add(row);
+                if (!candidateFaultInjected)
+                {
+                    candidateFaultInjected = true;
+                    throw new InvalidOperationException("intentional passive candidate observer fault");
+                }
+            }
             combat.AttackStarted += (_, _) => counterStarts++;
             combat.AttackConnected += receiver =>
             {
@@ -180,9 +1040,112 @@ public static class RangedWeaponPlacementRuntimeTests
                 bool committedGap = rust.CurrentState == RustShellState.Recover &&
                     burst.HasPresentationAuthority && burst.CurrentFrame.State == RangedWeaponState.Active &&
                     burst.CurrentFrame.AttackTimeline.Phase == AttackPhase.Active && leaves.Count == 0;
+                // Reuse the fixture's pre-existing leaf read, not a second danger scan.
+                var expectedBurstLeaves = observeCandidates ? leaves
+                    .Where(leaf => leaf.CurrentFrame.Timeline.Phase is AttackPhase.Telegraph or AttackPhase.Active)
+                    .Select(leaf => (Id: leaf.GetInstanceId(), Frame: leaf.CurrentFrame,
+                        Projectile: leaf.GetParent() is RangedWeaponProjectile projectile ? projectile.GetInstanceId() : 0UL))
+                    .ToArray() : Array.Empty<(ulong Id, AttackPresentationFrame Frame, ulong Projectile)>();
+                bool expectedBurstGap = burst.HasPresentationAuthority && leaves.Count == 0 &&
+                    burst.CurrentFrame.AttackTimeline.Phase == AttackPhase.Active;
+                if (!resourcePolicy && counterProof == MixedCounterProof.None && leaves.Count > 0 &&
+                    burst.CurrentFrame.AttackTimeline.Phase is AttackPhase.Active or AttackPhase.Recovery &&
+                    (burst.CurrentFrame.AttackTimeline.Phase == AttackPhase.Active ? !departedActiveControl : !departedRecoveryControl))
+                {
+                    // Exercise the REAL scanner/real authorized projectile identities.
+                    // Only the geometric query capsule and completed-pass history are
+                    // injected controls; no player moves or actual Main passage claim.
+                    var rounds = leaves.Where(leaf => leaf.GetParent() is RangedWeaponProjectile).ToArray();
+                    if (rounds.Length > 0 && rounds.Length == leaves.Count)
+                    {
+                        Vector2 aim = burst.CurrentFrame.AimDirection;
+                        Vector2 farBehind = rounds.OrderBy(leaf => leaf.CurrentFrame.Shape.Origin.Dot(aim))
+                            .First().CurrentFrame.Shape.Origin - aim * 100;
+                        var queryCapsule = new PrologueCanyonGeneratedMainRouteTests.Task10GuardCapsule(
+                            20, 72, new Transform2D(0, farBehind));
+                        var proofs = rounds.Select(leaf => new PrologueCanyonGeneratedMainRouteTests.Task10DepartedBurst(
+                            burstId, leaf.GetParent().GetInstanceId(), leaf.GetInstanceId(),
+                            leaf.CurrentFrame.Timeline.AttackId, aim, leaf.CurrentFrame.Shape.Extent.X, true)).ToArray();
+                        var policy = new PrologueCanyonGeneratedMainRouteTests.Task10HopDeparturePolicy(true, true, proofs);
+                        var scanLeaves = new List<AttackTelegraphVisual>();
+                        var filteredRows = new List<PrologueCanyonGeneratedMainRouteTests.Task10DangerCandidate>();
+                        var filtered = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(actors,
+                            burst.Name.ToString(), null, false, scanLeaves, candidateObserver: filteredRows.Add,
+                            guardCapsule: queryCapsule, departurePolicy: policy);
+                        TestAssert.True(proofs.All(proof => filteredRows.Any(row => row.ProjectileId == proof.Projectile &&
+                                row.LeafId == proof.Leaf && row.DepartureExcluded && !row.ReplacedWinner)) && scanLeaves.Count == 0,
+                            "MIXED_DEPARTURE_SCAN_RED: exact real departed leaves no longer consume winner/counter allowance");
+                        bool activeOwner = burst.CurrentFrame.AttackTimeline.Phase == AttackPhase.Active;
+                        TestAssert.True(activeOwner ? filtered.Threat && filtered.FromActiveGap && filtered.SafeCounterSeconds == 0 :
+                                !filtered.Threat && filtered.SafeCounterSeconds > 0 &&
+                                !filtered.NearContactUnknownActive && !filtered.NearContactOverlappingActive,
+                            "departed leaves cannot erase committed Active gap; Recovery regains only its original finite clock");
+                        foreach (var denied in new[] { policy with { Completed = false }, policy with { Retained = false },
+                            policy with { Shots = proofs.Select(p => p with { Projectile = p.Projectile + 1 }).ToArray() } })
+                        {
+                            filteredRows.Clear();
+                            var dangerWithoutProof = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(actors,
+                                burst.Name.ToString(), null, false, scanLeaves, candidateObserver: filteredRows.Add,
+                                guardCapsule: queryCapsule, departurePolicy: denied);
+                            TestAssert.True(dangerWithoutProof.Threat && dangerWithoutProof.SafeCounterSeconds == 0 &&
+                                filteredRows.All(row => !row.DepartureExcluded),
+                                "unfinished/lost-authority/wrong-projectile policies leave actual attacks dangerous");
+                        }
+                        if (activeOwner) departedActiveControl = true; else departedRecoveryControl = true;
+                    }
+                }
+                int expectedCandidates = (rust.CurrentState is RustShellState.Telegraph or RustShellState.Attack ? 1 : 0) +
+                    expectedBurstLeaves.Length + (expectedBurstGap ? 1 : 0);
                 leaves.Clear();
+                candidateRows.Clear();
+                bool faultWasInjected = candidateFaultInjected;
                 var danger = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(
-                    actors, encounterId, rust, false, leaves);
+                    actors, encounterId, rust, false, leaves,
+                    candidateObserver: observeCandidates ? ObserveCandidate : null,
+                    guardCapsule: observeCandidates ? PrologueCanyonGeneratedMainRouteTests.Task10CurrentGuardCapsule(player) : null);
+                if (observeCandidates)
+                {
+                    // Assertions must be outside the deliberately isolated callback.
+                    TestAssert.True(candidateRows.Count == expectedCandidates,
+                        "MIXED_CANDIDATE_OBSERVER_RED: actual threat emits same-pass candidate values");
+                    TestAssert.True(danger.CandidateObserverFaults == (!faultWasInjected && candidateFaultInjected ? 1 : 0) &&
+                        leaves.Count == 0, "candidate callback failure is counted without retaining leaves or aborting the decision");
+                    candidateFaults += danger.CandidateObserverFaults;
+                    for (int rowIndex = 0; rowIndex < candidateRows.Count; rowIndex++)
+                    {
+                        var row = candidateRows[rowIndex];
+                        TestAssert.True(row.Ordinal == rowIndex && row.SourceActorId is > 0 &&
+                            (row.SourceActorId == rust.GetInstanceId() || row.SourceActorId == burstId) &&
+                            (rowIndex == 0 || row.ActorOrder >= candidateRows[rowIndex - 1].ActorOrder) &&
+                            row.GuardSource.IsFinite() && row.Timeline.Phase is AttackPhase.Telegraph or AttackPhase.Active,
+                            "candidate values preserve actual fixture ownership and same-pass order");
+                        TestAssert.True(row.FromActiveGap ? !row.HasShape && row.LeafId == 0 && row.ProjectileId == 0 :
+                            row.LeafId == 0 || row.HasShape,
+                            "a real leaf has copied world geometry; a zero-leaf Active gap does not invent geometry");
+                        candidateGapObserved |= row.FromActiveGap;
+                    }
+                    foreach (var expected in expectedBurstLeaves)
+                    {
+                        var actual = candidateRows.Single(row => row.LeafId == expected.Id);
+                        TestAssert.True(actual.SourceActorId == burstId && actual.ProjectileId == expected.Projectile &&
+                            actual.Timeline == expected.Frame.Timeline && actual.HasShape &&
+                            actual.Shape.Kind == expected.Frame.Shape.Kind && actual.Shape.Origin == expected.Frame.Shape.Origin &&
+                            actual.Shape.Extent == expected.Frame.Shape.Extent &&
+                            actual.Shape.RotationRadians == expected.Frame.Shape.RotationRadians &&
+                            (actual.Shape.Points ?? Array.Empty<Vector2>()).SequenceEqual(expected.Frame.Shape.Points ?? Array.Empty<Vector2>()),
+                            "each naturally authorized Burst leaf retains its own identity, timeline and exact world shape");
+                    }
+                    if (candidateRows.Count > 0)
+                    {
+                        var winner = candidateRows.Last(row => row.ReplacedWinner);
+                        TestAssert.True(winner.SourceActorId == danger.SourceActorId &&
+                            winner.Timeline.AttackId == danger.AttackId && winner.Timeline.Phase == danger.Phase &&
+                            winner.GuardSource == danger.GuardSource && winner.FromActiveGap == danger.FromActiveGap,
+                            "throwing passive observer leaves original same-pass winner metadata intact");
+                        candidateSamplesObserved++;
+                        if (candidateRows.Count > 1) candidateMultiPasses++;
+                    }
+                }
                 float commonRecovery = rust.CurrentFrame.AttackTimeline.Phase == AttackPhase.Recovery &&
                     burst.CurrentFrame.AttackTimeline.Phase == AttackPhase.Recovery
                     ? MathF.Min(rust.CurrentFrame.AttackTimeline.PhaseRemainingSeconds,
@@ -191,10 +1154,11 @@ public static class RangedWeaponPlacementRuntimeTests
                 float completeCounter = attackSettings.StartupSeconds + attackSettings.ActiveSeconds +
                     attackSettings.RecoverySeconds + 6f / Engine.PhysicsTicksPerSecond;
                 if (counterProof == MixedCounterProof.RejectShort && !danger.Threat &&
-                    commonRecovery is > 0f && commonRecovery < completeCounter)
+                    commonRecovery is > 0f && commonRecovery < completeCounter &&
+                    danger.SafeCounterSeconds < completeCounter + 2f / Engine.PhysicsTicksPerSecond)
                 {
                     TestAssert.True(!PrologueCanyonGeneratedMainRouteTests.Task10MixedCounterWindow(combat, energy, danger),
-                        "RANGED_MIXED_SHORT_COUNTER_RED: real common Recovery shorter than complete J plus input margin is not a counter window");
+                        "RANGED_MIXED_SHORT_COUNTER_RED: actual next-danger bound shorter than complete J plus eight ticks is not a counter window");
                     shortCounterRejected = true;
                 }
                 if (counterProof == MixedCounterProof.Connect && !counterConnected &&
@@ -284,9 +1248,11 @@ public static class RangedWeaponPlacementRuntimeTests
                     tree.Paused = true;
                     try
                     {
+                        candidateRows.Clear();
                         var paused = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(
-                            actors, encounterId, rust, false, leaves);
-                        TestAssert.True(!paused.Threat && leaves.Count == 0,
+                            actors, encounterId, rust, false, leaves,
+                            candidateObserver: observeCandidates ? ObserveCandidate : null);
+                        TestAssert.True(!paused.Threat && leaves.Count == 0 && candidateRows.Count == 0,
                             "paused actual mixed warning cannot supply current guard authority");
                         testedPause = true;
                     }
@@ -301,6 +1267,20 @@ public static class RangedWeaponPlacementRuntimeTests
                 $"shield={input.Current.ShieldHeld}/{shield.IsActive}/{shield.GuardDirection}");
             TestAssert.True(testedCommittedGap,
                 "MIXED_POLICY_SETUP: natural Rust Recovery/Burst Active contains a genuine zero-leaf gap");
+            if (observeCandidates)
+            {
+                TestAssert.True(candidateFaultInjected && candidateFaults == 1 && candidateSamplesObserved > 1 && candidateGapObserved,
+                    "passive observer survives its one injected fault and records subsequent natural samples plus the real gap");
+                GD.Print($"MIXED_CANDIDATE_OBSERVER_OK samples={candidateSamplesObserved} multi_candidate_passes={candidateMultiPasses} " +
+                    $"faults={candidateFaults} gap={candidateGapObserved} second_resolver_scan=false timed_priority_preserved=true live_circle_ties=surface_clearance");
+            }
+            if (!resourcePolicy && counterProof == MixedCounterProof.None)
+            {
+                TestAssert.True(departedActiveControl && departedRecoveryControl,
+                    "real saved Burst exercises both committed Active gap and finite Recovery departure scans");
+                GD.Print("MIXED_DEPARTURE_SCAN_OK real_saved_leaves=true active_gap=true recovery_counter=true " +
+                    "virtual_capsule=true injected_pass_history=true actual_main=false");
+            }
             if (resourcePolicy)
                 TestAssert.True(lateShieldSample && (preparationAttacks == 0 || lowEnergyActiveGuard) &&
                     energy.EnergyRatio > 0f,
@@ -314,14 +1294,18 @@ public static class RangedWeaponPlacementRuntimeTests
                 observer.Requests.Count(request => request.SourceRuntimeId == burstId) == 3 && !energy.IsOverheated,
                 $"actual Rust contact and each first Burst round resolve Guarded with native five HP intact; " +
                 $"rust={rustGuards} burst={burstGuards} emissions={emissions} requests={observer.Requests.Count}");
+            candidateRows.Clear();
             var wrongGroup = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(
-                actors, "not.this.encounter", rust, false, leaves);
-            TestAssert.True(!wrongGroup.Threat && !wrongGroup.HasRanged && leaves.Count == 0,
+                actors, "not.this.encounter", rust, false, leaves,
+                candidateObserver: observeCandidates ? ObserveCandidate : null);
+            TestAssert.True(!wrongGroup.Threat && !wrongGroup.HasRanged && leaves.Count == 0 && candidateRows.Count == 0,
                 "unrelated membership cannot lend a selected actor's stale authority");
             actors.QueueFree();
+            candidateRows.Clear();
             var queued = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(
-                actors, encounterId, rust, false, leaves);
-            TestAssert.True(!queued.Threat && !queued.HasRanged && leaves.Count == 0,
+                actors, encounterId, rust, false, leaves,
+                candidateObserver: observeCandidates ? ObserveCandidate : null);
+            TestAssert.True(!queued.Threat && !queued.HasRanged && leaves.Count == 0 && candidateRows.Count == 0,
                 "queued actor container rejects still-live child wrappers synchronously");
             GD.Print($"RANGED_MIXED_THREAT_POLICY_OK rust_guards={rustGuards} burst_guards={burstGuards} hp=5->{health.CurrentHealth} " +
                 $"energy={energy.EnergyRatio:R} heat={energy.HeatRatio:R} committed_gap={testedCommittedGap} " +
@@ -332,14 +1316,131 @@ public static class RangedWeaponPlacementRuntimeTests
         }
         finally
         {
+            if (traceResourceBoundary) GD.Print($"RANGED_RESOURCE_BOUNDARY stage=finally.enter preparation_attacks={preparationAttacks}");
             tree.Paused = false;
-            try { driver?.Dispose(); }
+            try
+            {
+                if (traceResourceBoundary) GD.Print($"RANGED_RESOURCE_BOUNDARY stage=driver.dispose.begin preparation_attacks={preparationAttacks}");
+                driver?.Dispose();
+                if (traceResourceBoundary) GD.Print($"RANGED_RESOURCE_BOUNDARY stage=driver.dispose.end preparation_attacks={preparationAttacks}");
+            }
             finally
             {
-                try { await DisposeFairnessFixture(tree, root, sector, player); }
-                finally { tree.Root.CanvasTransform = canvas; }
+                try
+                {
+                    if (traceResourceBoundary) GD.Print($"RANGED_RESOURCE_BOUNDARY stage=fixture.dispose.begin preparation_attacks={preparationAttacks}");
+                    await DisposeFairnessFixture(tree, root, sector, player);
+                    if (traceResourceBoundary) GD.Print($"RANGED_RESOURCE_BOUNDARY stage=fixture.dispose.returned preparation_attacks={preparationAttacks}");
+                }
+                finally
+                {
+                    if (traceResourceBoundary) GD.Print($"RANGED_RESOURCE_BOUNDARY stage=canvas.restore.begin preparation_attacks={preparationAttacks}");
+                    tree.Root.CanvasTransform = canvas;
+                    if (traceResourceBoundary) GD.Print($"RANGED_RESOURCE_BOUNDARY stage=canvas.restore.end preparation_attacks={preparationAttacks}");
+                }
             }
         }
+    }
+
+    private static void VerifyRequiredWavePriority(Node2D actors, CanyonEncounterGroup group,
+        CharacterBody2D player, RustShellSquire rust, RangedWeaponEnemy burst)
+    {
+        CharacterBody2D resident = null;
+        Node2D forged = null;
+        Vector2 playerBefore = player.GlobalPosition, rustBefore = rust.GlobalPosition, burstBefore = burst.GlobalPosition;
+        int playerHp = player.GetNode<HealthComponent>("Health").CurrentHealth,
+            rustHp = rust.GetNode<HealthComponent>("Health").CurrentHealth,
+            burstHp = burst.GetNode<HealthComponent>("Health").CurrentHealth;
+        try
+        {
+            var slot = ResidentAuthoredLayout.Load().Single(site =>
+                site.Definition.StableId == "canyon.v2.resident.counterweight-lift.04").Definition;
+            var subtype = ResidentSceneRegistry.Select(ResidentContentMode.DevelopmentV001).Single(type => type.Id == slot.SubtypeId);
+            resident = ResidentSceneBinding.Instantiate(GD.Load<PackedScene>(subtype.ScenePath), subtype, slot, allowPlaceholder: true);
+            resident.Position = slot.Placement.WorldSpawn - actors.GlobalPosition;
+            actors.AddChild(resident);
+            TestAssert.True(resident is RangedWeaponEnemy && !group.OwnsLiveActor(resident) &&
+                group.OwnsLiveActor(rust) && group.OwnsLiveActor(burst) && group.LiveActorCount == 2,
+                "required priority setup uses real saved pair and real bound fixed-home resident");
+            // This is a virtual selector query using recorded final-player coords,
+            // NOT a replay of unknown contemporaneous Rust pose or combat success.
+            Vector2 query = new(4577.0786f, 3459.9336f);
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                actors, group, query, true) == resident, "required priority default really chooses the closer resident");
+            Node2D preferred = PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                actors, group, query, true, preferLiveOwnedAfterHop: true);
+            TestAssert.True(preferred == rust && group.OwnsLiveActor(preferred),
+                "MIXED_REQUIRED_WAVE_PRIORITY_RED: optional closer resident cannot starve the enabled live-owned pursuit");
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                actors, group, query, true, continuedOwnedBurst: burst, continueSetupAfterK: true,
+                preferLiveOwnedAfterHop: true) == burst,
+                "legacy HP2 setup continuation precedes new owned preference");
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                actors.GetParent(), group, query, true, preferLiveOwnedAfterHop: true) != rust,
+                "a different actor-root cannot lend its owned member to this query");
+            forged = new Node2D { Name = group.EncounterId.ToString().Replace('.', '_') + "_not_owned",
+                Position = query - actors.GlobalPosition };
+            forged.AddChild(new HealthComponent { Name = "Health", MaxHealth = 5 });
+            actors.AddChild(forged);
+            TestAssert.True(!group.OwnsLiveActor(forged) &&
+                PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                    actors, group, query, true, preferLiveOwnedAfterHop: true) == rust,
+                "a live closer prefix lookalike is not actual group ownership");
+            forged.Free(); forged = null;
+            var outside = new Vector2(query.X, MathF.Min(rust.GlobalPosition.Y, burst.GlobalPosition.Y) - 74.01f);
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(
+                actors, group, outside, true, preferLiveOwnedAfterHop: true) == null,
+                "owned preference cannot widen the original74px band");
+            var sources = new HashSet<ulong>();
+            var leaves = new List<AttackTelegraphVisual>();
+            PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(actors, group.EncounterId.ToString(),
+                preferred, false, leaves, counterObserver: (id, _, _, _, _, _) => sources.Add(id));
+            TestAssert.True(sources.Contains(rust.GetInstanceId()) && sources.Contains(burst.GetInstanceId()) &&
+                sources.Contains(resident.GetInstanceId()) && leaves.Count == 0,
+                "unselected optional resident and both real owned actors retain original danger admission");
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10SelectEncounterActor(actors, group, query, true) == resident &&
+                player.GlobalPosition == playerBefore && rust.GlobalPosition == rustBefore && burst.GlobalPosition == burstBefore &&
+                player.GetNode<HealthComponent>("Health").CurrentHealth == playerHp &&
+                rust.GetNode<HealthComponent>("Health").CurrentHealth == rustHp &&
+                burst.GetNode<HealthComponent>("Health").CurrentHealth == burstHp && group.LiveActorCount == 2 && !group.IsComplete,
+                "priority query is read-only for player/required actors and default remains mixed-distance");
+            GD.Print($"MIXED_REQUIRED_WAVE_PRIORITY_OK rust={rust.GetInstanceId()} burst={burst.GetInstanceId()} " +
+                $"resident={resident.GetInstanceId()} danger_sources={sources.Count} virtual_query=true " +
+                "ownership_not_prefix=true default_retained=true legacy_continuation_retained=true actual_combat=false");
+        }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(forged)) forged.Free();
+            if (GodotObject.IsInstanceValid(resident)) resident.Free();
+        }
+    }
+
+    private static void AssertCircleGuardPriority()
+    {
+        // Hand-derived surface gaps, not expected values from the implementation.
+        AttackShapeFrame Circle(Vector2 origin) => new(AttackShapeKind.Circle, origin, new Vector2(5, 5), 0, null);
+        var capsule = new PrologueCanyonGeneratedMainRouteTests.Task10GuardCapsule(20, 72, Transform2D.Identity);
+        float near = PrologueCanyonGeneratedMainRouteTests.Task10GuardCircleClearance(Circle(new Vector2(40, 0)), capsule);
+        float far = PrologueCanyonGeneratedMainRouteTests.Task10GuardCircleClearance(Circle(new Vector2(-100, 0)), capsule);
+        float above = PrologueCanyonGeneratedMainRouteTests.Task10GuardCircleClearance(Circle(new Vector2(0, -50)), capsule);
+        TestAssert.True(MathF.Abs(near - 15) < .001f && MathF.Abs(far - 75) < .001f && MathF.Abs(above - 9) < .001f,
+            "MIXED_CIRCLE_CLEARANCE_RED: real capsule axis and both radii determine independent surface gaps");
+        var rotated = capsule with { Transform = new Transform2D(Mathf.Pi / 2f, new Vector2(100, 200)) };
+        float rotatedGap = PrologueCanyonGeneratedMainRouteTests.Task10GuardCircleClearance(Circle(new Vector2(150, 200)), rotated);
+        var skewed = capsule with { Transform = new Transform2D(new Vector2(1, 0), new Vector2(.5f, 1), Vector2.Zero) };
+        var stretched = capsule with { Transform = new Transform2D(new Vector2(2, 0), Vector2.Down, Vector2.Zero) };
+        TestAssert.True(MathF.Abs(rotatedGap - 9) < .001f &&
+            float.IsPositiveInfinity(PrologueCanyonGeneratedMainRouteTests.Task10GuardCircleClearance(Circle(Vector2.Zero), skewed)) &&
+            float.IsPositiveInfinity(PrologueCanyonGeneratedMainRouteTests.Task10GuardCircleClearance(Circle(Vector2.Zero), stretched)),
+            "world circle is not transformed twice; unsupported capsule skew/nonuniform scale retains unknown priority");
+        TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10PreferDanger(0, 0, near, far) &&
+            !PrologueCanyonGeneratedMainRouteTests.Task10PreferDanger(0, 0, far, near) &&
+            !PrologueCanyonGeneratedMainRouteTests.Task10PreferDanger(0, 0, near, near) &&
+            !PrologueCanyonGeneratedMainRouteTests.Task10PreferDanger(0, 0, near, float.PositiveInfinity) &&
+            !PrologueCanyonGeneratedMainRouteTests.Task10PreferDanger(.01f, 0, 0, far) &&
+            PrologueCanyonGeneratedMainRouteTests.Task10PreferDanger(0, .01f, float.PositiveInfinity, near),
+            "only two known live-circle ties use clearance; warning precedence, unknowns and equal gaps preserve original order");
+        GD.Print("MIXED_CIRCLE_PRIORITY_OK capsule_surface=true transformed_world=true unknown_fallback=true no_eta=true");
     }
 
     private static async Task EarlyWarningCounters(SceneTree tree, RangedFairnessRecoveryProbe root,
@@ -397,6 +1498,29 @@ public static class RangedWeaponPlacementRuntimeTests
             TestAssert.True(firstRust.Phase == AttackPhase.Telegraph && firstBurst.Phase == AttackPhase.Telegraph &&
                 SafePhase(firstRust) && SafePhase(firstBurst) && !LiveProjectile() && burst.HasPresentationAuthority,
                 $"EARLY_COUNTER_SETUP: real first warnings retain complete J+6ticks; rust={firstRust.Phase}/{firstRust.PhaseRemainingSeconds:R} burst={firstBurst.Phase}/{firstBurst.PhaseRemainingSeconds:R}");
+            var publishedRust = rust.GetNode<AttackTelegraphVisual>("VisualRoot/AttackTelegraph");
+            var nativeCandidates = new List<PrologueCanyonGeneratedMainRouteTests.Task10DangerCandidate>();
+            var publishedDanger = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(
+                actors, encounterId, rust, false, leaves, candidateObserver: nativeCandidates.Add,
+                guardCapsule: PrologueCanyonGeneratedMainRouteTests.Task10CurrentGuardCapsule(player));
+            var rustCandidate = nativeCandidates.Single(row => row.SourceActorId == rust.GetInstanceId());
+            AttackPresentationFrame publishedFrame = publishedRust.CurrentFrame;
+            TestAssert.True(publishedFrame.Timeline.AttackId == firstRust.AttackId &&
+                publishedFrame.Timeline.Phase == firstRust.Phase && publishedFrame.Shape.Kind == AttackShapeKind.Rectangle &&
+                rustCandidate.HasShape && rustCandidate.LeafId == publishedRust.GetInstanceId() &&
+                rustCandidate.Timeline == firstRust && rustCandidate.Shape.Kind == publishedFrame.Shape.Kind &&
+                rustCandidate.Shape.Origin == publishedFrame.Shape.Origin &&
+                rustCandidate.Shape.Extent == publishedFrame.Shape.Extent &&
+                rustCandidate.Shape.RotationRadians == publishedFrame.Shape.RotationRadians &&
+                rustCandidate.Shape.Points.SequenceEqual(publishedFrame.Shape.Points) &&
+                rustCandidate.GuardSource == rust.GetNode<Hitbox>("AttackHitbox").GlobalPosition &&
+                publishedDanger.CandidateObserverFaults == 0 &&
+                publishedDanger.SafeCounterSeconds == MathF.Min(firstRust.PhaseRemainingSeconds, firstBurst.PhaseRemainingSeconds),
+                $"MIXED_RUST_PUBLICATION_RED: original same-pass candidate must carry the real matching Rectangle " +
+                $"without changing guard origin or counter allowance; known={rustCandidate.HasShape} " +
+                $"leaf={rustCandidate.LeafId}/{publishedRust.GetInstanceId()} kind={rustCandidate.Shape.Kind}");
+            GD.Print("MIXED_RUST_PUBLICATION_OK native_warning=true same_attack_phase=true real_leaf=true guard_origin_unchanged=true counter_allowance_unchanged=true");
+            AssertRectangleGuardClearance();
             if (boundaryOnly)
             {
                 // Reach a real finite warning between24 and25 ticks, not a forged danger value.
@@ -522,6 +1646,692 @@ public static class RangedWeaponPlacementRuntimeTests
             combat.AttackConnected -= Connected;
             health.Healed -= Healed;
         }
+    }
+
+    private static void AssertRectangleGuardClearance()
+    {
+        var capsule = new PrologueCanyonGeneratedMainRouteTests.Task10GuardCapsule(20, 72, Transform2D.Identity);
+        AttackShapeFrame Rect(Vector2 origin, Vector2 half, float angle = 0f) =>
+            new(AttackShapeKind.Rectangle, origin, half, angle, Array.Empty<Vector2>());
+        foreach (var sample in new (string Name, AttackShapeFrame Shape, float Want)[] {
+            ("right side", Rect(new(40, 0), new(10, 8)), 10f),
+            ("left side", Rect(new(-100, 0), new(10, 8)), 70f),
+            ("capsule upper round cap", Rect(new(0, -50), new(10, 8)), 6f),
+            ("diagonal corner", Rect(new(40, 50), new(10, 10)), 18.418745f),
+            ("rotated world rectangle", Rect(new(50, 0), new(10, 5), Mathf.Pi / 2f), 25f),
+            ("axis crosses thin rotated rectangle", Rect(Vector2.Zero, new(1, 1), Mathf.Pi / 4f), 0f),
+            ("contained axis", Rect(Vector2.Zero, new(30, 30)), 0f) })
+        {
+            float actual = PrologueCanyonGeneratedMainRouteTests.Task10GuardShapeClearance(sample.Shape, capsule);
+            TestAssert.True(float.IsFinite(actual) && MathF.Abs(actual - sample.Want) < .001f,
+                $"MIXED_RECTANGLE_CLEARANCE_RED: {sample.Name} hand-derived surface gap={sample.Want}, actual={actual}");
+        }
+        var horizontal = capsule with { Transform = new Transform2D(Mathf.Pi / 2f, new Vector2(100, 200)) };
+        TestAssert.True(MathF.Abs(PrologueCanyonGeneratedMainRouteTests.Task10GuardShapeClearance(
+            Rect(new(150, 200), new(5, 10)), horizontal) - 9f) < .001f,
+            "rectangle clearance transforms the actual capsule axis once, not the world rectangle twice");
+        foreach (AttackShapeFrame invalid in new[] {
+            Rect(new(float.NaN, 0), new(10, 10)), Rect(Vector2.Zero, new(0, 10)),
+            Rect(Vector2.Zero, new(-1, 10)), Rect(Vector2.Zero, new(10, 10), float.PositiveInfinity),
+            new AttackShapeFrame(AttackShapeKind.GroundBand, Vector2.Zero, new(10, 10), 0, Array.Empty<Vector2>()) })
+            TestAssert.True(float.IsPositiveInfinity(PrologueCanyonGeneratedMainRouteTests.Task10GuardShapeClearance(invalid, capsule)),
+                "unknown or malformed shape cannot invent a zero-clearance guard priority");
+        var skew = capsule with { Transform = new Transform2D(Vector2.Right, new(.5f, 1), Vector2.Zero) };
+        TestAssert.True(float.IsPositiveInfinity(PrologueCanyonGeneratedMainRouteTests.Task10GuardShapeClearance(
+            Rect(Vector2.Zero, new(10, 10)), skew)), "unsupported skew remains unknown");
+        GD.Print("MIXED_RECTANGLE_CLEARANCE_OK literal_cases=14 rotated_corner_segment=true unknown_fallback=true no_eta=true");
+    }
+
+    private static void AssertIncomingGuardPolicy()
+    {
+        var failures = new List<string>();
+        int cases = 0;
+        var cap = new PrologueCanyonGeneratedMainRouteTests.Task10GuardCapsule(2, 10, Transform2D.Identity);
+        AttackShapeFrame Circle(Vector2 p, float r = 1) => new(AttackShapeKind.Circle, p, new(r, r), 0, Array.Empty<Vector2>());
+        void Geometry(string name, AttackShapeFrame circle,
+            PrologueCanyonGeneratedMainRouteTests.Task10GuardCapsule capsule,
+            Vector2 movement, Vector2 playerVelocity, float dt, int want)
+        {
+            cases++;
+            if ((int)PrologueCanyonGeneratedMainRouteTests.Task10IncomingCircleStep(
+                circle, capsule, movement, playerVelocity, dt) != want) failures.Add(name);
+        }
+        Geometry("interior crossing despite clear endpoints", Circle(new(-30, 0)), cap, new(100, 0), Vector2.Zero, 1, 2);
+        Geometry("moving away remains clear", Circle(new(-30, 0)), cap, new(-1, 0), Vector2.Zero, 1, 1);
+        Geometry("top endcap hit", Circle(new(0, 12)), cap, new(0, -8), Vector2.Zero, 1, 2);
+        Geometry("exact endcap tangent", Circle(new(-5, 6)), cap, new(10, 0), Vector2.Zero, 1, 2);
+        Geometry("endcap near miss", Circle(new(-5, 6.1f)), cap, new(10, 0), Vector2.Zero, 1, 1);
+        Geometry("degenerate capsule axis", Circle(new(5, 0)), cap with { Height = 4 }, new(-3, 0), Vector2.Zero, 1, 2);
+        Geometry("rotated capsule", Circle(new(0, -8)), cap with { Transform = new Transform2D(Mathf.Pi / 2, Vector2.Zero) }, new(0, 6), Vector2.Zero, 1, 2);
+        Geometry("uniformly scaled capsule", Circle(new(-8, 0)), cap with { Transform = new Transform2D(new(2, 0), new(0, 2), Vector2.Zero) }, new(4, 0), Vector2.Zero, 1, 2);
+        Geometry("player moves into stationary round", Circle(new(-6, 0)), cap, Vector2.Zero, new(-4, 0), 1, 2);
+        Geometry("same velocity relative clear", Circle(new(-6, 0)), cap, new(4, 0), new(4, 0), 1, 1);
+        Geometry("already overlapping", Circle(Vector2.Zero), cap, Vector2.Zero, Vector2.Zero, 1, 2);
+        Geometry("invalid delta", Circle(Vector2.Zero), cap, Vector2.Zero, Vector2.Zero, 0, 0);
+        Geometry("invalid center", Circle(new(float.NaN, 0)), cap, Vector2.Zero, Vector2.Zero, 1, 0);
+        Geometry("invalid movement", Circle(Vector2.Zero), cap, new(float.PositiveInfinity, 0), Vector2.Zero, 1, 0);
+        Geometry("skew unknown", Circle(Vector2.Zero), cap with { Transform = new Transform2D(Vector2.Right, new(.5f, 1), Vector2.Zero) }, Vector2.Zero, Vector2.Zero, 1, 0);
+        var actualCap = new PrologueCanyonGeneratedMainRouteTests.Task10GuardCapsule(20, 72,
+            new Transform2D(0, new(4635.4018555f, 3423.9685059f)));
+        Geometry("actual Burst17 must retain direction", Circle(new(4608.23828125f, 3429.91015625f), 5),
+            actualCap, new(6.83984375f, -2.64453125f), Vector2.Zero, 1f / 60, 2);
+        Geometry("translated fractionally scaled inclusive tangent",
+            Circle(new(4629.40185546875f, 0)),
+            cap with { Transform = new Transform2D(new(1.0002f, 0), new(0, 1.0002f), new(4635.4018555f, 0)) },
+            new(2.9995999336242676f, 0), Vector2.Zero, 1, 2);
+        void History(string name, ulong p0, ulong p1, ulong s0, ulong s1,
+            ulong actor1, ulong projectile1, ulong leaf1, ulong attack1, float r1, float dt1, int want)
+        {
+            var h = new PrologueCanyonGeneratedMainRouteTests.Task10IncomingGuardHistory();
+            cases++;
+            if ((int)h.Observe(1, 2, 3, 4, p0, s0, 1f / 60, Circle(new(-5, 0)), cap, Vector2.Zero) != 0)
+                failures.Add(name + "/first must unknown");
+            if ((int)h.Observe(actor1, projectile1, leaf1, attack1, p1, s1, dt1,
+                Circle(new(-4, 0), r1), cap, Vector2.Zero) != want) failures.Add(name);
+        }
+        History("adjacent identity incoming", 100, 101, 10, 11, 1, 2, 3, 4, 1, 1f / 60, 2);
+        History("physics gap unknown", 100, 102, 10, 12, 1, 2, 3, 4, 1, 1f / 60, 0);
+        History("repeated physics unknown", 100, 100, 10, 11, 1, 2, 3, 4, 1, 1f / 60, 0);
+        History("reversed physics unknown", 100, 99, 10, 11, 1, 2, 3, 4, 1, 1f / 60, 0);
+        History("sequence rollback unknown", 100, 101, 10, 9, 1, 2, 3, 4, 1, 1f / 60, 0);
+        History("actor identity unknown", 100, 101, 10, 11, 9, 2, 3, 4, 1, 1f / 60, 0);
+        History("projectile identity unknown", 100, 101, 10, 11, 1, 9, 3, 4, 1, 1f / 60, 0);
+        History("leaf identity unknown", 100, 101, 10, 11, 1, 2, 9, 4, 1, 1f / 60, 0);
+        History("attack identity unknown", 100, 101, 10, 11, 1, 2, 3, 9, 1, 1f / 60, 0);
+        History("radius change unknown", 100, 101, 10, 11, 1, 2, 3, 4, 2, 1f / 60, 0);
+        History("dt change unknown", 100, 101, 10, 11, 1, 2, 3, 4, 1, 1f / 30, 0);
+        TestAssert.True(failures.Count == 0, "MIXED_INCOMING_GUARD_RED: " + string.Join("; ", failures));
+        GD.Print($"MIXED_INCOMING_GUARD_OK cases={cases} prediction_not_native_TOI=true unchanged_HP_gates=true");
+    }
+
+    private static void AssertRustGuardPolicy()
+    {
+        AssertIncomingGuardPolicy();
+        var failures = new List<string>();
+        var warning = new AttackTimelineFrame(5, EnemyAttackKind.RustShellThrust,
+            AttackPhase.Telegraph, .65f, 8f / 60f, Vector2.Zero, false);
+        void Near(string name, bool enabled, AttackTimelineFrame frame, float gap,
+            bool unknown, bool overlap, bool want)
+        {
+            if (PrologueCanyonGeneratedMainRouteTests.Task10NearRustGuardAccepted(
+                enabled, frame, gap, unknown, overlap) != want) failures.Add(name);
+        }
+        Near("same-published overlapping near warning", true, warning, 0, false, false, true);
+        Near("default remains old policy", false, warning, 0, false, false, false);
+        Near("unknown Active before or after Rust vetoes", true, warning, 0, true, false, false);
+        Near("other overlapping Active vetoes", true, warning, 0, false, true, false);
+        Near("not currently overlapping", true, warning, 1, false, false, false);
+        Near("unknown shape", true, warning, float.PositiveInfinity, false, false, false);
+        Near("nonfinite clearance", true, warning, float.NaN, false, false, false);
+        Near("not Rust", true, warning with { Kind = EnemyAttackKind.MothDive }, 0, false, false, false);
+        Near("missing attack", true, warning with { AttackId = 0 }, 0, false, false, false);
+        Near("not a warning", true, warning with { Phase = AttackPhase.Active }, 0, false, false, false);
+        Near("too early", true, warning with { PhaseRemainingSeconds = 9f / 60f }, 0, false, false, false);
+        Near("nonfinite time", true, warning with { PhaseRemainingSeconds = float.NaN }, 0, false, false, false);
+        Near("negative time", true, warning with { PhaseRemainingSeconds = -.01f }, 0, false, false, false);
+
+        var tele = PrologueCanyonGeneratedMainRouteTests.Task10AdvanceRustGuardEpoch(default, warning, 100);
+        var active = PrologueCanyonGeneratedMainRouteTests.Task10AdvanceRustGuardEpoch(tele,
+            warning with { Phase = AttackPhase.Active }, 101);
+        var continued = PrologueCanyonGeneratedMainRouteTests.Task10AdvanceRustGuardEpoch(active,
+            warning with { Phase = AttackPhase.Active }, 102);
+        var gap = PrologueCanyonGeneratedMainRouteTests.Task10AdvanceRustGuardEpoch(active,
+            warning with { Phase = AttackPhase.Active }, 104);
+        var recovery = PrologueCanyonGeneratedMainRouteTests.Task10AdvanceRustGuardEpoch(active,
+            warning with { Phase = AttackPhase.Recovery }, 102);
+        var nextTele = PrologueCanyonGeneratedMainRouteTests.Task10AdvanceRustGuardEpoch(recovery, warning, 103);
+        var nextActive = PrologueCanyonGeneratedMainRouteTests.Task10AdvanceRustGuardEpoch(nextTele,
+            warning with { Phase = AttackPhase.Active }, 104);
+        if (tele != new PrologueCanyonGeneratedMainRouteTests.Task10RustGuardEpoch(5, AttackPhase.Telegraph, 0, 100, false)) failures.Add("actual warning observation");
+        if (active != new PrologueCanyonGeneratedMainRouteTests.Task10RustGuardEpoch(5, AttackPhase.Active, 1, 101, true)) failures.Add("continuous Active entry gets one epoch");
+        if (continued != new PrologueCanyonGeneratedMainRouteTests.Task10RustGuardEpoch(5, AttackPhase.Active, 1, 102, true)) failures.Add("continuous same Active keeps epoch");
+        if (gap.ContinuousActive || recovery.ContinuousActive) failures.Add("gap or withdrawal loses consumption");
+        if (nextActive != new PrologueCanyonGeneratedMainRouteTests.Task10RustGuardEpoch(5, AttackPhase.Active, 2, 104, true)) failures.Add("same-ID new Begin epoch is not old consumption");
+
+        var receipt = new PrologueCanyonGeneratedMainRouteTests.Task10RustGuardReceipt(21, 31, 41, 5, 1, 101, 90, 7, 2);
+        void Receipt(string name, PrologueCanyonGeneratedMainRouteTests.Task10RustGuardReceipt r,
+            PrologueCanyonGeneratedMainRouteTests.Task10RustGuardEpoch e, ulong now, int hp, bool retained, bool want)
+        {
+            if (PrologueCanyonGeneratedMainRouteTests.Task10RustGuardReceiptCurrent(r, 21, 31, 41, e, now, hp, retained) != want)
+                failures.Add(name);
+        }
+        Receipt("actual paired continuous receipt", receipt, new(5, AttackPhase.Active, 1, 101, true), 102, 2, true, true);
+        Receipt("wrong actor", receipt with { Actor = 22 }, new(5, AttackPhase.Active, 1, 101, true), 102, 2, true, false);
+        Receipt("wrong hitbox", receipt with { Hitbox = 32 }, new(5, AttackPhase.Active, 1, 101, true), 102, 2, true, false);
+        Receipt("wrong hurtbox", receipt with { Hurtbox = 42 }, new(5, AttackPhase.Active, 1, 101, true), 102, 2, true, false);
+        Receipt("wrong attack", receipt with { Attack = 6 }, new(5, AttackPhase.Active, 1, 101, true), 102, 2, true, false);
+        Receipt("wrong epoch", receipt with { Epoch = 2 }, new(5, AttackPhase.Active, 1, 101, true), 102, 2, true, false);
+        Receipt("no transition", receipt with { Transition = 0 }, new(5, AttackPhase.Active, 1, 101, true), 102, 2, true, false);
+        Receipt("no actual sampled sequence", receipt with { Sequence = 0 }, new(5, AttackPhase.Active, 1, 101, true), 102, 2, true, false);
+        Receipt("future contact", receipt with { Physics = 103 }, new(5, AttackPhase.Active, 1, 101, true), 102, 2, true, false);
+        Receipt("damage Connected cannot consume", receipt, new(5, AttackPhase.Active, 1, 101, true), 102, 1, true, false);
+        Receipt("released or reset source", receipt, new(5, AttackPhase.Active, 1, 101, true), 102, 2, false, false);
+        Receipt("new epoch", receipt, new(5, AttackPhase.Active, 2, 102, true), 102, 2, true, false);
+        Receipt("unobserved interval", receipt, new(5, AttackPhase.Active, 1, 101, false), 102, 2, true, false);
+        Receipt("old publication", receipt, new(5, AttackPhase.Active, 1, 101, true), 104, 2, true, false);
+        Receipt("not Active", receipt, new(5, AttackPhase.Recovery, 1, 102, false), 102, 2, true, false);
+        TestAssert.True(failures.Count == 0, "MIXED_RUST_GUARD_CONTRACT_RED: " + string.Join("; ", failures));
+        GD.Print("MIXED_RUST_GUARD_CONTRACT_OK near_cases=13 epoch_cases=5 receipt_cases=15 default_and_all_source_vetoes=true continuous_epoch_only=true");
+    }
+
+    private static void AssertRecoveryHopTrigger()
+    {
+        AssertApprovedWarningHopPolicies();
+        AssertDepartedBurstPolicy();
+        AssertRecoveryHopShotResolution();
+        AssertPostHopPreviewFreshness();
+        AssertPostHopReceiptRetention();
+        var r = new PrologueCanyonGeneratedMainRouteTests.Task10RustGuardReceipt(21, 31, 41, 5, 1, 101, 90, 7, 2);
+        var failures = new List<string>();
+        void Check(string name, PrologueCanyonGeneratedMainRouteTests.Task10RustGuardReceipt receipt,
+            bool current, ulong sequence, ulong consumed, ulong returned, bool left, bool ready, bool issued, bool want)
+        {
+            if (PrologueCanyonGeneratedMainRouteTests.Task10MixedRecoveryHopTrigger(receipt, current,
+                sequence, consumed, returned, left, ready, issued) != want) failures.Add(name);
+        }
+        Check("fresh real guard and later actual Left may attempt one hop", r, true, 91, 7, 7, true, true, false, true);
+        Check("cleared receipt cannot inherit old returns", default, true, 91, 7, 7, true, true, false, false);
+        Check("new epoch or withdrawn source", r, false, 91, 7, 7, true, true, false, false);
+        Check("same sampled frame as contact", r, true, 90, 7, 7, true, true, false, false);
+        Check("older sampled frame", r, true, 89, 7, 7, true, true, false, false);
+        Check("wrong consumed transition", r, true, 91, 8, 7, true, true, false, false);
+        Check("wrong returned transition", r, true, 91, 7, 8, true, true, false, false);
+        Check("no actual sampled Left guard", r, true, 91, 7, 7, false, true, false, false);
+        Check("jet or claw still owns movement", r, true, 91, 7, 7, true, false, false, false);
+        Check("no second hop", r, true, 91, 7, 7, true, true, true, false);
+        Check("zero contact sequence", r with { Sequence = 0 }, true, 91, 7, 7, true, true, false, false);
+        Check("zero contact transition", r with { Transition = 0 }, true, 91, 0, 0, true, true, false, false);
+        TestAssert.True(failures.Count == 0, "MIXED_RECOVERY_HOP_TRIGGER_RED: " + string.Join("; ", failures));
+        GD.Print("MIXED_RECOVERY_HOP_TRIGGER_OK cases=12 one_attempt=true current_paired_contact_and_actual_left=true safety_not_predicted=true");
+    }
+
+    private static void AssertDepartedBurstPolicy()
+    {
+        var proof = new PrologueCanyonGeneratedMainRouteTests.Task10DepartedBurst(11, 21, 31, 13, Vector2.Right, 5, true);
+        var timeline = new AttackTimelineFrame(13, EnemyAttackKind.BeltBurstShot, AttackPhase.Active,
+            1, 1, Vector2.Zero, true);
+        var circle = new AttackShapeFrame(AttackShapeKind.Circle, new Vector2(30, 0), Vector2.One * 5, 0, null);
+        var capsule = new PrologueCanyonGeneratedMainRouteTests.Task10GuardCapsule(20, 72, Transform2D.Identity);
+        var failures = new List<string>();
+        int cases = 0;
+        void Check(string name, PrologueCanyonGeneratedMainRouteTests.Task10DepartedBurst p,
+            AttackTimelineFrame t, AttackShapeFrame shape, PrologueCanyonGeneratedMainRouteTests.Task10GuardCapsule body,
+            bool want = false, ulong source = 11, ulong projectile = 21, ulong leaf = 31, Vector2? position = null)
+        {
+            cases++;
+            if (PrologueCanyonGeneratedMainRouteTests.Task10BurstDepartureAccepted(p, source, projectile, leaf,
+                    t, shape, position ?? shape.Origin, body) != want) failures.Add(name);
+        }
+        Check("already passed circle strictly beyond full current capsule", proof, timeline, circle, capsule, true);
+        Check("history alone cannot hide player moving ahead", proof, timeline, circle,
+            capsule with { Transform = new Transform2D(0, new Vector2(40, 0)) });
+        Check("touching far support is still dangerous", proof, timeline,
+            circle with { Origin = new Vector2(25, 0) }, capsule);
+        Check("slightly beyond independent radius20 plus5", proof, timeline,
+            circle with { Origin = new Vector2(25.01f, 0) }, capsule, true);
+        Check("rotated capsule full horizontal height36 plus5 not passed", proof, timeline, circle,
+            capsule with { Transform = new Transform2D(Mathf.Pi / 2, Vector2.Zero) });
+        Check("new ordinal16 is not old13", proof, timeline with { AttackId = 16 }, circle, capsule);
+        Check("another actor", proof, timeline, circle, capsule, source: 12);
+        Check("another projectile same owner", proof, timeline, circle, capsule, projectile: 22);
+        Check("another leaf", proof, timeline, circle, capsule, leaf: 32);
+        Check("missing proof", default, timeline, circle, capsule);
+        Check("no actual prior passage", proof with { Passed = false }, timeline, circle, capsule);
+        Check("missile may steer", proof, timeline with { Kind = EnemyAttackKind.FurnaceMissileShot }, circle, capsule);
+        Check("warning is not old active projectile", proof, timeline with { Phase = AttackPhase.Telegraph }, circle, capsule);
+        Check("withdrawn leaf", proof, timeline with { Phase = AttackPhase.None }, circle, capsule);
+        Check("changed launch radius", proof, timeline, circle with { Extent = Vector2.One * 6 }, capsule);
+        Check("not a circle", proof, timeline, circle with { Kind = AttackShapeKind.Rectangle }, capsule);
+        Check("unequal radius", proof, timeline, circle with { Extent = new Vector2(5, 6) }, capsule);
+        Check("stale published origin", proof, timeline, circle, capsule, position: new Vector2(31, 0));
+        Check("nonfinite aim", proof with { Aim = new Vector2(float.NaN, 0) }, timeline, circle, capsule);
+        Check("zero aim", proof with { Aim = Vector2.Zero }, timeline, circle, capsule);
+        Check("opposite direction", proof with { Aim = Vector2.Left }, timeline, circle, capsule);
+        Check("nonfinite origin", proof, timeline, circle with { Origin = new Vector2(float.PositiveInfinity, 0) }, capsule);
+        Check("invalid body", proof, timeline, circle, capsule with { Radius = 0 });
+        Check("nonuniform scale", proof, timeline, circle,
+            capsule with { Transform = new Transform2D(Vector2.Right * 2, Vector2.Down, Vector2.Zero) });
+        TestAssert.True(failures.Count == 0, "MIXED_DEPARTED_BURST_RED: " + string.Join("; ", failures));
+        GD.Print($"MIXED_DEPARTED_BURST_POLICY_OK cases={cases} current_full_capsule=true exact_leaf=true next_round_retained=true actual_main=false");
+    }
+
+    private static void AssertApprovedWarningHopPolicies()
+    {
+        var r = new PrologueCanyonGeneratedMainRouteTests.Task10RustGuardReceipt(21, 31, 41, 5, 1, 101, 90, 7, 2);
+        var completed = new PrologueCanyonGeneratedMainRouteTests.Task10CompletedRustReturn(r, 102, 91, 7, 7, true, true);
+        var failures = new List<string>();
+        int completionCases = 0, cueCases = 0;
+        void Completion(string name, PrologueCanyonGeneratedMainRouteTests.Task10CompletedRustReturn value,
+            int hp, bool retained, bool want)
+        {
+            completionCases++;
+            if (PrologueCanyonGeneratedMainRouteTests.Task10CompletedRustReturnValid(value,
+                21, 31, 41, 130, 119, hp, retained) != want) failures.Add(name);
+        }
+        TestAssert.True(!PrologueCanyonGeneratedMainRouteTests.Task10RustGuardReceiptCurrent(r,
+            21, 31, 41, new(5, AttackPhase.Active, 1, 102, true), 130, 2, true),
+            "approved historical completion must not make an expired receipt current");
+        Completion("approved completed old epoch remains a prerequisite, not current", completed, 2, true, true);
+        Completion("default completion", default, 2, true, false);
+        Completion("contact not paired", completed with { PairedAtCapture = false }, 2, true, false);
+        Completion("no actual Left", completed with { LeftSampled = false }, 2, true, false);
+        Completion("wrong consumed transition", completed with { Consumed = 8 }, 2, true, false);
+        Completion("wrong returned transition", completed with { Returned = 8 }, 2, true, false);
+        Completion("return before contact", completed with { Physics = 100 }, 2, true, false);
+        Completion("future return", completed with { Physics = 131 }, 2, true, false);
+        Completion("same sequence as contact", completed with { Sequence = 90 }, 2, true, false);
+        Completion("future sampled return", completed with { Sequence = 120 }, 2, true, false);
+        Completion("different actor", completed with { Contact = r with { Actor = 22 } }, 2, true, false);
+        Completion("different hitbox", completed with { Contact = r with { Hitbox = 32 } }, 2, true, false);
+        Completion("different hurtbox", completed with { Contact = r with { Hurtbox = 42 } }, 2, true, false);
+        Completion("no attack", completed with { Contact = r with { Attack = 0 } }, 2, true, false);
+        Completion("no epoch", completed with { Contact = r with { Epoch = 0 } }, 2, true, false);
+        Completion("HP changed", completed, 1, true, false);
+        Completion("identity/recovery withdrawn", completed, 2, false, false);
+        TestAssert.True(failures.Count == 0, "MIXED_WARNING_RETURN_RED: " + string.Join("; ", failures));
+
+        var capsule = new PrologueCanyonGeneratedMainRouteTests.Task10GuardCapsule(20, 72, Transform2D.Identity);
+        var cue = new PrologueCanyonGeneratedMainRouteTests.Task10WarningHopCue(100, 5, 200, 13,
+            120, 140, new Vector2(-47, 0), new Vector2(440, 0), 5, 1d / 60d, Transform2D.Identity);
+        void Cue(string name, PrologueCanyonGeneratedMainRouteTests.Task10WarningHopCue value, bool firstOnly, bool want)
+        {
+            cueCases++;
+            if (PrologueCanyonGeneratedMainRouteTests.Task10IncomingHopCueAccepted(value, capsule, Vector2.Right,
+                100, 5, 200, 13, 121, 140, firstOnly) != want) failures.Add(name);
+        }
+        Cue("actual closing circle at three observed steps may cue jump", cue, true, true);
+        Cue("too early, do not spend jump", cue with { Origin = new Vector2(-90, 0) }, true, false);
+        Cue("too late, do not pretend safe", cue with { Origin = new Vector2(-30, 0) }, true, false);
+        Cue("wrong source", cue with { Source = 99 }, true, false);
+        Cue("wrong cycle", cue with { Cycle = 6 }, true, false);
+        Cue("wrong leaf", cue with { Projectile = 201 }, true, false);
+        Cue("wrong emission", cue with { Ordinal = 14 }, true, false);
+        Cue("stale geometry", cue with { Physics = 117 }, true, false);
+        Cue("future geometry", cue with { Physics = 122 }, true, false);
+        Cue("old input sequence", cue with { Sequence = 139 }, true, false);
+        Cue("unknown origin", cue with { Origin = new Vector2(float.NaN, 0) }, true, false);
+        Cue("unknown speed", cue with { ObservedVelocity = new Vector2(float.NaN, 0) }, true, false);
+        Cue("moving away", cue with { ObservedVelocity = new Vector2(-440, 0) }, true, false);
+        Cue("stationary leaf", cue with { ObservedVelocity = Vector2.Zero }, true, false);
+        Cue("invalid radius", cue with { Radius = 0 }, true, false);
+        Cue("invalid delta", cue with { Delta = 0 }, true, false);
+        Cue("nonfinite delta", cue with { Delta = double.NaN }, true, false);
+        Cue("changed player pose", cue with { PlayerPose = new Transform2D(0, Vector2.Right) }, true, false);
+        Cue("not the first distinct shot", cue, false, false);
+        TestAssert.True(failures.Count == 0, "MIXED_WARNING_CUE_RED: " + string.Join("; ", failures));
+        foreach (var sample in new[] {
+            (true,true,true,false,true), (false,true,true,false,false), (true,false,true,false,false),
+            (true,true,false,false,false), (true,true,true,true,false) })
+            TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10MixedWarningHopTrigger(
+                sample.Item1,sample.Item2,sample.Item3,sample.Item4) == sample.Item5,
+                "approved warning trigger keeps prerequisite/cue/ready/one-jump conjunction");
+        GD.Print($"MIXED_WARNING_HOP_POLICY_OK completion_cases={completionCases} cue_cases={cueCases} trigger_cases=5 " +
+            "historical_is_not_current=true actual_main_proved=false");
+    }
+
+    private static void AssertRecoveryHopShotResolution()
+    {
+        var failures = new List<string>();
+        void Check(string name, bool passed, bool retiredUnpassed, bool endpoint, bool idle,
+            bool published, bool want)
+        {
+            if (PrologueCanyonGeneratedMainRouteTests.Task10RecoveryHopShotResolved(
+                passed, retiredUnpassed, endpoint, idle, published) != want) failures.Add(name);
+        }
+        Check("actual passage needs no cancellation inference", true, false, false, false, false, true);
+        Check("native retired-unpassed requires fresh endpoint and same-tick idle publication", false, true, true, true, true, true);
+        Check("cannot count one projectile as both outcomes", true, true, true, true, true, false);
+        Check("live unpassed projectile is unresolved", false, false, true, true, true, false);
+        Check("retired without fresh endpoint", false, true, false, true, true, false);
+        Check("retired while owner still committed", false, true, true, false, true, false);
+        Check("idle not actually published this tick", false, true, true, true, false, false);
+        Check("bare retirement never proves a resolved sample", false, true, false, false, false, false);
+        TestAssert.True(failures.Count == 0, "MIXED_RECOVERY_HOP_RESOLUTION_RED: " + string.Join("; ", failures));
+        GD.Print("MIXED_RECOVERY_HOP_RESOLUTION_OK cases=8 passed_distinct_from_retired=true bare_retirement_rejected=true");
+    }
+
+    private static void AssertPostHopReceiptRetention()
+    {
+        // Break caught: a valid later cast must not invalidate an earlier accepted cast.
+        var first = new PrologueCanyonGeneratedMainRouteTests.MixedLaterClawReceipt(
+            1, 2, 1, 11, 101, 201, 301, 301, 401, 21, 22, 1, true, true, true, false, false, 1, 1);
+        var accepted = first with { EdgeStart = 2, EdgeEnd = 3, CastId = 12, ActorId = 202,
+            TargetId = 402, PressSequence = 23, HandoffSequence = 24 };
+        var later = first with { EdgeStart = 3, EdgeEnd = 4, CastId = 13, ActorId = 203,
+            TargetId = 403, PressSequence = 25, HandoffSequence = 26 };
+        var complete = new[] { first, accepted, later };
+        TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10MixedLaterClawLedgerAccepted(
+            1, 4, 10, 20, 101, 301, complete, false, 0),
+            "post-hop retention counterexample preserves the original complete cast ledger");
+        var failures = new List<string>();
+        void Check(string name, int index, PrologueCanyonGeneratedMainRouteTests.MixedLaterClawReceipt frozen,
+            IReadOnlyList<PrologueCanyonGeneratedMainRouteTests.MixedLaterClawReceipt> rows, bool want = false)
+        {
+            if (PrologueCanyonGeneratedMainRouteTests.Task10PostHopReceiptRetained(index, frozen, rows) != want)
+                failures.Add(name);
+        }
+        Check("accepted receipt at immediate return", 1, accepted, new[] { first, accepted }, true);
+        Check("a later valid cast preserves the designated receipt", 1, accepted, complete, true);
+        Check("missing designated receipt", 1, accepted, new[] { first });
+        Check("negative index", -1, accepted, complete);
+        Check("index beyond ledger", 3, accepted, complete);
+        Check("empty ledger", 1, accepted, Array.Empty<PrologueCanyonGeneratedMainRouteTests.MixedLaterClawReceipt>());
+        Check("missing ledger", 1, accepted, null);
+        Check("no accepted receipt", 1, default, complete);
+        Check("designated target changed", 1, accepted with { TargetId = 499 }, complete);
+        Check("designated cast changed", 1, accepted with { CastId = 99 }, complete);
+        Check("designated actor changed", 1, accepted with { ActorId = 299 }, complete);
+        Check("designated HP changed", 1, accepted with { HpAfter = 0 }, complete);
+        TestAssert.True(failures.Count == 0, "MIXED_POST_HOP_RECEIPT_RETENTION_RED: " + string.Join("; ", failures));
+        GD.Print("MIXED_POST_HOP_RECEIPT_RETENTION_OK cases=12 literal_receipt_fixture=true later_casts_preserved=true");
+    }
+
+    private static void AssertPostHopPreviewFreshness()
+    {
+        var p = new PrologueCanyonGeneratedMainRouteTests.Task10PostHopPreview(
+            100, 91, 7, Transform2D.Identity, Vector2.Up, true, true, false, true, false);
+        var failures = new List<string>();
+        void Check(string name, PrologueCanyonGeneratedMainRouteTests.Task10PostHopPreview value,
+            ulong physics = 101, ulong sequence = 91, ulong command = 90, ulong authority = 7,
+            Transform2D? pose = null, bool want = false)
+        {
+            if (PrologueCanyonGeneratedMainRouteTests.Task10PostHopPreviewFresh(value, physics,
+                sequence, command, authority, pose ?? Transform2D.Identity) != want) failures.Add(name);
+        }
+        Check("real current W preview after command", p, want: true);
+        Check("same physics publication after actual reader", p, physics: 100, want: true);
+        Check("stale physics", p with { Physics = 99 });
+        Check("future physics", p with { Physics = 102 });
+        Check("missing physics", p with { Physics = 0 });
+        Check("pre-command sample", p with { Sequence = 90 }, sequence: 90);
+        Check("sample changed after preview", p, sequence: 92);
+        Check("authority changed", p, authority: 8);
+        Check("missing authority", p with { Authority = 0 }, authority: 0);
+        Check("player moved since preview", p, pose: new Transform2D(0, new Vector2(1, 0)));
+        Check("old Left is not future Up", p with { Aim = Vector2.Left });
+        Check("nonfinite aim", p with { Aim = new Vector2(float.NaN, -1) });
+        Check("not keyboard", p with { Keyboard = false });
+        Check("W not held", p with { UpHeld = false });
+        Check("L still held", p with { ShieldHeld = true });
+        Check("not Idle", p with { Idle = false });
+        Check("another action sample", p with { OtherAction = true });
+        TestAssert.True(failures.Count == 0, "MIXED_POST_HOP_PREVIEW_RED: " + string.Join("; ", failures));
+        GD.Print("MIXED_POST_HOP_PREVIEW_OK cases=17 actual_freshness_predicates=true no_second_resolver=true");
+    }
+
+    private static void AssertPostHopSupportedSideContracts()
+    {
+        var failures=new List<string>(); int cases=0;
+        void Check(string name,bool actual,bool want=false)
+        { cases++; if(actual!=want) failures.Add(name); }
+        var motion=new PlayerMotionSettings(MaxRunSpeed:20,GroundAcceleration:10);
+        var module=MobilityModuleSettings.Standard with { GroundReverseBrake=20,GroundFriction=10 };
+        bool Plan(float enemy,float min,float max,bool crossing,
+            out PrologueCanyonGeneratedMainRouteTests.Task10PostHopBackoffPlan p) =>
+            PrologueCanyonGeneratedMainRouteTests.TryTask10PostHopSupportedPlan(0,0,enemy,min,max,1,1,20,20,motion,module,crossing,out p);
+        Check("left blocked, cross right only while stunned",Plan(2,-3,30,true,out var right) &&
+            right.Axis==1 && right.ForceSamples==2 && right.StopSamples==1 && right.EndX==30 && right.MinimumX==0,true);
+        Check("right blocked, mirrored crossing",Plan(-2,-30,3,true,out var left) &&
+            left.Axis==-1 && left.ForceSamples==2 && left.EndX==-30 && left.MaximumX==0,true);
+        Check("unstunned cannot cross",Plan(2,-3,30,false,out _));
+        Check("neither side fits",Plan(2,-3,3,true,out _));
+        Check("both fit retains original away choice",Plan(2,-30,30,true,out var away) && away.Axis==-1,true);
+        Check("ordinary away plan does not require crossing",Plan(2,-30,30,false,out var normal) && normal.Axis==-1,true);
+        Check("measured native leftedge snapshot gives minimal rightcandidate",
+            PrologueCanyonGeneratedMainRouteTests.TryTask10PostHopSupportedPlan(4623.61f,0,4626.555f,4619.9995f,4780,1,
+                1d/60,180,.3333333f,new PlayerMotionSettings(),MobilityModuleSettings.Standard,true,out var measured) &&
+            measured.Axis==1 && measured.ForceSamples==5 && measured.StopSamples==4 &&
+            MathF.Abs(measured.EndX-4635.4014f)<.002f && measured.MinimumX>=4623.609f && measured.MaximumX<=4635.556f,true);
+        float Side(bool enabled,int stage,float dx,float old=1) =>
+            PrologueCanyonGeneratedMainRouteTests.Task10PostHopCounterSide(enabled,stage,dx,old);
+        Check("same actor crossed right uses current left face",Side(true,4,-9)==-1,true);
+        Check("crossed left uses current right face",Side(true,4,9,-1)==1,true);
+        Check("no change before actual neutral",Side(true,3,-9)==1,true);
+        Check("disabled unaffected",Side(false,4,-9)==1,true);
+        Check("coincident position keeps actual prior",Side(true,4,0)==1,true);
+        Check("invalid actual geometry is not facing proof",Side(true,4,float.NaN)==1,true);
+        // A release wait can change side or leave the band. Do not spend J
+        // against any cached pre-wait geometry; use the next original decision.
+        Check("no release wait retains current decision",
+            PrologueCanyonGeneratedMainRouteTests.Task10PostHopJReleaseFresh(true,0),true);
+        Check("one sample can cross enemy side",
+            PrologueCanyonGeneratedMainRouteTests.Task10PostHopJReleaseFresh(true,1));
+        Check("two moving samples can leave strike band",
+            PrologueCanyonGeneratedMainRouteTests.Task10PostHopJReleaseFresh(true,2));
+        Check("all three release samples require fresh original tick",
+            PrologueCanyonGeneratedMainRouteTests.Task10PostHopJReleaseFresh(true,3));
+        Check("other actors retain original release behavior",
+            PrologueCanyonGeneratedMainRouteTests.Task10PostHopJReleaseFresh(false,3),true);
+        TestAssert.True(failures.Count==0,"MIXED_SUPPORTED_SIDE_RED: "+string.Join("; ",failures));
+        GD.Print($"MIXED_SUPPORTED_SIDE_OK cases={cases} arithmetic_only=true native_crossing_claim=false");
+    }
+
+    private static void AssertCompletedBrakeHandoffContracts()
+    {
+        var failures = new List<string>();
+        int cases = 0;
+        void Check(string name, bool actual, bool want = false)
+        { cases++; if (actual != want) failures.Add(name); }
+        bool Release(bool same, int stage, int started, int connected, int sb = 6, int cb = 6) =>
+            PrologueCanyonGeneratedMainRouteTests.Task10PostHopBrakeReleaseAllowed(same, stage, sb, cb, started, connected);
+        Check("real same Rust accepted and connected J", Release(true,4,7,7),true);
+        Check("only commanded edge cannot release",Release(true,4,6,6));
+        Check("accepted but not connected cannot release",Release(true,4,7,6));
+        Check("old contact cannot release",Release(true,4,6,6));
+        Check("foreign target cannot release",Release(false,4,7,7));
+        Check("unfinished lease cannot release",Release(true,3,7,7));
+        Check("missing baseline cannot release",Release(true,4,7,7,-1,6));
+        Check("counter rollback cannot release",Release(true,4,5,7));
+        Check("contact without newer accepted J cannot release",Release(true,4,6,7));
+        bool Hold(bool same, int stage, bool support, bool released, float gap) =>
+            PrologueCanyonGeneratedMainRouteTests.Task10PostHopHoldNeutral(same,stage,support,released,gap);
+        Check("before real J retains neutral",Hold(true,4,true,false,2),true);
+        Check("after real contact ends stale hold",Hold(true,4,true,true,2));
+        Check("foreign hold not owned",Hold(false,4,true,false,2));
+        Check("other stage not owned",Hold(true,3,true,false,2));
+        Check("no support not a hold proof",Hold(true,4,false,false,2));
+        Check("normal strike gap not suppressed",Hold(true,4,true,false,8));
+        Check("nonfinite gap not a hold proof",Hold(true,4,true,false,float.NaN));
+        var motion = new PlayerMotionSettings(MaxRunSpeed:20,GroundAcceleration:10);
+        var module = MobilityModuleSettings.Standard with { GroundReverseBrake=20,GroundFriction=10 };
+        bool Fits(float v,float axis,float scale,int budget,float l,float r,float fl,float fr,double dt=1) =>
+            PrologueCanyonGeneratedMainRouteTests.Task10PostHopBackoffSupported(v,axis,scale,motion,module,dt,budget,l,r,fl,fr);
+        // dt1: two held samples yield +10,+20, then neutral +10,0: total +40.
+        Check("full right two-sample stopping envelope",Fits(0,1,1,4,0,2,0,42),true);
+        Check("right edge not just current support",Fits(0,1,1,4,0,2,0,41.9f));
+        Check("symmetric left envelope",Fits(0,-1,1,4,-2,0,-42,0),true);
+        Check("left edge rejects coast off",Fits(0,-1,1,4,-2,0,-41.9f,0));
+        Check("must reach full stop within remaining budget",Fits(0,1,1,3,0,2,-100,100));
+        // Initial +20, reverse axis: 0,-10,0. Excursion [-10,0], not [0,10].
+        Check("opposing initial velocity full signed envelope",Fits(20,-1,1,3,0,2,-10,2),true);
+        Check("opposing sign must not hide left edge",Fits(20,-1,1,3,0,2,-9.9f,2));
+        Check("movement scale applied once",Fits(0,1,.5f,3,0,2,0,22),true);
+        Check("scaled envelope still bounded",Fits(0,1,.5f,3,0,2,0,21.9f));
+        Check("outside starting support rejected",Fits(0,1,1,4,0,2,1,42));
+        Check("zero direction no new movement",Fits(0,0,1,4,0,2,-100,100));
+        Check("nonfinite speed rejected",Fits(float.NaN,1,1,4,0,2,-100,100));
+        Check("zero scale rejected",Fits(0,1,0,4,0,2,-100,100));
+        Check("invalid delta rejected",Fits(0,1,1,4,0,2,-100,100,0));
+        using var floorShape=new RectangleShape2D { Size=new(42,10) };
+        using var capsuleShape=new CapsuleShape2D { Radius=1,Height=4 };
+        PrologueCanyonGeneratedMainRouteTests.Task10PostHopGeometry Geometry() => new(11,capsuleShape.GetInstanceId(),
+            floorShape.Size,new(capsuleShape.Radius,capsuleShape.Height),Transform2D.Identity,Vector2.Right,Vector2.Down);
+        var originalGeometry=Geometry();
+        bool Same(PrologueCanyonGeneratedMainRouteTests.Task10PostHopGeometry current) =>
+            PrologueCanyonGeneratedMainRouteTests.Task10PostHopGeometryRetained(originalGeometry,current);
+        Check("unchanged original geometry permits full stop",Same(Geometry()) && Fits(0,1,1,4,0,2,0,42),true);
+        ulong floorShapeId=floorShape.GetInstanceId();
+        floorShape.Size=new(46,10); // Same resource/transform, original center21: bounds change [0,42] -> [-2,44].
+        Check("same rectangle instance really mutated",floorShape.GetInstanceId()==floorShapeId && floorShape.Size.X==46,true);
+        Check("same-resource enlargement cannot replace original stopping corridor",Same(Geometry()) && Fits(0,1,1,4,2,4,-2,44));
+        floorShape.Size=new(42,10);
+        capsuleShape.Height=6;
+        Check("same-resource capsule height change rejected",Same(Geometry()));
+        capsuleShape.Height=4;
+        capsuleShape.Radius=1.5f;
+        Check("same-resource capsule radius change rejected",Same(Geometry()));
+        capsuleShape.Radius=1;
+        Check("changed body collider rejected",Same(originalGeometry with { BodyCollider=12 }));
+        Check("changed capsule resource rejected",Same(originalGeometry with { Capsule=originalGeometry.Capsule+1 }));
+        Check("changed local collider offset rejected",Same(originalGeometry with { BodyLocal=new(0,new Vector2(1,0)) }));
+        Check("changed player collision basis rejected",Same(originalGeometry with { PlayerBasisX=new(2,0) }));
+        Check("nonfinite original geometry rejected",PrologueCanyonGeneratedMainRouteTests.Task10PostHopGeometryRetained(
+            originalGeometry with { FloorSize=new(float.NaN,10) },originalGeometry with { FloorSize=new(float.NaN,10) }));
+        Check("missing original geometry rejected",PrologueCanyonGeneratedMainRouteTests.Task10PostHopGeometryRetained(default,default));
+        TestAssert.True(failures.Count==0,"MIXED_COMPLETED_BRAKE_HANDOFF_RED: "+string.Join("; ",failures));
+        GD.Print($"MIXED_COMPLETED_BRAKE_HANDOFF_OK cases={cases} held_samples=2 full_stop=true native_release_claim=false");
+    }
+
+    private static void AssertPostHopSupportedBrakeContracts()
+    {
+        AssertCompletedBrakeHandoffContracts();
+        var failures = new List<string>();
+        int cases = 0;
+        void Check(string name, bool actual, bool want = false)
+        { cases++; if (actual != want) failures.Add(name); }
+        // Literal force model: dt1, accel10, reverse20, friction10, cap20.
+        // One force gives x=-10; reverse crosses to +5, neutral stops at -5
+        // (gap7, too close). Two force samples stop at x=-30 (gap32).
+        var motion = new PlayerMotionSettings(MaxRunSpeed:20,GroundAcceleration:10);
+        var module = MobilityModuleSettings.Standard with { GroundReverseBrake=20,GroundFriction=10 };
+        bool Plan(float x, float v, float enemy, float min, float max, float scale,
+            double dt, int budget, float safe, out PrologueCanyonGeneratedMainRouteTests.Task10PostHopBackoffPlan p) =>
+            PrologueCanyonGeneratedMainRouteTests.TryTask10PostHopBackoffPlan(x,v,enemy,min,max,scale,dt,budget,safe,motion,module,out p);
+        Check("left real reverse rather than passive coast",Plan(0,0,2,-30,0,1,1,20,20,out var left),true);
+        Check("literal shortest pulse / stop envelope",left.ForceSamples==2 && left.StopSamples==1 &&
+            left.Axis==-1 && left.EndX==-30 && left.MinimumX==-30 && left.MaximumX==0,true);
+        Check("right symmetric envelope",Plan(0,0,-2,0,30,1,1,20,20,out var right) &&
+            right.ForceSamples==2 && right.EndX==30 && right.MinimumX==0 && right.MaximumX==30,true);
+        // Force starts by braking the permitted opposing .5 momentum. That
+        // crossing belongs to FORCE, not the subsequent reverse command.
+        Check("opposing near-still left requires two forces",Plan(0,.5f,2,-30,0,1,1,20,20,out var nearLeft) &&
+            nearLeft.ForceSamples==2 && MathF.Abs(nearLeft.EndX - -29.375f)<.0001f,true);
+        Check("opposing near-still right requires two forces",Plan(0,-.5f,-2,0,30,1,1,20,20,out var nearRight) &&
+            nearRight.ForceSamples==2 && MathF.Abs(nearRight.EndX-29.375f)<.0001f,true);
+        Check("lifecycle cannot fit four remaining iterations",Plan(0,0,2,-30,0,1,1,4,20,out _));
+        Check("exact lifecycle plus bounded command allowance",Plan(0,0,2,-30,0,1,1,11,20,out _),true);
+        Check("one-step pulse is not enough",Plan(0,0,2,-29.9f,0,1,1,20,20,out _));
+        Check("start outside original corridor",Plan(0,0,2,1,30,1,1,20,20,out _));
+        Check("already has momentum",Plan(0,1,2,-30,0,1,1,20,20,out _));
+        Check("shield or other movement scaling",Plan(0,0,2,-30,0,.8f,1,20,20,out _));
+        Check("no original tick budget",Plan(0,0,2,-30,0,1,1,2,20,out _));
+        Check("clock equality is not admission",Plan(0,0,2,-30,0,1,1,20,11,out _));
+        Check("nonfinite clock",Plan(0,0,2,-30,0,1,1,20,float.NaN,out _));
+        Check("nonfinite pose",Plan(float.NaN,0,2,-30,0,1,1,20,20,out _));
+        Check("zero delta",Plan(0,0,2,-30,0,1,0,20,20,out _));
+        Check("already not too close",Plan(0,0,8,-30,0,1,1,20,20,out _));
+        int Next(int stage,bool retained=true,bool threat=false,bool force=false,bool reverse=false,bool neutral=false) =>
+            PrologueCanyonGeneratedMainRouteTests.Task10PostHopBrakeNext(stage,retained,threat,force,reverse,neutral);
+        Check("sample then reverse",Next(1,force:true)==2,true);
+        Check("crossing is not neutral completion",Next(2,reverse:true)==3,true);
+        Check("real neutral completes",Next(3,neutral:true)==4,true);
+        foreach (int stage in new[]{1,2,3})
+        {
+            Check($"stage{stage} lost support/identity",Next(stage,retained:false)==5,true);
+            Check($"stage{stage} defense interrupts",Next(stage,threat:true)==5,true);
+            Check($"stage{stage} incomplete stays",Next(stage)==stage,true);
+        }
+        foreach (int terminal in new[]{4,5})
+            Check($"terminal{terminal} never restarts",Next(terminal,false,true,true,true,true)==terminal,true);
+        Check("not acquired cannot self start",Next(0,true,false,true,true,true)==0,true);
+        int Owner(int stage,ulong selected,bool retained=true) =>
+            PrologueCanyonGeneratedMainRouteTests.Task10PostHopBrakeOwnerStage(stage,7,selected,retained);
+        foreach (int active in new[]{1,2,3})
+        {
+            int lost=Owner(active,8);
+            Check($"consumer stage{active} selection lost",lost==5,true);
+            Check($"consumer stage{active} return cannot resume",Owner(lost,7)==5,true);
+            Check($"consumer stage{active} invalid owner",Owner(active,7,false)==5,true);
+        }
+        TestAssert.True(failures.Count==0,"MIXED_SUPPORTED_BRAKE_RED: "+string.Join("; ",failures));
+        GD.Print($"MIXED_SUPPORTED_BRAKE_OK cases={cases} literal_dynamics=true forecast_not_native_support=true");
+    }
+
+    private static void AssertPostHopRustRepeatContracts()
+    {
+        var failures = new List<string>();
+        int cases = 0;
+        void Check(string name, bool actual, bool want = false)
+        { cases++; if (actual != want) failures.Add(name); }
+        var timeline = new AttackTimelineFrame(3,EnemyAttackKind.RustShellThrust,AttackPhase.Telegraph,.65f,.4f,Vector2.Zero,false);
+        var danger = new PrologueCanyonGeneratedMainRouteTests.Task10EncounterDanger(true,Vector2.Right,true)
+        { Phase=AttackPhase.Telegraph,RemainingSeconds=.4f,SafeCounterSeconds=.4f,SourceActorId=7,AttackId=3 };
+        var window = new PrologueCanyonGeneratedMainRouteTests.Task10PostHopRustWindow(
+            true,5,true,true,true,true,true,7,24,24,false,RustShellState.Telegraph,timeline,danger,.15f);
+        void Window(string name, PrologueCanyonGeneratedMainRouteTests.Task10PostHopRustWindow value, bool want = false) =>
+            Check(name,PrologueCanyonGeneratedMainRouteTests.Task10PostHopRustRepeatAccepted(value),want);
+        Window("one legal postHop repeated Rust warning",window,true);
+        Window("disabled",window with { Enabled=false });
+        Window("hop not landed",window with { HopStage=4 });
+        Window("already spent",window with { TokenAvailable=false });
+        Window("actor/HP/recovery not retained",window with { Retained=false });
+        Window("first receipt lost",window with { FirstReceiptRetained=false });
+        Window("active claw/combat/dash",window with { ClawReady=false });
+        Window("unsupported or moving",window with { SupportedStill=false });
+        Window("missing actor",window with { ActorId=0 });
+        Window("overheated",window with { Overheated=true });
+        Window("still stunned",window with { State=RustShellState.Stunned });
+        Window("wrong warning kind",window with { Timeline=timeline with { Kind=EnemyAttackKind.None } });
+        Window("no attack id",window with { Timeline=timeline with { AttackId=0 } });
+        Window("active not warning",window with { Timeline=timeline with { Phase=AttackPhase.Active } });
+        Window("other danger owner",window with { Danger=danger with { SourceActorId=8 } });
+        Window("other attack epoch",window with { Danger=danger with { AttackId=4 } });
+        Window("missing threat",window with { Danger=danger with { Threat=false } });
+        Window("active danger",window with { Danger=danger with { Phase=AttackPhase.Active } });
+        Window("missing source",window with { Danger=danger with { MissingGuardSourceCount=1 } });
+        Window("observer fault",window with { Danger=danger with { CandidateObserverFaults=1 } });
+        Window("unknown active",window with { Danger=danger with { NearContactUnknownActive=true } });
+        Window("overlapping active",window with { Danger=danger with { NearContactOverlappingActive=true } });
+        foreach (float value in new[] { 23.999f,float.NaN,float.PositiveInfinity,float.NegativeInfinity })
+            Window("insufficient/nonfinite energy",window with { Energy=value });
+        foreach (float value in new[] { 0f,-1f,float.NaN,float.PositiveInfinity })
+        {
+            Window("invalid reserve",window with { Reserve=value });
+            Window("invalid lead",window with { Lead=value });
+        }
+        foreach (float value in new[] { .15f,.149f,float.NaN,float.PositiveInfinity })
+        {
+            Window("no warning lead",window with { Timeline=timeline with { PhaseRemainingSeconds=value } });
+            Window("all-source unsafe",window with { Danger=danger with { SafeCounterSeconds=value } });
+        }
+        var neutral = default(PlayerInputFrame) with { KeyboardActions=true, Aim=Vector2.Right };
+        Check("current neutral keyboard",PrologueCanyonGeneratedMainRouteTests.Task10PostHopNeutralInput(neutral,neutral,0),true);
+        var bad = new[] {
+            neutral with { KeyboardActions=false }, neutral with { MoveAxis=1 }, neutral with { JumpPressed=true },
+            neutral with { JumpHeld=true }, neutral with { DashPressed=true }, neutral with { AttackPressed=true },
+            neutral with { ClawPressed=true }, neutral with { ShieldHeld=true }, neutral with { KeyboardShieldHeld=true },
+            neutral with { LegacyShieldHeld=true }, neutral with { PrimaryPressed=true }, neutral with { PrimaryHeld=true },
+            neutral with { PrimaryReleased=true }, neutral with { ThreadPressed=true }, neutral with { ThreadHeld=true },
+            neutral with { ThreadReleased=true }, neutral with { InteractPressed=true }, neutral with { RequestedSlot=1 },
+            neutral with { AttackModePressed=true }, neutral with { GrappleModePressed=true }
+        };
+        foreach (var value in bad)
+        {
+            Check("current action not neutral",PrologueCanyonGeneratedMainRouteTests.Task10PostHopNeutralInput(value,neutral,0));
+            Check("raw action not neutral",PrologueCanyonGeneratedMainRouteTests.Task10PostHopNeutralInput(neutral,value,0));
+        }
+        for (int bit=0;bit<KeyboardRouteInputDriver.TraceKeys.Length;bit++)
+            Check("physical held key",PrologueCanyonGeneratedMainRouteTests.Task10PostHopNeutralInput(neutral,neutral,1UL<<bit));
+        var preview = new PrologueCanyonGeneratedMainRouteTests.Task10PostHopPreview(
+            100,91,7,Transform2D.Identity,Vector2.Right,true,false,false,true,false);
+        void Preview(string name, PrologueCanyonGeneratedMainRouteTests.Task10PostHopPreview value,
+            ulong physics=101,ulong sequence=91,ulong command=90,ulong authority=7,
+            Transform2D? pose=null,Vector2? aim=null,bool want=false) =>
+            Check(name,PrologueCanyonGeneratedMainRouteTests.Task10PostHopNeutralPreviewFresh(value,physics,sequence,
+                command,authority,pose??Transform2D.Identity,aim??Vector2.Right),want);
+        Preview("fresh actual neutral Right not W",preview,want:true);
+        Preview("stale",preview with { Physics=99 }); Preview("future",preview with { Physics=102 });
+        Preview("no physics",preview with { Physics=0 }); Preview("no new sample",preview,command:91);
+        Preview("changed sample",preview,sequence:92); Preview("changed authority",preview,authority:8);
+        Preview("missing authority",preview with { Authority=0 },authority:0);
+        Preview("moved",preview,pose:new Transform2D(0,new Vector2(1,0)));
+        Preview("turned",preview with { Aim=Vector2.Left }); Preview("no expected aim",preview,aim:Vector2.Zero);
+        Preview("nonfinite aim",preview with { Aim=new Vector2(float.NaN,0) });
+        Preview("legacy",preview with { Keyboard=false }); Preview("W held",preview with { UpHeld=true });
+        Preview("shield held",preview with { ShieldHeld=true }); Preview("live claw",preview with { Idle=false });
+        Preview("other held/action",preview with { OtherAction=true });
+        TestAssert.True(failures.Count==0,"MIXED_POSTHOP_RUST_REPEAT_RED: "+string.Join("; ",failures));
+        GD.Print($"MIXED_POSTHOP_RUST_REPEAT_POLICY_OK cases={cases} one_token=true current_energy=true neutral_preview=true native_cast=false");
     }
 
     public static void RunCatalog() => Knight.Tests.Unit.CanyonEncounterCatalogTests.Run();
@@ -744,16 +2554,23 @@ public static class RangedWeaponPlacementRuntimeTests
                 // original/full walked body: geometry cannot push the player clear.
                 AddOwnedFloor(f, "PersistentBurstRightBlocker", new Vector2(4785, 3420), new Vector2(15, 20));
             }
+            // Keep the original16 native ticks. The packed short-jet module
+            // coasts with1800 ground friction, not legacy2800 deceleration:
+            // at60Hz A8 reaches260 and release8 still leaves20px/s.
+            // A7 reaches256.67; release9 stops naturally near4699.4.
+            ulong clearanceStarted = Engine.GetPhysicsFrames();
             FairnessKey(Key.A, true);
-            await Step(8);
+            await Step(7);
             FairnessKey(Key.A, false);
-            await Step(8);
+            await Step(9);
             TestAssert.True(player.GlobalPosition.X >= 4694f && player.GlobalPosition.X <= 4706f &&
                             MathF.Abs(player.GlobalPosition.Y - 3424f) < 1f && player.Velocity.Length() < .1f &&
-                            input.CurrentFrameSequence > inputStart && motor.AcceptedJumpCount == 0 && motor.AcceptedDashCount == 0,
-                $"SUPPRESSION_SETUP: actual A8/release8 movement reaches and stops in legal center window, no warp/jump/dash; player={player.GlobalPosition} velocity={player.Velocity}");
+                            input.CurrentFrameSequence > inputStart && motor.AcceptedJumpCount == 0 && motor.AcceptedDashCount == 0 &&
+                            Engine.GetPhysicsFrames() - clearanceStarted == 16UL,
+                $"SUPPRESSION_SETUP: actual A7/release9 movement reaches and stops in legal center window within original16ticks, no warp/jump/dash; player={player.GlobalPosition} velocity={player.Velocity}");
             AssertFairnessSupport(player, landing, landingRect);
             AssertFairnessBodyClear(tree, player);
+            GD.Print($"RANGED_SUPPRESSION_CLEARANCE_OK mode={mode} ticks={Engine.GetPhysicsFrames() - clearanceStarted} player={player.GlobalPosition} velocity={player.Velocity} hp={health.CurrentHealth} recovery={root.RecoveryRequests}");
             if (mode == "static-world-blocked")
             {
                 AssertSuppressionCandidateWorldBlocked(tree, new Vector2(4630, 3431));

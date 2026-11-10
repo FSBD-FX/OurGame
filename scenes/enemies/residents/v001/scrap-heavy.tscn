@@ -1,0 +1,116 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/laborer/BellBackLaborer.cs" id="1_d1hre"]
+[ext_resource type="Script" path="res://scripts/config/BellBackLaborerTuning.cs" id="2_r55wv"]
+[ext_resource type="Script" path="res://scripts/combat/HealthComponent.cs" id="3_a5yly"]
+[ext_resource type="Script" path="res://scripts/combat/ArmoredDamageReceiver.cs" id="4_2ocr3"]
+[ext_resource type="Script" path="res://scripts/combat/Hurtbox.cs" id="5_fhqcx"]
+[ext_resource type="Script" path="res://scripts/combat/Hitbox.cs" id="6_r5m0g"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="7_7i8jm"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="8_p2oru"]
+[ext_resource type="Script" path="res://scripts/enemies/laborer/BellBackLaborerPresentationCoordinator.cs" id="9_qfooc"]
+[ext_resource type="Script" path="res://scripts/config/PresentationProfile.cs" id="10_g6t5d"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/BellBackLaborerFormalVisual.tscn" id="11_ojdei"]
+[ext_resource type="Script" path="res://scripts/presentation/BellBackLaborerFormalVisual.cs" id="12_dqd8m"]
+[ext_resource type="Script" path="res://scripts/presentation/AttackTelegraphVisual.cs" id="13_yr3qs"]
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSceneBinding.cs" id="14_hc2n4"]
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSubtypeProfile.cs" id="15_5wax6"]
+
+[sub_resource type="Resource" id="Resource_attack_tuning"]
+script = ExtResource("2_r55wv")
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_c7jti"]
+radius = 28.0
+height = 84.0
+
+[sub_resource type="ConvexPolygonShape2D" id="ConvexPolygonShape2D_hmkn7"]
+points = PackedVector2Array(0, 0, 39.999996, -69.282036, 69.28203, -40, 80, 0, 69.28203, 40, 39.999996, 69.282036)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_3ubcu"]
+radius = 32.0
+
+[sub_resource type="Resource" id="Resource_41uwp"]
+script = ExtResource("10_g6t5d")
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_l37mu"]
+radius = 28.0
+height = 84.0
+
+[sub_resource type="Resource" id="Resource_pb826"]
+script = ExtResource("15_5wax6")
+SubtypeId = "scrap-heavy"
+Family = 1
+Archetype = 5
+Carrier = 4
+
+[node name="BellBackLaborer" type="CharacterBody2D" unique_id=2144333716]
+collision_layer = 4
+script = ExtResource("1_d1hre")
+Tuning = SubResource("Resource_attack_tuning")
+
+[node name="Health" type="Node" parent="." unique_id=1233286296]
+script = ExtResource("3_a5yly")
+MaxHealth = 6
+InvulnerabilitySeconds = 0.0
+
+[node name="Armor" type="Node" parent="." unique_id=1326368687]
+script = ExtResource("4_2ocr3")
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=1614787218]
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("5_fhqcx")
+DamageReceiverPath = NodePath("../Armor")
+
+[node name="HurtboxCollider" type="CollisionShape2D" parent="Hurtbox" unique_id=1804404978]
+shape = SubResource("CapsuleShape2D_c7jti")
+
+[node name="AttackHitbox" type="Area2D" parent="." unique_id=681256333]
+collision_layer = 16
+collision_mask = 2
+monitoring = false
+monitorable = false
+script = ExtResource("6_r5m0g")
+Knockback = 240.0
+
+[node name="AttackCollider" type="CollisionShape2D" parent="AttackHitbox" unique_id=124168446]
+shape = SubResource("ConvexPolygonShape2D_hmkn7")
+
+[node name="ThreadTarget" type="Node2D" parent="." unique_id=217567017]
+script = ExtResource("7_7i8jm")
+Kind = 2
+Material = 1
+
+[node name="TargetCollision" type="Area2D" parent="ThreadTarget" unique_id=1893579494]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="ThreadTarget/TargetCollision" unique_id=1139124022]
+shape = SubResource("CircleShape2D_3ubcu")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="ThreadTarget" unique_id=857928571]
+script = ExtResource("8_p2oru")
+
+[node name="Presentation" type="Node" parent="." unique_id=1229524208]
+script = ExtResource("9_qfooc")
+Profile = SubResource("Resource_41uwp")
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=1672996139]
+
+[node name="Formal" type="Node2D" parent="VisualRoot" unique_id=792883558 instance=ExtResource("11_ojdei")]
+script = ExtResource("12_dqd8m")
+metadata/profile_bounds = Rect2(-55, -72, 150, 116)
+
+[node name="AttackTelegraph" type="Node2D" parent="VisualRoot" unique_id=505522655]
+z_index = 6
+script = ExtResource("13_yr3qs")
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=845020747]
+z_index = 10
+
+[node name="BodyCollider" type="CollisionShape2D" parent="." unique_id=610230979]
+shape = SubResource("CapsuleShape2D_l37mu")
+
+[node name="ResidentBinding" type="Node" parent="." unique_id=1950993326]
+script = ExtResource("14_hc2n4")
+Profile = SubResource("Resource_pb826")

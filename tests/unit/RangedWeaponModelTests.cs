@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using Knight.Combat;
 using Knight.Enemies.Ranged;
+using RechargeCoverage = Knight.Tests.Integration.PrologueCanyonGeneratedMainRouteTests.Task10RechargeSourceCoverage;
 
 namespace Knight.Tests.Unit;
 
@@ -13,6 +15,14 @@ public static class RangedWeaponModelTests
         EachRoleKeepsItsOwnActiveAndRecoveryWindows();
         BurstEmitsAtZeroPointEighteenAndPointThirtySixOnly();
         CrossingBothRemainingBurstPointsDoesNotDropOrRepeatShots();
+        BurstEmissionQueryUsesTheCurrentStepSchedule();
+        RechargeRequiresCompleteCurrentSafeSourceCoverage();
+        NormalRoutesSelectExistingSafetyPoliciesWithoutExperimentalFlags();
+        GalleryForeignGuardRoutingRequiresBothScopesAndRetainsNormalAndExplicitSelection();
+        GalleryEarlyCounterRoutesOnlyNormalOwnedSkitterRecoveryOrExistingExplicitProbe();
+        Grip8GhostClearanceSelectsBothKeyboardRoutesOnlyAfterGrip8();
+        GalleryForeignCounterRetainsTheLiveOwnedSkitterDefenseBudget();
+        GalleryHp2CollectorRetainsOnlyTheFirstCompletedEligibleRows();
         ScatterMissileAndLaserEmitOneMuzzleEventNotOnePerPelletOrActiveTick();
         SightLossBeforeLockCancelsAndClearsItsIdentity();
         MovingTargetIsFollowedBeforeLockButNotAfterLock();
@@ -123,6 +133,344 @@ public static class RangedWeaponModelTests
         TestAssert.Equal(1UL, caughtUp.AttackTimeline.AttackId, "catch-up events retain their volley identity");
         NoEmission(model.Step(Input(), 0d), "a paused catch-up cannot repeat either event");
         NoEmission(model.Step(Input(), .05d), "the burst endpoint cannot repeat caught-up events");
+    }
+
+    private static void BurstEmissionQueryUsesTheCurrentStepSchedule()
+    {
+        var model = ActiveModel(RangedWeaponRole.Burst);
+        var second = model.Step(Input(), .20d);
+        ulong id = second.AttackTimeline.AttackId;
+        TestAssert.Equal(1, second.FirstEmissionIndex, "wave clock fixture is after its second scheduled shot");
+        TestAssert.True(model.IsBurstEmissionClearThrough(id, 1d / 60d),
+            "BURST_EMISSION_CLOCK_RED: after the second shot one nominal step cannot reach the third");
+        TestAssert.True(!model.IsBurstEmissionClearThrough(id, .17d), "the next shot is inside a longer step");
+        TestAssert.True(model.IsBurstEmissionClearThrough(id, 1d / 60d), "queries must not advance the model");
+        foreach (double invalid in new[] { 0d, -1d, double.NaN, double.PositiveInfinity, double.MaxValue })
+            TestAssert.True(!model.IsBurstEmissionClearThrough(id, invalid), "invalid horizon does not prove clearance");
+        TestAssert.True(!model.IsBurstEmissionClearThrough(0, .01d) &&
+            !model.IsBurstEmissionClearThrough(id + 1, .01d), "absent or stale identity does not prove clearance");
+        var third = model.Step(Input(), .17d);
+        TestAssert.True(third.FirstEmissionIndex == 2 && third.EmissionsDue == 1, "the query must not consume the third emission");
+        TestAssert.True(model.IsBurstEmissionClearThrough(id, .05d), "spent volley stays clear across the single-step Active end");
+        NoEmission(model.Step(Input(), .05d), "spent volley transitions without a new shot");
+        TestAssert.True(!model.IsBurstEmissionClearThrough(id, .01d), "Recovery is not the admitted Active clock");
+
+        var edge = ActiveModel(RangedWeaponRole.Burst);
+        double interval = (double).18f;
+        double before = interval - interval * .000002d, inclusive = interval - interval * .0000005d;
+        TestAssert.True(edge.IsBurstEmissionClearThrough(1, before) &&
+            !edge.IsBurstEmissionClearThrough(1, inclusive) && !edge.IsBurstEmissionClearThrough(1, interval),
+            "one-step lookahead must preserve the real inclusive emission tolerance");
+        TestAssert.Equal(1, edge.Step(Input(), inclusive).FirstEmissionIndex, "actual scheduling agrees at the inclusive edge");
+        var hitch = ActiveModel(RangedWeaponRole.Burst);
+        TestAssert.True(!hitch.IsBurstEmissionClearThrough(1, .50d), "Active-end hitch cannot hide scheduled tail shots");
+        TestAssert.Equal(2, hitch.Step(Input(), .50d).EmissionsDue, "actual hitch delivers both tail events");
+        TestAssert.True(!ActiveModel(RangedWeaponRole.Laser).IsBurstEmissionClearThrough(1, .01d) &&
+            !TelegraphModel(RangedWeaponRole.Burst).IsBurstEmissionClearThrough(1, .01d),
+            "foreign role and phase are unknown, not clear");
+        GD.Print("BURST_EMISSION_CLOCK_OK tolerance=true next_step=true hitch=true pure=true");
+    }
+
+    // Mutation targets: treating an empty/partial scan as safe, carrying an old proof,
+    // or confusing distant existing rounds with permission for a new Burst emission.
+    private static void NormalRoutesSelectExistingSafetyPoliciesWithoutExperimentalFlags()
+    {
+        // Mutation targets: omitting the normal route, enabling outside the
+        // early-positioning scope, or removing the existing explicit control.
+        // Selection does not itself certify sources or authorize shield release.
+        (bool Early, bool Normal, bool Explicit, bool Want)[] cases =
+        [
+            (false, false, false, false), (false, false, true, false),
+            (false, true, false, false), (false, true, true, false),
+            (true, false, false, false), (true, false, true, true),
+            (true, true, false, true), (true, true, true, true)
+        ];
+        var failures = new System.Collections.Generic.List<string>();
+        foreach (var row in cases)
+        {
+            bool recharge = Knight.Tests.Integration.PrologueCanyonGeneratedMainRouteTests.Task10PostHopRechargeRoute(
+                row.Early, row.Normal, row.Explicit);
+            bool rideGuard = Knight.Tests.Integration.PrologueCanyonGeneratedMainRouteTests.Task10LiftGhostGuardRoute(
+                row.Early, row.Normal, row.Explicit);
+            if (recharge != row.Want) failures.Add($"recharge/{row.Early}/{row.Normal}/{row.Explicit}");
+            if (rideGuard != row.Want) failures.Add($"lift/{row.Early}/{row.Normal}/{row.Explicit}");
+        }
+        TestAssert.True(failures.Count == 0,
+            "NORMAL_SAFETY_ROUTING_RED: default normal route must select its existing guarded policies without an experiment flag; failures=" +
+            string.Join(",", failures));
+        GD.Print("NORMAL_ROUTE_SAFETY_ROUTING_OK cases=8 policies=2 default_selected=true explicit_preserved=true outside_scope_rejected=true safety_authorization=false");
+    }
+
+    // Mutation targets: losing normal selection, either scope gate, or the
+    // existing explicit control. Selection is not a foreignUp safety proof.
+    private static void GalleryForeignGuardRoutingRequiresBothScopesAndRetainsNormalAndExplicitSelection()
+    {
+        (bool Keyboard, bool Gallery, bool Normal, bool Explicit, bool Want)[] cases =
+        [
+            (false, false, false, false, false),
+            (false, false, false, true, false),
+            (false, false, true, false, false),
+            (false, false, true, true, false),
+            (false, true, false, false, false),
+            (false, true, false, true, false),
+            (false, true, true, false, false),
+            (false, true, true, true, false),
+            (true, false, false, false, false),
+            (true, false, false, true, false),
+            (true, false, true, false, false),
+            (true, false, true, true, false),
+            (true, true, false, false, false),
+            (true, true, false, true, true),
+            (true, true, true, false, true),
+            (true, true, true, true, true)
+        ];
+        var failures = new System.Collections.Generic.List<string>();
+        foreach (var row in cases)
+        {
+            bool selected = Knight.Tests.Integration.PrologueCanyonGeneratedMainRouteTests.Task10GalleryForeignGuardRoute(
+                row.Keyboard, row.Gallery, row.Normal, row.Explicit);
+            if (selected != row.Want)
+                failures.Add($"keyboard={row.Keyboard}/gallery={row.Gallery}/normal={row.Normal}/explicit={row.Explicit}/want={row.Want}/actual={selected}");
+        }
+        TestAssert.True(failures.Count == 0,
+            "GALLERY_FOREIGN_GUARD_ROUTING_RED: default normal route must select the existing foreignUp policy only within both scopes; failures=" +
+            string.Join(",", failures));
+        GD.Print("GALLERY_FOREIGN_GUARD_ROUTING_OK cases=16 default_selected=true explicit_preserved=true both_scopes_required=true safety_authorization=false");
+    }
+
+    // Selection only: true still has to pass the live source/floor/window/fresh checks.
+    private static void GalleryEarlyCounterRoutesOnlyNormalOwnedSkitterRecoveryOrExistingExplicitProbe()
+    {
+        (string Name, bool Keyboard, bool Gallery, bool Normal, bool Explicit,
+            bool Owned, bool Skitter, bool Recovery, bool Want)[] cases =
+        [
+            ("normal owned Skitter Recovery", true,true,true,false,true,true,true,true),
+            ("normal plus explicit", true,true,true,true,true,true,true,true),
+            ("not keyboard", false,true,true,false,true,true,true,false),
+            ("not gallery", true,false,true,false,true,true,true,false),
+            ("not normal and no explicit", true,true,false,false,true,true,true,false),
+            ("normal foreign Skitter", true,true,true,false,false,true,true,false),
+            ("normal owned laser", true,true,true,false,true,false,true,false),
+            ("normal owned other family", true,true,true,false,true,false,true,false),
+            ("normal not Recovery scope", true,true,true,false,true,true,false,false),
+            ("normal foreign laser", true,true,true,false,false,false,true,false),
+            ("normal all domain gates false", true,true,true,false,false,false,false,false),
+            ("explicit without normal", true,true,false,true,true,true,true,true),
+            ("explicit laser retained", true,true,false,true,true,false,true,true),
+            ("explicit nonRecovery selection retained", true,true,false,true,true,true,false,true),
+            ("explicit foreign selection retained", true,true,false,true,false,true,true,true),
+            ("explicit domain flags absent", true,true,false,true,false,false,false,true),
+            ("normal explicit laser retained", true,true,true,true,true,false,true,true),
+            ("explicit still needs keyboard", false,true,false,true,true,true,true,false),
+            ("explicit still needs gallery", true,false,false,true,true,true,true,false),
+            ("both routes outside keyboard", false,true,true,true,true,true,true,false),
+            ("both routes outside gallery", true,false,true,true,true,true,true,false)
+        ];
+        var failures = new List<string>();
+        foreach (var row in cases)
+        {
+            bool selected = Knight.Tests.Integration.PrologueCanyonGeneratedMainRouteTests.Task10GalleryEarlyCounterRoute(
+                row.Keyboard, row.Gallery, row.Normal, row.Explicit, row.Owned, row.Skitter, row.Recovery);
+            if (selected != row.Want) failures.Add($"{row.Name}/want={row.Want}/actual={selected}");
+        }
+        TestAssert.True(failures.Count == 0,
+            "GALLERY_EARLY_COUNTER_ROUTE_RED: normal owned Skitter Recovery must reach existing live checks, " +
+            "without admitting other normal scopes or losing explicit selection; failures=" + string.Join(",", failures));
+        GD.Print("GALLERY_EARLY_COUNTER_ROUTE_OK cases=21 normal_owned_skitter_recovery=true " +
+            "explicit_preserved=true both_scopes_required=true live_safety_not_bypassed=true safety_authorization=false");
+    }
+
+    // Selection only: the existing live fight still owns floor/HP/foreign/fresh
+    // checks and requires each real J to hit, followed by natural corpse withdrawal.
+    private static void Grip8GhostClearanceSelectsBothKeyboardRoutesOnlyAfterGrip8()
+    {
+        (string Name, bool Keyboard, bool Main, bool Exploration, int Index, bool Want)[] cases =
+        [
+            ("normal Main after Grip8", true, true, false, 8, true),
+            ("existing Explore after Grip8", true, false, true, 8, true),
+            ("no keyboard Main", false, true, false, 8, false),
+            ("no keyboard Explore", false, false, true, 8, false),
+            ("no known variant", true, false, false, 8, false),
+            ("Main before ascent", true, true, false, 0, false),
+            ("Main before Grip8", true, true, false, 7, false),
+            ("Main after Grip9", true, true, false, 9, false),
+            ("Main negative index", true, true, false, -1, false),
+            ("Main unknown index", true, true, false, int.MaxValue, false),
+            ("Explore before Grip8", true, false, true, 7, false),
+            ("Explore after Grip9", true, false, true, 9, false)
+        ];
+        var failures = new List<string>();
+        foreach (var row in cases)
+        {
+            bool selected = Knight.Tests.Integration.PrologueCanyonGeneratedMainRouteTests.Task10Grip8GhostClearanceRoute(
+                row.Keyboard, row.Main, row.Exploration, row.Index);
+            if (selected != row.Want) failures.Add($"{row.Name}/want={row.Want}/actual={selected}");
+        }
+        TestAssert.True(failures.Count == 0,
+            "GRIP8_GHOST_CLEARANCE_ROUTE_RED: both keyboard routes must reach the existing live fight only after Grip8; failures=" +
+            string.Join(",", failures));
+        GD.Print("GRIP8_GHOST_CLEARANCE_ROUTE_OK cases=12 main_selected=true exploration_retained=true " +
+            "keyboard_and_grip8_required=true live_fight_not_bypassed=true safety_authorization=false");
+    }
+
+    // Mutation targets: spending only the attack fee while an owned Skitter
+    // lives, a fixed-Hz reserve, or accepting unknown/invalid required budgets.
+    private static void GalleryForeignCounterRetainsTheLiveOwnedSkitterDefenseBudget()
+    {
+        (string Name, bool Required, float Energy, float Attack, float Drain, float Rush, int Hz, bool Want)[] cases =
+        [
+            ("first resident J", true, 29.3f, 12f, 24f, .20f, 60, true),
+            ("second resident J spends defense", true, 17.3f, 12f, 24f, .20f, 60, false),
+            ("third resident J spends defense", true, 12.3f, 12f, 24f, .20f, 60, false),
+            ("below 60Hz budget", true, 22.7999f, 12f, 24f, .20f, 60, false),
+            ("above 60Hz budget", true, 22.8001f, 12f, 24f, .20f, 60, true),
+            ("below 30Hz budget", true, 23.9999f, 12f, 24f, .20f, 30, false),
+            ("above 30Hz budget", true, 24.0001f, 12f, 24f, .20f, 30, true),
+            ("zero rush below budget", true, 17.9999f, 12f, 24f, 0f, 60, false),
+            ("zero rush above budget", true, 18.0001f, 12f, 24f, 0f, 60, true),
+            ("zero drain exact fee", true, 12f, 12f, 0f, .20f, 60, true),
+            ("cannot pay fee", true, 11.999f, 12f, 0f, .20f, 60, false),
+            ("unknown energy", true, float.NaN, 12f, 24f, .20f, 60, false),
+            ("infinite energy", true, float.PositiveInfinity, 12f, 24f, .20f, 60, false),
+            ("negative energy", true, -1f, 12f, 24f, .20f, 60, false),
+            ("unknown attack", true, 29.3f, float.NaN, 24f, .20f, 60, false),
+            ("negative attack", true, 29.3f, -1f, 24f, .20f, 60, false),
+            ("unknown drain", true, 29.3f, 12f, float.NaN, .20f, 60, false),
+            ("infinite drain", true, 29.3f, 12f, float.PositiveInfinity, .20f, 60, false),
+            ("negative drain", true, 29.3f, 12f, -1f, .20f, 60, false),
+            ("unknown rush", true, 29.3f, 12f, 24f, float.NaN, 60, false),
+            ("infinite rush", true, 29.3f, 12f, 24f, float.PositiveInfinity, 60, false),
+            ("negative rush", true, 29.3f, 12f, 24f, -1f, 60, false),
+            ("zero Hz", true, 29.3f, 12f, 24f, .20f, 0, false),
+            ("negative Hz", true, 29.3f, 12f, 24f, .20f, -60, false),
+            ("overflowed reserve", true, float.MaxValue, 12f, float.MaxValue, float.MaxValue, 60, false),
+            ("outside scope no extra restriction", false, 0f, 12f, 24f, .20f, 60, true),
+            ("outside scope unknown unused values", false, float.NaN, float.NaN, float.NaN, float.NaN, 0, true)
+        ];
+        var failures = new System.Collections.Generic.List<string>();
+        foreach (var row in cases)
+        {
+            bool allowed = Knight.Tests.Integration.PrologueCanyonGeneratedMainRouteTests.Task10GalleryForeignCounterBudget(
+                row.Required, row.Energy, row.Attack, row.Drain, row.Rush, row.Hz);
+            if (allowed != row.Want) failures.Add($"{row.Name}/want={row.Want}/actual={allowed}");
+        }
+        TestAssert.True(failures.Count == 0,
+            "GALLERY_FOREIGN_COUNTER_BUDGET_RED: foreign resident J must retain the live owned Skitter defense reserve; failures=" +
+            string.Join(",", failures));
+        GD.Print("GALLERY_FOREIGN_COUNTER_BUDGET_OK cases=27 live_reserve=true current_Hz=true outside_scope_unrestricted=true safety_authorization=false");
+    }
+
+    // Mutation targets: dropped completed rows, inverted scope/HP filters, or
+    // overwriting the first window after its 24-row prefix is full. Collector only, not safety.
+    private static void GalleryHp2CollectorRetainsOnlyTheFirstCompletedEligibleRows()
+    {
+        var rows = new List<string>();
+        const string first = "{\"loop\":317,\"physics\":8030,\"hp\":2,\"eligible\":true}";
+        bool captured = Knight.Tests.Integration.PrologueCanyonGeneratedMainRouteTests.Task10CaptureGalleryHp2Decision(
+            rows, true, true, 2, first);
+        TestAssert.True(captured && rows.Count == 1 && rows[0] == first,
+            "GALLERY_HP2_COLLECTOR_RED: enabled eligible HP2 must append and retain the completed literal row");
+
+        (string Name, bool Enabled, bool Eligible, int Health, string Row)[] rejected =
+        [
+            ("disabled", false, true, 2, "disabled row"),
+            ("not locally eligible", true, false, 2, "ineligible row"),
+            ("HP1 remains separate", true, true, 1, "HP1 row"),
+            ("HP0", true, true, 0, "HP0 row"),
+            ("HP3", true, true, 3, "HP3 row"),
+            ("null incomplete row", true, true, 2, null),
+            ("empty incomplete row", true, true, 2, "")
+        ];
+        foreach (var test in rejected)
+        {
+            bool accepted = Knight.Tests.Integration.PrologueCanyonGeneratedMainRouteTests.Task10CaptureGalleryHp2Decision(
+                rows, test.Enabled, test.Eligible, test.Health, test.Row);
+            TestAssert.True(!accepted && rows.Count == 1 && rows[0] == first,
+                $"{test.Name} must neither append nor overwrite an existing observation");
+        }
+
+        string[] remaining =
+        [
+            "row02", "row03", "row04", "row05", "row06", "row07", "row08", "row09",
+            "row10", "row11", "row12", "row13", "row14", "row15", "row16", "row17",
+            "row18", "row19", "row20", "row21", "row22", "row23", "row24"
+        ];
+        foreach (string completed in remaining)
+        {
+            bool accepted = Knight.Tests.Integration.PrologueCanyonGeneratedMainRouteTests.Task10CaptureGalleryHp2Decision(
+                rows, true, true, 2, completed);
+            TestAssert.True(accepted, "each completed eligible row through the 24th must append");
+        }
+        TestAssert.Equal(24, rows.Count, "the 24th completed row fills the first-window prefix");
+        for (int attempt = 0; attempt < 3; attempt++)
+            TestAssert.True(!Knight.Tests.Integration.PrologueCanyonGeneratedMainRouteTests.Task10CaptureGalleryHp2Decision(
+                rows, true, true, 2, "later window must not replace first"), "full prefix rejects every later row");
+        TestAssert.True(rows.Count == 24 && rows[0] == first, "full prefix retains its first literal observation");
+        for (int index = 0; index < remaining.Length; index++)
+            TestAssert.Equal(remaining[index], rows[index + 1], "all first-window rows retain insertion order and content");
+        GD.Print("GALLERY_HP2_COLLECTOR_OK real_rows=true first_prefix=24 filters=true completed_only=true order=true no_overwrite=true safety_authorization=false");
+    }
+
+    private static void RechargeRequiresCompleteCurrentSafeSourceCoverage()
+    {
+        (string Name, AttackPhase Phase, float Allowance, bool Current, bool Burst, bool EmissionClear, bool Want)[] cases =
+        [
+            ("quiet Active Burst", AttackPhase.Active, 0f, true, true, true, true),
+            ("next Burst emission due", AttackPhase.Active, 1f, true, true, false, false),
+            ("Active non-Burst", AttackPhase.Active, 1f, true, false, true, false),
+            ("stale Active actor", AttackPhase.Active, 0f, false, true, true, false),
+            ("safe warning", AttackPhase.Telegraph, .2f, true, false, false, true),
+            ("safe recovery", AttackPhase.Recovery, .2f, true, false, false, true),
+            ("safe passive clock", AttackPhase.None, .2f, true, false, false, true),
+            ("inclusive short warning", AttackPhase.Telegraph, 3f / 60f, true, false, false, false),
+            ("short recovery", AttackPhase.Recovery, .01f, true, false, false, false),
+            ("unknown passive clock", AttackPhase.None, 0f, true, false, false, false),
+            ("NaN warning", AttackPhase.Telegraph, float.NaN, true, false, false, false),
+            ("infinite recovery", AttackPhase.Recovery, float.PositiveInfinity, true, false, false, false),
+            ("stale warning actor", AttackPhase.Telegraph, .2f, false, false, false, false),
+            ("unrecognized phase", (AttackPhase)99, .2f, true, true, true, false)
+        ];
+        foreach (var row in cases)
+        {
+            var coverage = new RechargeCoverage(10, 20);
+            coverage.Observe(1, row.Phase, row.Allowance, row.Current, row.Burst, row.EmissionClear);
+            TestAssert.Equal(row.Want, coverage.Admits(1, 10, 20), "recharge source: " + row.Name);
+        }
+        var exact = new RechargeCoverage(10, 20);
+        TestAssert.True(!exact.Admits(0, 10, 20), "empty scan cannot authorize recharge");
+        exact.Observe(1, AttackPhase.Telegraph, .2f, true, false, false);
+        exact.Observe(2, AttackPhase.Active, 0f, true, true, true);
+        TestAssert.True(exact.Admits(2, 10, 20) && exact.Count == 2 && exact.Faults == 0,
+            "two safe distinct observed sources match the original scan");
+        foreach (int expected in new[] { -1, 0, 1, 3 })
+            TestAssert.True(!exact.Admits(expected, 10, 20), "partial or inconsistent source count cannot authorize recharge");
+        TestAssert.True(!exact.Admits(2, 11, 20) && !exact.Admits(2, 10, 21), "a new tick or input invalidates the proof");
+        exact.Observe(2, AttackPhase.Telegraph, .2f, true, false, false);
+        TestAssert.True(!exact.Admits(3, 10, 20), "duplicate identity cannot fill missing source coverage");
+        var missing = new RechargeCoverage(10, 20);
+        missing.Observe(0, AttackPhase.Telegraph, .2f, true, false, false);
+        TestAssert.True(!missing.Admits(1, 10, 20), "zero identity is not an observed source");
+        foreach (var stamp in new[] { (Physics: 0UL, Sequence: 20UL), (Physics: 10UL, Sequence: 0UL) })
+        {
+            var invalid = new RechargeCoverage(stamp.Physics, stamp.Sequence);
+            invalid.Observe(1, AttackPhase.Telegraph, .2f, true, false, false);
+            TestAssert.True(!invalid.Admits(1, stamp.Physics, stamp.Sequence), "missing scan stamp cannot authorize recharge");
+        }
+        var capacity = new RechargeCoverage(10, 20);
+        for (ulong id = 1; id <= 32; id++) capacity.Observe(id, AttackPhase.Telegraph, .2f, true, false, false);
+        TestAssert.True(capacity.Admits(32, 10, 20), "a complete in-capacity scan remains admissible");
+        capacity.Observe(33, AttackPhase.Telegraph, .2f, true, false, false);
+        TestAssert.True(!capacity.Admits(33, 10, 20), "overflow cannot claim complete source coverage");
+        var unsafeThenSafe = new RechargeCoverage(10, 20);
+        unsafeThenSafe.Observe(1, AttackPhase.Active, 0f, true, true, false);
+        unsafeThenSafe.Observe(2, AttackPhase.Telegraph, .2f, true, false, false);
+        TestAssert.True(!unsafeThenSafe.Admits(2, 10, 20), "later safe source cannot erase an unsafe emission");
+        var fault = new RechargeCoverage(10, 20);
+        fault.Observe(1, AttackPhase.Telegraph, .2f, true, false, false);
+        fault.Fault();
+        fault.Observe(2, AttackPhase.Telegraph, .2f, true, false, false);
+        TestAssert.True(fault.Faults == 1 && !fault.Admits(2, 10, 20), "observer fault remains a veto after more observations");
+        GD.Print("RECHARGE_SOURCE_COVERAGE_OK current=true complete=true bounded=true emission_veto=true fault_veto=true");
     }
 
     // Mutation target: counting scatter pellets or every laser tick as new muzzle emissions.

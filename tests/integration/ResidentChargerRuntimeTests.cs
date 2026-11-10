@@ -12,6 +12,7 @@ using Knight.Prologue.Seamless;
 using Knight.World;
 using Knight.Mechanisms;
 using Knight.Player;
+using Knight.Presentation;
 
 namespace Knight.Tests.Integration;
 
@@ -48,6 +49,7 @@ public static partial class ResidentChargerRuntimeTests
 
     public static async Task Run(SceneTree tree)
     {
+        await RunQueryOwnership(tree);
         int cases=0;var failures=new List<string>();
         await Check("default_without_target_unchanged",async f=>
         {
@@ -260,6 +262,7 @@ public static partial class ResidentChargerRuntimeTests
         });
         GD.Print($"RESIDENT_CHARGER_RESULT cases={cases} failures={failures.Count} saved_actor=true actual_physics=true formal_spawned=0");
         TestAssert.True(failures.Count==0,string.Join(" | ",failures));
+        await RunDangerObservation(tree);
 
         async Task Check(string name,Func<Fixture,Task> test,bool floor=true)
         {
@@ -267,6 +270,110 @@ public static partial class ResidentChargerRuntimeTests
             try{f.Initialize(floor);await test(f);GD.Print("RESIDENT_CHARGER_CASE_OK "+name);}
             catch(Exception error){failures.Add(name+": "+error.Message);GD.Print("RESIDENT_CHARGER_CASE_FAIL "+name+": "+error.Message);}
             finally{await f.DisposeAsync();}
+        }
+    }
+
+    // Break caught: a terrain/visibility call retains its newly created native
+    // query Object after returning. No GC, physics step or borrowed disposal in a batch.
+    private static async Task RunQueryOwnership(SceneTree tree)
+    {
+        var f = new Fixture(tree, "owned-ground-and-world-path-queries");
+        try
+        {
+            f.Initialize(true);
+            f.Wall(500);
+            f.Player(100);
+            await f.Mount();
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic;
+            var ground = typeof(CanyonSkitter).GetMethod("WorldUnder", flags)
+                .CreateDelegate<Func<Vector2, float, bool>>(f.Actor);
+            var path = typeof(CanyonSkitter).GetMethod("HasClearWorldPath", flags)
+                .CreateDelegate<Func<Vector2, Vector2, bool>>(f.Actor);
+            Probe("short_support", () => ground(new(100, 128), 2), true);
+            Probe("short_above_floor", () => ground(new(100, 116), 2), false);
+            Probe("long_support", () => ground(new(100, 116), 20), true);
+            Probe("outside_floor", () => ground(new(800, 128), 20), false);
+            Probe("clear_path", () => path(new(460, 40), new(540, 40)), true);
+            Probe("world_wall", () => path(new(460, 96), new(540, 96)), false);
+            Probe("nonfinite_path", () => path(new(float.NaN, 96), new(540, 96)), false);
+            GD.Print("RESIDENT_CHARGER_QUERY_OWNERSHIP_OK methods=2 batches=7 calls=448 " +
+                "actual_saved_actor=true added_measurement_frames=0 added_gc=0 borrowed_disposed=false");
+        }
+        finally { await f.DisposeAsync(); }
+
+        static void Probe(string stage, Func<bool> query, bool expected)
+        {
+            TestAssert.Equal(expected, query(), $"saved Skitter {stage} warmup retains terrain semantics");
+            double maximumRetained = 0;
+            for (int call = 0; call < 64; call++)
+            {
+                double before = Performance.GetMonitor(Performance.Monitor.ObjectCount);
+                bool result = query();
+                double retained = Performance.GetMonitor(Performance.Monitor.ObjectCount) - before;
+                maximumRetained = Math.Max(maximumRetained, retained);
+                TestAssert.Equal(expected, result, $"saved Skitter {stage} actual native query result");
+            }
+            GD.Print($"RESIDENT_CHARGER_QUERY_BATCH stage={stage} calls=64 maximum_retained_delta={maximumRetained}");
+            TestAssert.True(maximumRetained <= 0,
+                $"saved Skitter {stage} releases its own native query Object before returning; maximum_retained_delta={maximumRetained}");
+        }
+    }
+
+    // Break caught: a real saved Charger warning/rush is omitted from the
+    // normal route's all-owner danger scan unless a Pendulum-only flag is set.
+    private static async Task RunDangerObservation(SceneTree tree)
+    {
+        var f = new Fixture(tree, "saved-scrap-danger-without-selected-flag");
+        const string encounter = "canyon.v2.encounter.steam-valves";
+        int observations = 0;
+        try
+        {
+            f.Initialize(true, "res://scenes/enemies/residents/v001/scrap-charger.tscn");
+            f.Actor.Name = encounter.Replace('.', '_') + "_danger_carrier";
+            f.Player(410);
+            await f.Mount();
+            await f.Until(() => f.Actor.CurrentFrame.State == CanyonSkitterState.Telegraph, 75);
+            TestAssert.Equal(CanyonSkitterState.Telegraph, f.Actor.CurrentFrame.State,
+                "saved Charger enters a real automatic warning before danger observation");
+            Observe(AttackPhase.Telegraph, true);
+            await f.Until(() => f.Actor.CurrentFrame.State == CanyonSkitterState.Rush, 100);
+            TestAssert.Equal(CanyonSkitterState.Rush, f.Actor.CurrentFrame.State,
+                "saved Charger reaches real native Rush without forcing model state");
+            Observe(AttackPhase.Active, true);
+            bool paused = tree.Paused;
+            try { tree.Paused = true; Observe(AttackPhase.None, false); }
+            finally { tree.Paused = paused; }
+            await f.Until(() => f.Actor.CurrentFrame.State == CanyonSkitterState.Recover, 100);
+            TestAssert.Equal(CanyonSkitterState.Recover, f.Actor.CurrentFrame.State,
+                "saved Charger actually retires its Rush before the recovery negative control");
+            Observe(AttackPhase.None, false);
+            f.Actor.QueueFree();
+            Observe(AttackPhase.None, false);
+            GD.Print($"RESIDENT_CHARGER_DANGER_OK observations={observations} selected_and_foreign=true " +
+                "real_warning_and_rush=true paused_recovery_queued_negative=true legacy_flag=false");
+        }
+        finally { await f.DisposeAsync(); }
+
+        void Observe(AttackPhase expectedPhase, bool expectedThreat)
+        {
+            ulong actorId = f.Actor.GetInstanceId();
+            foreach (Node2D selected in new Node2D[] { f.Actor, f.Target })
+            {
+                var leaves = new List<AttackTelegraphVisual>();
+                var candidates = new List<PrologueCanyonGeneratedMainRouteTests.Task10DangerCandidate>();
+                var danger = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(
+                    f.Scope, encounter, selected, false, leaves, candidateObserver: candidates.Add);
+                TestAssert.True(danger.Threat == expectedThreat && danger.CandidateObserverFaults == 0 &&
+                    (expectedThreat
+                        ? danger.SourceActorId == actorId && danger.AttackId == f.Actor.CurrentFrame.AttackTimeline.AttackId &&
+                          danger.Phase == expectedPhase && candidates.Count == 1 && candidates[0].SourceActorId == actorId
+                        : danger.SourceActorId == 0 && candidates.Count == 0),
+                    $"saved Charger danger must cover selected AND foreign real attacks without the legacy flag; " +
+                    $"state={f.Actor.CurrentFrame.State} selected_self={ReferenceEquals(selected, f.Actor)} " +
+                    $"expected={expectedThreat}/{expectedPhase} actual={danger.Threat}/{danger.Phase} candidates={candidates.Count}");
+                observations++;
+            }
         }
     }
 
@@ -494,11 +601,11 @@ public static partial class ResidentChargerRuntimeTests
         public PhysicsDirectSpaceState2D Space=>_world.DirectSpaceState;
         public Node2D Scope=>_scope;
         public Fixture(SceneTree tree,string caseName){_tree=tree;_caseName=caseName;}
-        public void Initialize(bool floor)
+        public void Initialize(bool floor, string savedScene = null)
         {
             using Godot.Collections.Array players=(Godot.Collections.Array)_tree.GetNodesInGroup("player");TestAssert.Equal(0,players.Count,"fixture has no unrelated global player");
             _world=new World2D();_view=new SubViewport{Size=new(32,32),World2D=_world};_scope=new RecoveryScope();_view.AddChild(_scope);_tree.Root.AddChild(_view);
-            Actor=GD.Load<PackedScene>("res://scenes/enemies/CanyonSkitter.tscn").Instantiate<CanyonSkitter>();
+            Actor=GD.Load<PackedScene>(savedScene ?? "res://scenes/enemies/CanyonSkitter.tscn").Instantiate<CanyonSkitter>();
             if(floor)Floor(32,640);
         }
         public void Floor(float x,float width,float top=128)

@@ -96,9 +96,7 @@ public partial class PlayerActionModeController : Node
         RejectionChanged?.Invoke(PlayerActionRejectionReason.None);
     }
 
-    private bool HasAttackEnergy() => _energy != null &&
-        _energy.EnergyRatio * PlayerEnergySettings.Approved.MaxEnergy + .0001f >=
-        PlayerEnergySettings.Approved.AttackCost;
+    private bool HasAttackEnergy() => _energy?.CanAffordAttack ?? false;
 
     private bool HasGrappleCompatibleActivity() => _mechanicalClaw != null &&
         _mechanicalClaw.CurrentFrame.State != MechanicalClawState.Idle;

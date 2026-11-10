@@ -9,6 +9,19 @@ public partial class PrologueSectorDefinition : Resource
 {
     private const int NoNeighbor = -1;
 
+    // Opt-in synchronous diagnostics only. Payloads never contain a native
+    // resource/node reference; a sink failure cannot change scene ownership.
+    [ThreadStatic] internal static Action<string, int, bool> OperationObserver;
+    [ThreadStatic] internal static int OperationObserverFaults;
+
+    internal static void ObserveOperation(string kind, int sector, bool enter)
+    {
+        var observer = OperationObserver;
+        if (observer == null) return;
+        try { observer(kind, sector, enter); }
+        catch (Exception) { OperationObserverFaults++; }
+    }
+
     [Export] public PrologueSectorId Id { get; set; }
     [Export] public PackedScene Scene { get; set; }
     [Export] public Vector2 WorldOffset { get; set; }
@@ -118,7 +131,9 @@ public partial class PrologueSectorDefinition : Resource
         Node instance = null;
         try
         {
+            ObserveOperation("validation-instantiate", (int)Id, true);
             instance = Scene.Instantiate();
+            ObserveOperation("validation-instantiate", (int)Id, false);
             if (instance is not Node2D root) return;
             Transform2D transform = root.Transform;
             bool finite = Finite(transform.X) && Finite(transform.Y) && Finite(transform.Origin);
@@ -133,7 +148,12 @@ public partial class PrologueSectorDefinition : Resource
         }
         finally
         {
-            if (GodotObject.IsInstanceValid(instance)) instance.Free();
+            if (GodotObject.IsInstanceValid(instance))
+            {
+                ObserveOperation("validation-free", (int)Id, true);
+                instance.Free();
+                ObserveOperation("validation-free", (int)Id, false);
+            }
         }
     }
 

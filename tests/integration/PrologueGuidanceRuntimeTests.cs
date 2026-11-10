@@ -88,6 +88,18 @@ public static class PrologueGuidanceRuntimeTests
                  "saved_formal_v2=true structural_only=true native_player_passage=false human=false");
     }
 
+    public static async Task RunCurrentTraversalContractsOnly(SceneTree tree)
+    {
+        const string name = nameof(PrologueGuidanceRuntimeTests) + "." +
+            nameof(MissingTargetKeepsInstructionAndWarnsOnce);
+        Task7Case[] selected = Task7Cases(tree).Where(item => item.Name == name).ToArray();
+        TestAssert.Equal(1, selected.Length, "traversal probe executes exactly the original registered case");
+        Task7CaseRun run = await Task7CaseRegistry.Execute(selected);
+        TestAssert.Equal(1, run.Completed.Count, "original current traversal contracts complete once");
+        GD.Print("THRUSTER_GUIDANCE_CURRENT_CONTRACTS_OK original_registered_case=true " +
+                 "saved_formal_v2=true structural_only=true native_player_passage=false human=false");
+    }
+
     public static async Task RunCurrentMountedGuidanceOnly(SceneTree tree)
     {
         const string name = nameof(PrologueGuidanceRuntimeTests) + "." +
@@ -111,10 +123,22 @@ public static class PrologueGuidanceRuntimeTests
             PrologueFormalHud formal = fixture.Level.GetNode<PrologueFormalHud>("Hud/FormalHud");
             formal.SetProcess(false);
             fixture.Level.GetNode<Node>("PlayerRoot").ProcessMode = Node.ProcessModeEnum.Disabled;
-            PrologueGuidanceInstruction instruction = fixture.Controller.CurrentInstruction;
-            TestAssert.True(instruction.Visible && instruction.StepText.Contains("J") &&
-                            instruction.StepText.Contains("K"),
-                "stable presentation starts with the real pending keyboard lesson");
+            // This is a renderer-stability fixture, not the live entry priority
+            // test. The actual entrance legitimately prefers its nearby Combo.
+            // Build the ordinary lesson through the same production model, while
+            // ApprovedLanternRuntimeTests separately pins the real saved entry.
+            var glyphs = new Dictionary<StringName, string>
+            {
+                [InputActions.MoveLeft] = "A", [InputActions.MoveRight] = "D",
+                [InputActions.MoveUp] = "W", [InputActions.MoveDown] = "S",
+                [InputActions.Jump] = "SPACE", [InputActions.Dash] = "SHIFT",
+                [InputActions.SelectAttackMode] = "Q", [InputActions.SelectGrappleMode] = "E",
+                [InputActions.PrimaryAction] = "LMB", [InputActions.Shield] = "RMB",
+                [InputActions.Attack] = "J", [InputActions.Claw] = "K",
+                [InputActions.KeyboardShield] = "L",
+                [InputActions.Slot1] = "1", [InputActions.Slot2] = "2",
+                [InputActions.Slot3] = "3", [InputActions.Slot4] = "4"
+            };
             foreach (Vector2I resolution in new[] { new Vector2I(1280, 720), new Vector2I(1920, 1080) })
             foreach (GameLanguage language in new[] { GameLanguage.ChineseSimplified, GameLanguage.English })
             foreach (float scale in new[] { .8f, 1f, 1.5f })
@@ -123,7 +147,13 @@ public static class PrologueGuidanceRuntimeTests
                 tree.Root.ContentScaleSize = resolution;
                 formal.SetUiScale(scale);
                 fixture.Controller.SetLanguage(language);
-                instruction = fixture.Controller.CurrentInstruction;
+                var context = new PrologueGuidanceContext(PrologueObjective.LearnAttackMode,
+                    PrologueSectorId.CanyonEntrance, PrologueBossGuidanceState.Inactive,
+                    0, language, true);
+                PrologueGuidanceInstruction instruction = PrologueGuidanceModel.Evaluate(context, glyphs);
+                TestAssert.True(instruction.Visible && instruction.ContextTitle == string.Empty &&
+                                instruction.StepText.Contains("J") && instruction.StepText.Contains("K"),
+                    "ordinary renderer sample uses the complete no-context keyboard lesson");
                 await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
                 string sample = $"{resolution}/{language}/scale={scale}";
                 Vector2[] movingTargets =
@@ -195,9 +225,55 @@ public static class PrologueGuidanceRuntimeTests
                     "attached keyword lesson keeps every action visible at " + sample);
                 TestAssert.Equal(initial.Position, fixture.Visual.PromptRect.Position,
                     "long attached keyword lesson keeps the same reading anchor at " + sample);
+
+                Rect2 deviceAnchor = default;
+                foreach (PrologueRecyclingLesson lesson in new[]
+                {
+                    PrologueRecyclingLesson.Combination, PrologueRecyclingLesson.CombinationLaunched,
+                    PrologueRecyclingLesson.Springboard, PrologueRecyclingLesson.FixedGear
+                })
+                {
+                    var device = PrologueGuidanceModel.Evaluate(context with { RecyclingLesson = lesson }, glyphs);
+                    fixture.Visual.SetExpandedTeaching(true);
+                    fixture.Visual.Present(device, Array.Empty<PrologueGuidanceTargetView>());
+                    Rect2 card = fixture.Visual.PromptRect;
+                    if (lesson == PrologueRecyclingLesson.Combination) deviceAnchor = card;
+                    TestAssert.True(fixture.Visual.HasVisiblePrompt && fixture.Visual.RenderedTextContained &&
+                                    fixture.Visual.GetNode<Label>("Text").Text.Contains(device.StepText),
+                        "device rail retains all model-generated localized clauses at " + sample + "/" + lesson);
+                    TestAssert.Equal(deviceAnchor.Position, card.Position,
+                        "device copy changes do not jump the fixed reading anchor at " + sample);
+                    TestAssert.Equal(deviceAnchor.Size.X, card.Size.X,
+                        "device copy changes do not resize the fixed rail at " + sample);
+                    foreach (Vector2 target in movingTargets)
+                    {
+                        fixture.Level.Player.GlobalPosition = target;
+                        fixture.Visual.Present(device,
+                            [new PrologueGuidanceTargetView(target, Vector2.Right, 240, true, new Vector2(180, 160))]);
+                        TestAssert.Equal(card.Position, fixture.Visual.PromptRect.Position,
+                            "device rail does not chase player/world targets at " + sample);
+                    }
+                    foreach (string path in new[] { "ModeSelector", "Loadout" })
+                    {
+                        Control instrument = formal.GetNode<Control>(path);
+                        bool wasVisible = instrument.Visible;
+                        instrument.Visible = false;
+                        fixture.Visual.Present(device, Array.Empty<PrologueGuidanceTargetView>());
+                        TestAssert.Equal(card.Position, fixture.Visual.PromptRect.Position,
+                            "hidden bottom instruments retain their device-rail reservation at " + sample);
+                        instrument.Visible = wasVisible;
+                    }
+                    foreach (Rect2 protectedHud in WorldTargetMarkerVisual.CollectVisibleFormalHudRegions(formal))
+                        TestAssert.True(!card.Intersects(protectedHud),
+                            "device rail avoids formal HUD at " + sample);
+                    TestAssert.True(backdrop.Color.A > .1f && backdrop.Color.A <= .5f &&
+                                    !fixture.Visual.GetNode<Control>("TopRule").Visible,
+                        "device rail keeps a soft borderless backing at " + sample);
+                }
             }
             PrologueFormalHudTests.AssertBorderlessPresentation(formal);
             GD.Print("STABLE_BORDERLESS_GUIDANCE_OK samples=12 moving_target_samples=48 full_glyphs=True");
+            GD.Print("STABLE_DEVICE_RAIL_OK samples=48 moving_target_samples=192 bottom_visibility_fixed=true full_copy=true");
         }
         finally
         {
@@ -558,6 +634,17 @@ public static class PrologueGuidanceRuntimeTests
         Fixture fixture = await LoadFixture(tree, "MountedContinuousGuidanceFixture");
         try
         {
+        await BasinAscentCameraRuntimeTests.WaitForPlaying(tree, fixture.Level);
+        RunPrologueTests.ResidentFirstPostStartupCommitted?.Invoke();
+        var flow = fixture.Level.GetNode<PrologueGameFlowController>("GameFlow");
+        GD.Print("MOUNTED_GUIDANCE_PREPARATION_FACTS " + System.Text.Json.JsonSerializer.Serialize(new
+        {
+            State = flow.State.ToString(), Pending = fixture.Level.ResidentPreparationPending,
+            Failure = fixture.Level.ResidentPreparationFailure, Rejected = flow.LastRejectedTransition
+        }));
+        TestAssert.True(flow.State == PrologueGameFlowState.Playing && !fixture.Level.ResidentPreparationPending,
+            "MOUNTED_GUIDANCE_PLAYING_RED: real session must commit before mounted guidance recovery assertions");
+        await WithdrawDevicesForGenericGuidance(tree, fixture);
         TestAssert.True(fixture.Level.CurrentSector.HasValue &&
             GodotObject.IsInstanceValid(fixture.Level.CurrentSectorRoot),
             "guidance authority is the live current mounted sector");
@@ -577,6 +664,7 @@ public static class PrologueGuidanceRuntimeTests
         {
             fixture.Level.RequestRespawn("DEATH RESET");
             await SettleRecovery(tree);
+            await WithdrawDevicesForGenericGuidance(tree, fixture);
             fixture.Controller.RefreshNow();
         }
         TestAssert.True(fixture.Controller.SameSectorFailureCount >= 2 &&
@@ -589,9 +677,10 @@ public static class PrologueGuidanceRuntimeTests
                  $"heading={fixture.Controller.CurrentInstruction.HeadingText} " +
                  $"hint={fixture.Controller.CurrentInstruction.HintPrefix} " +
                  $"text={english.Replace("\n", "\\n")}");
-        TestAssert.True(english.Contains("First-Level Guidance", System.StringComparison.Ordinal) &&
-            !english.Contains("第一关引导", System.StringComparison.Ordinal) &&
-            !english.Contains("提示：", System.StringComparison.Ordinal),
+        TestAssert.True(english.StartsWith("ECHO · BROKEN SIGNAL  /  ", System.StringComparison.Ordinal) &&
+            english.Contains("\n…signal: ", System.StringComparison.Ordinal) &&
+            !english.Contains("回声 · 信号残缺", System.StringComparison.Ordinal) &&
+            !english.Contains("…补充信号：", System.StringComparison.Ordinal),
             "mounted English expanded guidance localizes its heading and hint chrome");
         fixture.Controller.SetLanguage(GameLanguage.ChineseSimplified);
         string chinese = fixture.Level.GetNode<Label>("Hud/Guidance/VisualRoot/Text").Text;
@@ -600,8 +689,10 @@ public static class PrologueGuidanceRuntimeTests
                  $"heading={fixture.Controller.CurrentInstruction.HeadingText} " +
                  $"hint={fixture.Controller.CurrentInstruction.HintPrefix} " +
                  $"text={chinese.Replace("\n", "\\n")}");
-        TestAssert.True(chinese.Contains("第一关引导", System.StringComparison.Ordinal) &&
-            !chinese.Contains("First-Level Guidance", System.StringComparison.Ordinal),
+        TestAssert.True(chinese.StartsWith("回声 · 信号残缺  /  ", System.StringComparison.Ordinal) &&
+            chinese.Contains("\n…补充信号：", System.StringComparison.Ordinal) &&
+            !chinese.Contains("ECHO · BROKEN SIGNAL", System.StringComparison.Ordinal) &&
+            !chinese.Contains("…signal: ", System.StringComparison.Ordinal),
             "mounted Chinese expanded guidance retains its localized heading chrome");
 
         fixture.Controller.SetGuidanceEnabled(false);
@@ -612,6 +703,61 @@ public static class PrologueGuidanceRuntimeTests
             "guidance state does not own objective visibility");
         }
         finally { await Dispose(tree, fixture); }
+    }
+
+    private static async Task WithdrawDevicesForGenericGuidance(SceneTree tree, Fixture fixture)
+    {
+        // This pre-existing case deliberately exercises the generic target,
+        // J/K/1/4, binding and bilingual supplemental-hint branch. The normal
+        // initial zero-target combination remains enabled in the independent
+        // real-Main recycling fixture; never use this setup for route proof.
+        Node mechanisms=fixture.Level.CurrentSectorRoot.GetNode<Node>("Gameplay/Mechanisms");
+        int withdrawn=0;
+        foreach(string name in new[]{"CombinationSpringboard","CombinationFixedGear","PracticeSpringboard","PracticeFixedGear"})
+        {
+            Node2D device=mechanisms.GetNode<Node2D>(name);
+            device.Visible=false; withdrawn++;
+        }
+        fixture.Controller.RefreshNow();
+        if (fixture.Controller.CurrentInstruction.ContextTitle is "ECHO · THRUSTER" or "ECHO · 推进器")
+        {
+            // This case owns the ordinary J/K/glyph/hint branch, not a virgin
+            // first-use card. Establish that prerequisite through the real
+            // Motor on its original floor/wall; never write the lesson latch.
+            CharacterBody2D player = fixture.Level.Player;
+            var motor = player.GetNode<PlayerMotor>("Motor");
+            var input = player.GetNode<PlayerInputReader>("Input");
+            var health = player.GetNode<HealthComponent>("Health");
+            int before = motor.AcceptedDashCount, hp = health.CurrentHealth;
+            ulong cursor = motor.ThrusterPresentationSequence;
+            try
+            {
+                KeyboardActionRuntimeTests.KeyEvent(Key.A, true);
+                KeyboardActionRuntimeTests.KeyEvent(Key.Shift, true);
+                await KeyboardActionRuntimeTests.Frames(tree, input, 1);
+            }
+            finally
+            {
+                KeyboardActionRuntimeTests.KeyEvent(Key.Shift, false);
+                KeyboardActionRuntimeTests.KeyEvent(Key.A, false);
+            }
+            for (int tick = 0; tick < 60 && (motor.IsDashing || !player.IsOnFloor() ||
+                Mathf.Abs(player.Velocity.X) > .1f); tick++)
+                await KeyboardActionRuntimeTests.Frames(tree, input, 1);
+            fixture.Controller.RefreshNow();
+            ThrusterPulseSnapshot current = motor.ThrusterState;
+            TestAssert.True(motor.AcceptedDashCount == before + 1 && !motor.IsDashing &&
+                player.IsOnFloor() && Mathf.Abs(player.Velocity.X) <= .1f && health.CurrentHealth == hp &&
+                motor.ReadThrusterTransitionsAfter(cursor).Any(fact =>
+                    fact.Kind == Knight.Presentation.ThrusterTransitionKind.Started &&
+                    fact.Identity.OwnerId == motor.GetInstanceId() &&
+                    fact.Identity.Lifecycle == current.Lifecycle &&
+                    fact.Identity.ConfigurationEpoch == current.ConfigurationEpoch),
+                "generic guidance prerequisite is one real accepted short jet with unchanged health and natural floor/wall stop");
+        }
+        TestAssert.True(withdrawn==4 && fixture.Controller.CurrentInstruction.ContextTitle==string.Empty,
+            "generic guidance coverage requires an explicit withdrawn device context, not reverted player UI");
+        GD.Print("MOUNTED_GUIDANCE_GENERIC_CONTEXT_OK withdrawn_devices=4 route_proof=false");
     }
 
     private static void AssertLiveKeyboardGlyphRebinding(Fixture fixture)
@@ -677,6 +823,7 @@ public static class PrologueGuidanceRuntimeTests
         Fixture fixture = await LoadFixture(tree, "ContinuousGuidanceProtectionFixture");
         try
         {
+            await BasinAscentCameraRuntimeTests.WaitForPlaying(tree, fixture.Level);
             AssertLandingSurfaceTopProtection(fixture);
             AssertRaisedArmorProtection(fixture);
             fixture.Level.GetNode<Node2D>("PlayerRoot").Visible = true;
@@ -890,6 +1037,18 @@ public static class PrologueGuidanceRuntimeTests
 
             IReadOnlyList<Rect2> regions = RoomProtectionRegionAdapter.CollectGameplay(scope, null);
             Transform2D screen = collision.GetGlobalTransformWithCanvas();
+            if (new[] { -60f, 0f, 60f }.Any(x => !Contains(regions, screen * new Vector2(x, -16f))))
+                GD.Print("LANDING_TOP_PROTECTION_FAILURE " + System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    State = fixture.Level.GetNode<PrologueGameFlowController>("GameFlow").State.ToString(),
+                    Pending = fixture.Level.ResidentPreparationPending,
+                    Failure = fixture.Level.ResidentPreparationFailure,
+                    WorldVisible = fixture.Level.GetNode<Node2D>("WorldRoot").Visible,
+                    ScopeVisible = scope.IsVisibleInTree(), PlatformVisible = platform.IsVisibleInTree(),
+                    CollisionVisible = collision.IsVisibleInTree(), collision.Disabled, platform.CollisionLayer,
+                    CatchShelf = platform.GetMeta("catch_shelf").AsBool(),
+                    Shape = collision.Shape.GetRect().ToString(), Count = regions.Count
+                }));
             foreach (float x in new[] { -60f, 0f, 60f })
                 TestAssert.True(Contains(regions, screen * new Vector2(x, -16f)),
                     "mounted grippable landing platform protects points along its actual horizontal top, not only anchors");
@@ -1125,14 +1284,28 @@ public static class PrologueGuidanceRuntimeTests
 
     private static void MissingTargetKeepsInstructionAndWarnsOnce()
     {
-        var sectors = System.Enum.GetValues<PrologueSectorId>()
-            .ToDictionary(id => id, LoadCurrentSector);
+        // Match the production assembly graph: cross-sector paths and collision
+        // transforms have meaning only under their real shared sector parent.
+        var assembly = new Node2D { Name = "Sectors" };
+        var sectors = new Dictionary<PrologueSectorId, PrologueSector>();
         try
         {
+            foreach (PrologueSectorId id in System.Enum.GetValues<PrologueSectorId>())
+            {
+                PrologueSector sector = LoadCurrentSector(id);
+                assembly.AddChild(sector);
+                sector.Name = id.ToString();
+                sector.Position = CanyonWorldLayout.SectorBounds[id].Position;
+                sectors.Add(id, sector);
+            }
             foreach (PrologueSector sector in sectors.Values)
             foreach (TraversalSegment2D segment in Descendants<TraversalSegment2D>(sector))
             {
-                TestAssert.Equal(0, segment.Validate(sector).Count,
+                IReadOnlyList<string> errors = segment.Validate(sector);
+                if (errors.Count != 0)
+                    GD.Print($"CURRENT_TRAVERSAL_CONTRACT_FAILURE segment={segment.SegmentId} " +
+                             $"errors={string.Join(" | ", errors)}");
+                TestAssert.Equal(0, errors.Count,
                     $"current traversal contract {segment.SegmentId} remains fully valid");
                 if (segment.Kind != TraversalSegmentKind.Assisted) continue;
                 TestAssert.True(!segment.AssistTargetPath.IsEmpty &&
@@ -1158,7 +1331,7 @@ public static class PrologueGuidanceRuntimeTests
         }
         finally
         {
-            foreach (PrologueSector sector in sectors.Values) sector.Free();
+            assembly.Free();
         }
     }
 

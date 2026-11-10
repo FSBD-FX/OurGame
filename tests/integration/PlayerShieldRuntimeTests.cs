@@ -8,10 +8,11 @@ using Knight.Shared;
 
 namespace Knight.Tests.Integration;
 
-public static class PlayerShieldRuntimeTests
+public static partial class PlayerShieldRuntimeTests
 {
     public static async Task Run(SceneTree tree)
     {
+        await RunGuardImpact(tree);
         Fixture fixture = await CreateFixture(tree);
         try
         {

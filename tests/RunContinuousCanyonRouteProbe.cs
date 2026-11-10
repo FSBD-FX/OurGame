@@ -70,7 +70,7 @@ public partial class RunContinuousCanyonRouteProbe : SceneTree
         string raw = args.Single(a => a.StartsWith(storagePrefix, StringComparison.Ordinal))[storagePrefix.Length..];
         string storage = QualifiedPath(raw);
         string caseRoot = Path.GetDirectoryName(storage)!;
-        string evidenceRoot = Path.GetFullPath("E:/OurGame/Knight/.evidence/september09-continuous-canyon/task10");
+        string evidenceRoot = Path.GetFullPath("G:/knight/验证证据/september09-continuous-canyon/task10");
         string expectedTemp = Path.Combine(caseRoot, "unit-temp");
         if (!string.Equals(Path.GetDirectoryName(caseRoot), evidenceRoot, StringComparison.OrdinalIgnoreCase) ||
             !System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(caseRoot),

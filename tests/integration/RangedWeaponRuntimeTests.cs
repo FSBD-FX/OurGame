@@ -1278,6 +1278,18 @@ public static class RangedWeaponRuntimeTests
                 f.Actor.ApplyThreadPull(Vector2.Left * 540f);
                 await Frames(tree, 1);
                 TestAssert.Equal(RangedWeaponState.Stunned, f.Actor.CurrentFrame.State, "thread enters real actor stun: " + role);
+                if (_loadSavedScenes && role == RangedWeaponRole.Burst)
+                {
+                    var leaves = new List<AttackTelegraphVisual>();
+                    TestAssert.True(f.Actor.SceneFilePath == "res://scenes/enemies/BeltBurstGunner.tscn" &&
+                        f.Actor.GetNode<HealthComponent>("Health").CurrentHealth > 0 &&
+                        !f.Actor.HasPresentationAuthority && Authorized(f.Actor).Count == 0,
+                        "saved Stunned counter characterization uses the real living saved Burst after synchronous attack revocation");
+                    var danger = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(
+                        f.Root, f.Actor.Name.ToString(), f.Actor, false, leaves);
+                    TestAssert.Near(1.09999895f, danger.SafeCounterSeconds, .000001f,
+                        "STUNNED_REARM_RED: actual saved live Stunned Burst owes a full model-captured future warning, not unknown zero");
+                }
                 // Freeze the actor clock immediately at stun entry. Native
                 // cleanup frames below must not add time to the .79/.81 probe.
                 f.Actor.SetPhysicsProcess(false);

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$GodotPath = 'G:\godot\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe',
+    [string]$GodotPath = 'G:\knight\Tools\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe',
     [switch]$SkipGreenCapture,
     [switch]$OnlyMarkerOrder,
     [switch]$OnlyFailurePath,
@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 . (Join-Path $project 'tools\EvidenceChecks.ps1')
-$dotnet = 'G:\godot\dotnet-sdk\dotnet.exe'
+$dotnet = 'G:\knight\Tools\dotnet-sdk\dotnet.exe'
 $evidenceRoot = Join-Path $project 'screenshots\task4-capture-exit'
 $task4TempPrefix = 'knight-task4-capture-mutation-'
 New-Item -ItemType Directory -Force -Path $evidenceRoot | Out-Null

@@ -11,19 +11,20 @@ namespace Knight.Tests.Diagnostics
         private const long MaxRecordedCalls = 20000;
         private static long _nextCall;
 
-        internal static long Enter(GodotObject resource, bool disposing, long managedSerial = 0)
+        internal static long Enter(GodotObject resource, bool disposing, long managedSerial = 0,
+            string recordedIdentity = null)
         {
             long call = Interlocked.Increment(ref _nextCall);
-            Record("ENTER", call, resource, disposing, managedSerial);
+            Record("ENTER", call, resource, disposing, managedSerial, recordedIdentity);
             return call;
         }
 
         internal static void Returned(long call, GodotObject resource, bool disposing,
-            long managedSerial = 0) =>
-            Record("RETURN", call, resource, disposing, managedSerial);
+            long managedSerial = 0, string recordedIdentity = null) =>
+            Record("RETURN", call, resource, disposing, managedSerial, recordedIdentity);
 
         private static void Record(string phase, long call, GodotObject resource, bool disposing,
-            long managedSerial)
+            long managedSerial,string recordedIdentity)
         {
             try
             {
@@ -46,7 +47,8 @@ namespace Knight.Tests.Diagnostics
                     $"disposing={disposing} type={resource.GetType().FullName} " +
                     $"thread={System.Environment.CurrentManagedThreadId} " +
                     $"managed_hash={RuntimeHelpers.GetHashCode(resource)} " +
-                    $"raw_native_ptr=0x{resource.NativeInstance.ToInt64():X16} native_id=unknown");
+                    $"raw_native_ptr=0x{resource.NativeInstance.ToInt64():X16} managed_serial={managedSerial} " +
+                    (recordedIdentity ?? "native_identity=unknown native_id=unknown"));
                 Console.Error.Flush();
 #else
                 Console.Error.WriteLine($"TASK14_DISPOSE_ID {phase} call={call} " +
@@ -54,7 +56,7 @@ namespace Knight.Tests.Diagnostics
                     $"thread={System.Environment.CurrentManagedThreadId} " +
                     $"managed_hash={RuntimeHelpers.GetHashCode(resource)} " +
                     $"managed_serial={managedSerial} " +
-                    Task14NativeResourceIdentity.DisposeIdentity(managedSerial));
+                    (recordedIdentity ?? Task14NativeResourceIdentity.DisposeIdentity(managedSerial)));
 #endif
             }
             catch
@@ -69,11 +71,13 @@ namespace Knight.Config
 {
     public partial class BellBackLaborerTuning
     {
+        internal readonly long Task14ManagedSerial = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.NextSerial();
         protected override void Dispose(bool disposing)
         {
-            long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing);
+            string identity = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.DisposeIdentity(Task14ManagedSerial);
+            long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing, Task14ManagedSerial, identity);
             base.Dispose(disposing);
-            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing);
+            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing, Task14ManagedSerial, identity);
         }
     }
     public partial class BossTuning
@@ -83,29 +87,37 @@ namespace Knight.Config
 
         protected override void Dispose(bool disposing)
         {
+            string identity=Knight.Tests.Diagnostics.Task14NativeResourceIdentity.DisposeIdentity(Task14ManagedSerial);
             long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing,
-                Task14ManagedSerial);
+                Task14ManagedSerial,identity);
             base.Dispose(disposing);
             Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing,
-                Task14ManagedSerial);
+                Task14ManagedSerial,identity);
         }
     }
     public partial class EnemyArchetypeTuning
     {
+        internal readonly long Task14ManagedSerial = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.NextSerial();
         protected override void Dispose(bool disposing)
         {
-            long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing);
+            string identity = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.DisposeIdentity(Task14ManagedSerial);
+            long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing, Task14ManagedSerial, identity);
             base.Dispose(disposing);
-            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing);
+            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing, Task14ManagedSerial, identity);
         }
     }
     public partial class PlayerTuning
     {
+        internal readonly long Task14ManagedSerial = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.NextSerial();
+#if REFCOUNTED_FATAL_IDENTITY
+        public PlayerTuning() => Knight.Tests.Diagnostics.ResidentProfileLifetimeTrace.Born(this, Task14ManagedSerial);
+#endif
         protected override void Dispose(bool disposing)
         {
-            long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing);
+            string identity=Knight.Tests.Diagnostics.Task14NativeResourceIdentity.DisposeIdentity(Task14ManagedSerial);
+            long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing, Task14ManagedSerial, identity);
             base.Dispose(disposing);
-            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing);
+            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing, Task14ManagedSerial, identity);
         }
     }
     public partial class ThreadTuning
@@ -138,15 +150,16 @@ namespace Knight.Config
     public partial class PresentationProfile
     {
         internal readonly long Task14ManagedSerial =
-            Knight.Tests.Diagnostics.Task14NativeResourceIdentity.NextSerial();
+            Knight.Tests.Diagnostics.Task14NativeResourceIdentity.NextPresentationAllocationSerial();
 
         protected override void Dispose(bool disposing)
         {
+            string identity=Knight.Tests.Diagnostics.Task14NativeResourceIdentity.DisposeIdentity(Task14ManagedSerial);
             long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing,
-                Task14ManagedSerial);
+                Task14ManagedSerial,identity);
             base.Dispose(disposing);
             Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing,
-                Task14ManagedSerial);
+                Task14ManagedSerial,identity);
         }
     }
 }
@@ -155,11 +168,13 @@ namespace Knight.Enemies.Skitter
 {
     public partial class CanyonSkitterSettings
     {
+        internal readonly long Task14ManagedSerial = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.NextSerial();
         protected override void Dispose(bool disposing)
         {
-            long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing);
+            string identity = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.DisposeIdentity(Task14ManagedSerial);
+            long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing, Task14ManagedSerial, identity);
             base.Dispose(disposing);
-            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing);
+            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing, Task14ManagedSerial, identity);
         }
     }
 }
@@ -168,11 +183,13 @@ namespace Knight.Enemies.Sentry
 {
     public partial class BellBoltSentrySettings
     {
+        internal readonly long Task14ManagedSerial = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.NextSerial();
         protected override void Dispose(bool disposing)
         {
-            long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing);
+            string identity = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.DisposeIdentity(Task14ManagedSerial);
+            long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing, Task14ManagedSerial, identity);
             base.Dispose(disposing);
-            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing);
+            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing, Task14ManagedSerial, identity);
         }
     }
 }
@@ -222,28 +239,64 @@ namespace Knight.Prologue.Seamless
     public partial class PrologueSectorDefinition
     {
         internal readonly long Task14ManagedSerial =
-            Knight.Tests.Diagnostics.Task14NativeResourceIdentity.NextSerial();
+            Knight.Tests.Diagnostics.Task14NativeResourceIdentity.NextSectorAllocationSerial();
 
         protected override void Dispose(bool disposing)
         {
+            string identity=Knight.Tests.Diagnostics.Task14NativeResourceIdentity.DisposeIdentity(Task14ManagedSerial);
             long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing,
-                Task14ManagedSerial);
+                Task14ManagedSerial,identity);
             base.Dispose(disposing);
             Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing,
-                Task14ManagedSerial);
+                Task14ManagedSerial,identity);
         }
     }
 }
 #if REFCOUNTED_FATAL_IDENTITY
+namespace Knight.Config
+{
+    public partial class MobilityModuleDefinition
+    {
+        internal readonly long Task14ManagedSerial = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.NextSerial();
+        protected override void Dispose(bool disposing)
+        {
+            string identity = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.DisposeIdentity(Task14ManagedSerial);
+            long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing, Task14ManagedSerial, identity);
+            base.Dispose(disposing);
+            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing, Task14ManagedSerial, identity);
+        }
+    }
+}
+
+namespace Knight.Prologue.Residents
+{
+    public partial class ResidentSubtypeProfile
+    {
+        internal readonly long Task14ManagedSerial=Knight.Tests.Diagnostics.Task14NativeResourceIdentity.NextSerial();
+#if REFCOUNTED_FATAL_IDENTITY
+        public ResidentSubtypeProfile() => Knight.Tests.Diagnostics.ResidentProfileLifetimeTrace.Born(this, Task14ManagedSerial);
+#endif
+        protected override void Dispose(bool disposing)
+        {
+            string identity=Knight.Tests.Diagnostics.Task14NativeResourceIdentity.DisposeIdentity(Task14ManagedSerial);
+            long call=Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this,disposing,Task14ManagedSerial,identity);
+            base.Dispose(disposing);
+            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call,this,disposing,Task14ManagedSerial,identity);
+        }
+    }
+}
+
 namespace Knight.Enemies.Ranged
 {
     public partial class RangedWeaponSettings
     {
+        internal readonly long Task14ManagedSerial=Knight.Tests.Diagnostics.Task14NativeResourceIdentity.NextSerial();
         protected override void Dispose(bool disposing)
         {
-            long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing);
+            string identity=Knight.Tests.Diagnostics.Task14NativeResourceIdentity.DisposeIdentity(Task14ManagedSerial);
+            long call = Knight.Tests.Diagnostics.Task14DisposeProbe.Enter(this, disposing,Task14ManagedSerial,identity);
             base.Dispose(disposing);
-            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing);
+            Knight.Tests.Diagnostics.Task14DisposeProbe.Returned(call, this, disposing,Task14ManagedSerial,identity);
         }
     }
 }

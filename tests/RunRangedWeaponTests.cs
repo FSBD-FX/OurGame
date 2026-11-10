@@ -36,16 +36,33 @@ public partial class RunRangedWeaponTests : SceneTree
             else if (phase == "actor") await RangedWeaponRuntimeTests.Run(this);
             else if (phase == "actor-saved") await RangedWeaponRuntimeTests.RunSavedScenes(this);
             else if (phase == "threat-policy") await RangedWeaponRuntimeTests.RunThreatPolicy(this);
+            else if (phase == "sentry-danger")
+            {
+                await BellBoltSentryRuntimeTests.RunRetiredProjectilePermission(this);
+                await BellBoltSentryRuntimeTests.RunProjectilePermissionControls(this);
+                await BellBoltSentryRuntimeTests.RunPostLaunchProjectilePermission(this);
+                await BellBoltSentryRuntimeTests.RunTask10SentryDanger(this);
+            }
             else if (phase == "steam-missile-policy") await RangedWeaponRuntimeTests.RunSteamMissileMovingPolicy(this);
             else if (phase == "gallery-laser-policy") await RangedWeaponRuntimeTests.RunGalleryLaserCarriedPolicy(this);
             else if (phase == "steam-sentry-recovery")
             {
+                await BellBoltSentryRuntimeTests.RunSteamDiagonalGuardArc(this);
+                await BellBoltSentryRuntimeTests.RunSteamMixedGuardKeyboard(this, nearFireTail: true);
+                await BellBoltSentryRuntimeTests.RunSteamMixedGuardKeyboard(this);
+                await BellBoltSentryRuntimeTests.RunSteamMixedGuardKeyboard(this, sameSide: true);
                 await BellBoltSentryRuntimeTests.RunSteamRecoveryPreArmBaseline(this);
                 await BellBoltSentryRuntimeTests.RunSteamRecoveryKeyboard(this, retireOnDefeat: true);
                 await BellBoltSentryRuntimeTests.RunSteamRecoveryKeyboard(this, retireOnDefeat: true,
                     exerciseFallbackApproach: true);
             }
-            else if (phase == "mixed-policy") await RangedWeaponPlacementRuntimeTests.RunMixedThreatPolicy(this);
+            else if (phase == "mixed-policy")
+            {
+                await RangedWeaponPlacementRuntimeTests.RunMixedCooldownSupport(this);
+                await RangedWeaponPlacementRuntimeTests.RunMixedCooldownSupport(this,duringAttack:true);
+                await RangedWeaponPlacementRuntimeTests.RunRecoveryCounterClock(this);
+                await RangedWeaponPlacementRuntimeTests.RunMixedThreatPolicy(this);
+            }
             else if (phase == "mixed-resource")
             {
                 await RangedWeaponPlacementRuntimeTests.RunMixedThreatPolicy(this, resourcePolicy: true);
@@ -54,6 +71,20 @@ public partial class RunRangedWeaponTests : SceneTree
                     counterProof: RangedWeaponPlacementRuntimeTests.MixedCounterProof.RejectShort);
                 await RangedWeaponPlacementRuntimeTests.RunMixedThreatPolicy(this, resourcePolicy: true,
                     counterProof: RangedWeaponPlacementRuntimeTests.MixedCounterProof.Connect);
+            }
+            else if (phase is "mixed-resource-prefix1" or "mixed-resource-prefix2")
+            {
+                GD.Print("RANGED_RESOURCE_PREFIX fixture=1 boundary=begin");
+                await RangedWeaponPlacementRuntimeTests.RunMixedThreatPolicy(this, resourcePolicy: true,
+                    traceResourceBoundary: true);
+                GD.Print("RANGED_RESOURCE_PREFIX fixture=1 boundary=returned");
+                if (phase == "mixed-resource-prefix2")
+                {
+                    GD.Print("RANGED_RESOURCE_PREFIX fixture=2 boundary=begin");
+                    await RangedWeaponPlacementRuntimeTests.RunMixedThreatPolicy(this, resourcePolicy: true,
+                        preparationAttacks: 7, traceResourceBoundary: true);
+                    GD.Print("RANGED_RESOURCE_PREFIX fixture=2 boundary=returned");
+                }
             }
             else if (phase == "mixed-counter")
                 await RangedWeaponPlacementRuntimeTests.RunMixedThreatPolicy(this, resourcePolicy: true,
@@ -124,15 +155,17 @@ public partial class RunRangedWeaponTests : SceneTree
                 RoomProtectionRegionRuntimeTests.Run(this);
             }
             else throw new InvalidOperationException("Unknown ranged phase " + phase);
-            if (phase is not ("threat-policy" or "mixed-policy" or "mixed-resource" or "mixed-counter" or "mixed-early-counter" or "mixed-early-boundary" or "spawn-identity" or "spawn-identity-contract"))
+            if (phase is not ("threat-policy" or "mixed-policy" or "mixed-resource" or "mixed-resource-prefix1" or "mixed-resource-prefix2" or "mixed-counter" or "mixed-early-counter" or "mixed-early-boundary" or "spawn-identity" or "spawn-identity-contract"))
                 TestSceneTeardown.DrainManagedWrappersAtProcessExit("ranged-" + phase);
-            GD.Print($"RANGED_WEAPON_OK phase={phase} isolated=true human=false whole_goal=false");
+            if (phase is "mixed-resource-prefix1" or "mixed-resource-prefix2")
+                GD.Print($"RANGED_RESOURCE_PREFIX_DIAGNOSTIC_COMPLETE fixtures={(phase == "mixed-resource-prefix1" ? 1 : 2)} behavior_accepted=false");
+            else GD.Print($"RANGED_WEAPON_OK phase={phase} isolated=true human=false whole_goal=false");
             Quit(0);
         }
         catch (Exception exception)
         {
             GD.PushError(exception.ToString());
-            if (phase is not ("threat-policy" or "mixed-policy" or "mixed-resource" or "mixed-counter" or "mixed-early-counter" or "mixed-early-boundary" or "spawn-identity" or "spawn-identity-contract"))
+            if (phase is not ("threat-policy" or "mixed-policy" or "mixed-resource" or "mixed-resource-prefix1" or "mixed-resource-prefix2" or "mixed-counter" or "mixed-early-counter" or "mixed-early-boundary" or "spawn-identity" or "spawn-identity-contract"))
                 TestSceneTeardown.DrainManagedWrappersAtProcessExit("ranged-failed-" + phase);
             Quit(1);
         }

@@ -1,12 +1,13 @@
 param(
     [Parameter(Mandatory=$true)][ValidateSet('v001','v002')][string]$Version,
-    [Parameter(Mandatory=$true)][string]$ProofCase
+    [Parameter(Mandatory=$true)][string]$ProofCase,
+    [string]$SourceRoot='G:/knight/验证证据/october07-fall-damage'
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $projectRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$sourceRoot='E:/OurGame/Knight/.evidence/october07-fall-damage'
-$targetRoot="E:/OurGame/Knight/过程图稿与视频/2026-10-07-摔伤机制-$Version-局部实跑"
+# SourceRoot defaults to current verification output; pass the G historical mirror explicitly for an old proof.
+$targetRoot="G:/knight/过程图稿与视频/$(Get-Date -Format 'yyyy-MM-dd')-摔伤机制-$Version-局部实跑"
 if($ProofCase -notmatch '^proof-[0-9]{8}-[0-9]{6}-[0-9]{3}-[0-9a-f]{32}$') {
     throw 'ProofCase must be an existing isolated proof case directory name'
 }
@@ -31,7 +32,7 @@ foreach($relative in $sourceFiles) {
 }
 $movie=Join-Path $targetRoot "original/evidence/$ProofCase/fall-damage-original.avi"
 $preview=Join-Path $targetRoot "presentation/fall-damage-$Version.mp4"
-$ffmpeg='G:/小丸工具箱/tools/ffmpeg.exe'
+$ffmpeg='G:/knight/Tools/ffmpeg-v001/ffmpeg.exe'
 & $ffmpeg -nostdin -i $movie -c:v libx264 -crf 18 -pix_fmt yuv420p -an -movflags +faststart $preview 2> (Join-Path $targetRoot 'presentation/transcode.log')
 if($LASTEXITCODE -ne 0){throw 'Proof preview transcode failed'}
 & $ffmpeg -nostdin -i $preview -vf 'fps=4' (Join-Path $targetRoot 'frames/frame-%03d.png') 2> (Join-Path $targetRoot 'presentation/frames.log')

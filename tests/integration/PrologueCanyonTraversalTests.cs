@@ -8,6 +8,7 @@ using Knight.Boss;
 using Knight.Player;
 using Knight.Prologue;
 using Knight.Prologue.Collections;
+using Knight.Prologue.Residents;
 using Knight.Prologue.Seamless;
 using Knight.Prologue.Traversal;
 using Knight.Shared;
@@ -23,9 +24,18 @@ public static partial class PrologueCanyonTraversalTests
 {
     private static Action Task4FrameObserver;
 
+    internal static bool Task4SteamTopReturnStripAccepted(float bodyCenterX, float predictedCenterX,
+        float safeLeft, float exclusiveRight) => float.IsFinite(bodyCenterX) &&
+        float.IsFinite(predictedCenterX) && float.IsFinite(safeLeft) && float.IsFinite(exclusiveRight) &&
+        safeLeft < exclusiveRight && bodyCenterX >= safeLeft && bodyCenterX <= exclusiveRight &&
+        predictedCenterX >= safeLeft && predictedCenterX <= exclusiveRight;
+
     // Local saved-Main entrance geometry proof, not whole-route or human evidence.
-    public static async Task RunEntranceEnclosure(SceneTree tree, bool presentation = false)
+    public static async Task RunEntranceEnclosure(SceneTree tree, bool presentation = false,
+        bool ordinaryWallOnly = false, bool frozenWallOnly = false)
     {
+        TestAssert.True(!frozenWallOnly || !ordinaryWallOnly && !presentation,
+            "the frozen wall uses its own headless route scope");
         if (presentation) TestAssert.True(DisplayServer.GetName() != "headless" &&
             !string.IsNullOrWhiteSpace(RenderingServer.GetVideoAdapterName()) &&
             !new[] { "llvmpipe", "lavapipe", "swiftshader", "Microsoft Basic Render", "softpipe" }
@@ -45,6 +55,8 @@ public static partial class PrologueCanyonTraversalTests
         bool ceilingContact = false;
         bool ceilingObserverAttached = false;
         float lowestCeilingY = float.PositiveInfinity;
+        Action<string> observeRiftRecovery = null;
+        Task10OrdinaryWallSweepEvidence.Observer ordinaryWallObserver = null;
         // PhysicsFrame precedes the next motor update, so this captures the previous
         // tick's actual transient collision even if a rendered await skips it.
         void ObserveCeiling()
@@ -57,24 +69,29 @@ public static partial class PrologueCanyonTraversalTests
                     contact.GetCollider() is StaticBody2D body && body.Name == "LowBridgeCeiling";
             }
         }
-        void Requested(string _) => requests++;
+        void Requested(string reason)
+        {
+            requests++;
+            observeRiftRecovery?.Invoke(reason);
+        }
         void Recovered(string _) => recoveries++;
         level.RecoveryRequested += Requested;
         level.RecoveryCompleted += Recovered;
         tree.Root.AddChild(level);
+        void AssertEntranceStillLive() => TestAssert.True(requests == 0 && recoveries == 0 &&
+            player.GetInstanceId() == playerId && world.GetInstanceId() == worldId &&
+            player.GetParent() == level.GetNode("PlayerRoot") &&
+            player.GetNode<HealthComponent>("Health").CurrentHealth > 0,
+            $"entrance proof retains the same living actor/world without recovery: " +
+            $"position={player.GlobalPosition} velocity={player.Velocity} " +
+            $"requests={requests} recoveries={recoveries} health={player.GetNode<HealthComponent>("Health").CurrentHealth}");
         async Task Tick(int count = 1)
         {
             for (int i = 0; i < count; i++)
             {
                 await KeyboardActionRuntimeTests.Frames(tree, input, 1);
                 await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
-                TestAssert.True(requests == 0 && recoveries == 0 &&
-                    player.GetInstanceId() == playerId && world.GetInstanceId() == worldId &&
-                    player.GetParent() == level.GetNode("PlayerRoot") &&
-                    player.GetNode<HealthComponent>("Health").CurrentHealth > 0,
-                    $"entrance proof retains the same living actor/world without recovery: " +
-                    $"position={player.GlobalPosition} velocity={player.Velocity} " +
-                    $"requests={requests} recoveries={recoveries} health={player.GetNode<HealthComponent>("Health").CurrentHealth}");
+                AssertEntranceStillLive();
             }
         }
         async Task Capture(string stage)
@@ -108,6 +125,8 @@ public static partial class PrologueCanyonTraversalTests
                 player.GlobalPosition.DistanceTo(new Vector2(160f, 600f)) < 2f,
                 "normal entrance checkpoint has actual support, not a pre-tree pose override");
             await Capture("01-exterior-spawn");
+            if (ordinaryWallOnly)
+                ordinaryWallObserver = new Task10OrdinaryWallSweepEvidence.Observer(tree, level, player);
             KeyboardActionRuntimeTests.KeyEvent(Key.A, true);
             bool wallContact = false;
             for (int i = 0; i < 45; i++)
@@ -131,11 +150,22 @@ public static partial class PrologueCanyonTraversalTests
             // The low remnant must be tested vertically on its own support.
             // A successful jump across its right edge need not touch its underside.
             KeyboardActionRuntimeTests.KeyEvent(Key.D, true);
-            for (int i = 0; i < 60 && player.GlobalPosition.X < 260f; i++) await Tick();
+            int entranceApproachFrames=0;
+            for(;entranceApproachFrames<60 && player.GlobalPosition.X<176f;entranceApproachFrames++) await Tick();
+            TestAssert.True(player.IsOnFloor() && player.GlobalPosition.X<195f,
+                "the newly authored plate is approached on original support before the real bypass jump");
+            KeyboardActionRuntimeTests.KeyEvent(Key.Space,true);
+            for(int i=0;i<7 && entranceApproachFrames<60;i++,entranceApproachFrames++) await Tick();
+            KeyboardActionRuntimeTests.KeyEvent(Key.Space,false);
+            for(;entranceApproachFrames<60 && player.GlobalPosition.X<260f;entranceApproachFrames++) await Tick();
             KeyboardActionRuntimeTests.KeyEvent(Key.D, false);
             await Tick(12);
             TestAssert.True(player.IsOnFloor() && player.GlobalPosition.X is > 250f and < 300f,
                 "ceiling probe starts on the real near-bank support beneath the remnant");
+            TestAssert.True(level.CurrentSectorRoot.GetNode<CanyonSpringboard>(
+                "Gameplay/Mechanisms/CombinationSpringboard").LaunchSequence==0,
+                "normal Space bypasses the new physical plate rather than disabling it or recovering from death");
+            GD.Print("ENTRANCE_RECYCLING_BYPASS_OK original_support=true real_space=true recovery=0 initial_pose_writes=0");
             KeyboardActionRuntimeTests.KeyEvent(Key.Space, true);
             tree.PhysicsFrame += ObserveCeiling;
             ceilingObserverAttached = true;
@@ -158,6 +188,11 @@ public static partial class PrologueCanyonTraversalTests
             tree.PhysicsFrame -= ObserveCeiling;
             ceilingObserverAttached = false;
             GD.Print("ENTRANCE_CEILING_CONTACT_OK real_jump=true actual_normal=true natural_landing=true");
+            if (ordinaryWallOnly)
+            {
+                ordinaryWallObserver.AssertComplete();
+                return;
+            }
 
             KeyboardActionRuntimeTests.KeyEvent(Key.D, true);
             // StartFloor ends320; the actual20px capsule radius gives a300px
@@ -340,7 +375,7 @@ public static partial class PrologueCanyonTraversalTests
                 }
                 return false;
             }
-            async Task WalkTo(float x, int limit)
+            async Task WalkTo(float x, int limit, Action<Key> released = null, int settle = 8)
             {
                 Key direction = player.GlobalPosition.X < x ? Key.D : Key.A;
                 KeyboardActionRuntimeTests.KeyEvent(direction, true);
@@ -348,7 +383,8 @@ public static partial class PrologueCanyonTraversalTests
                     (direction == Key.D ? player.GlobalPosition.X < x : player.GlobalPosition.X > x); i++)
                     await Tick();
                 KeyboardActionRuntimeTests.KeyEvent(direction, false);
-                await Tick(8);
+                released?.Invoke(direction);
+                await Tick(settle);
             }
             async Task LandOn(string body, string message)
             {
@@ -360,8 +396,197 @@ public static partial class PrologueCanyonTraversalTests
             await LandOn("RiftUpperFloor", "second entry retains the actual upper floor");
             await WalkTo(1940f, 150);
             await LandOn("RiftMiddleCatch", "normal right departure lands on the middle shelf");
-            await WalkTo(1460f, 150);
-            await LandOn("RiftLowerCatch", "normal left departure lands on the lower shelf");
+
+            // Retain original native contacts and the pre-reset state if the next
+            // Tick observes a restored checkpoint.
+            const int riftRows = 48;
+            var lastRiftSteps = new Queue<string>(riftRows);
+            var riftMilestones = new List<string>(5);
+            string riftTraceFault = null;
+            int riftSteps = 0;
+            bool releaseIssued = false, neutralSeen = false, lowerHeightSeen = false;
+            ulong releaseSequence = 0;
+            var bodyShape = player.GetNodeOrNull<CollisionShape2D>("BodyCollider");
+            var lowerShape = descent.GetNodeOrNull<CollisionShape2D>("Gameplay/Collision/RiftLowerCatch/Collision");
+            var riftHealth = player.GetNodeOrNull<HealthComponent>("Health");
+            var lowerBody = (StaticBody2D)lowerShape.GetParent();
+            bool lowerContactSeen = false, firstLowerContactFull = false;
+            int reverseSamples = 0, stoppedSupportSamples = 0;
+            bool FullLowerContact(out float clearance, out float leastUpward)
+            {
+                clearance = float.NegativeInfinity;
+                leastUpward = float.PositiveInfinity;
+                if (bodyShape?.Shape is not CapsuleShape2D capsule || lowerShape.Shape is not RectangleShape2D deck ||
+                    !bodyShape.GlobalTransform.X.IsEqualApprox(Vector2.Right) ||
+                    !bodyShape.GlobalTransform.Y.IsEqualApprox(Vector2.Down) ||
+                    !lowerShape.GlobalTransform.X.IsEqualApprox(Vector2.Right) ||
+                    !lowerShape.GlobalTransform.Y.IsEqualApprox(Vector2.Down)) return false;
+                float offset = bodyShape.GlobalPosition.X - lowerShape.GlobalPosition.X;
+                clearance = deck.Size.X * .5f - capsule.Radius - MathF.Abs(offset);
+                for (int i = 0; i < player.GetSlideCollisionCount(); i++)
+                {
+                    KinematicCollision2D hit = player.GetSlideCollision(i);
+                    if (hit.GetLocalShape() == bodyShape && hit.GetCollider() == lowerBody &&
+                        lowerBody.ShapeOwnerGetOwner(lowerBody.ShapeFindOwner(hit.GetColliderShapeIndex())) == lowerShape)
+                        leastUpward = MathF.Min(leastUpward, hit.GetNormal().Dot(Vector2.Up));
+                }
+                // A later flat report in the same MoveAndSlide cannot hide an
+                // earlier corner report. Clearance is observed after Motor.
+                return player.IsOnFloor() && float.IsFinite(leastUpward) && leastUpward >= .95f && clearance >= 2f;
+            }
+            async Task AdvanceOneRiftPhysicsStep()
+            {
+                int before = riftSteps;
+                // PhysicsFrame precedes Motor. The first wait can reach that
+                // boundary without yet having a new completed Motor sample.
+                for (int i = 0; i < 2 && riftSteps == before; i++)
+                {
+                    await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+                    AssertEntranceStillLive();
+                }
+                TestAssert.True(riftTraceFault == null && riftSteps == before + 1,
+                    "the lower catch driver consumes one observed physics step without render-frame batching");
+            }
+            string CaptureRiftStep(string stage, string detail = "")
+            {
+                if (bodyShape?.Shape is not CapsuleShape2D capsule ||
+                    lowerShape?.Shape is not RectangleShape2D lower || riftHealth == null)
+                    throw new InvalidOperationException("Rift trace could not read the actual capsule, lower rectangle, or health.");
+                var c = bodyShape.GlobalTransform;
+                Vector2 capsuleHalf = new(
+                    capsule.Radius * MathF.Sqrt(c.X.X * c.X.X + c.Y.X * c.Y.X) +
+                        (capsule.Height * .5f - capsule.Radius) * MathF.Abs(c.Y.X),
+                    capsule.Radius * MathF.Sqrt(c.X.Y * c.X.Y + c.Y.Y * c.Y.Y) +
+                        (capsule.Height * .5f - capsule.Radius) * MathF.Abs(c.Y.Y));
+                var target = lowerShape.GlobalTransform;
+                Vector2 lowerHalf = target.X.Abs() * (lower.Size.X * .5f) +
+                    target.Y.Abs() * (lower.Size.Y * .5f);
+                int slides = player.GetSlideCollisionCount();
+                var contacts = new System.Text.StringBuilder();
+                for (int j = 0; j < Math.Min(slides, 8); j++)
+                {
+                    using KinematicCollision2D contact = player.GetSlideCollision(j);
+                    if (j != 0) contacts.Append(';');
+                    contacts.Append((contact.GetCollider() as Node)?.Name.ToString() ?? "unknown")
+                        .Append('/').Append(contact.GetColliderShapeIndex())
+                        .Append('/').Append(contact.GetNormal());
+                }
+                return $"stage={stage} physics={Engine.GetPhysicsFrames()} input={input.CurrentFrameSequence} " +
+                    $"physical_a={Input.IsPhysicalKeyPressed(Key.A)} raw_axis={input.RawFrame.MoveAxis:R} " +
+                    $"filtered_axis={input.CurrentFrame.MoveAxis:R} pos={player.GlobalPosition} vx={player.Velocity.X:R} vy={player.Velocity.Y:R} " +
+                    $"capsule_min={c.Origin - capsuleHalf} capsule_max={c.Origin + capsuleHalf} " +
+                    $"lower_min={target.Origin - lowerHalf} lower_max={target.Origin + lowerHalf} " +
+                    $"floor={player.IsOnFloor()} slides={slides} contacts=[{contacts}] hp={riftHealth.CurrentHealth}{detail}";
+            }
+            void RiftMilestone(string stage, string detail = "")
+            {
+                try { riftMilestones.Add(CaptureRiftStep(stage, detail)); }
+                catch (Exception error) { riftTraceFault ??= error.GetType().Name + ": " + error.Message; }
+            }
+            var riftObserver = new ThrusterPostMotorObserver
+            {
+                Name = "EntranceRiftPostMotorTrace", ProcessPhysicsPriority = 1,
+                Observe = () =>
+                {
+                    try
+                    {
+                        string row = CaptureRiftStep("post_motor");
+                        riftSteps++;
+                        if (lastRiftSteps.Count == riftRows) lastRiftSteps.Dequeue();
+                        lastRiftSteps.Enqueue(row);
+                        if (releaseIssued && !neutralSeen && input.CurrentFrameSequence > releaseSequence &&
+                            input.CurrentFrame.MoveAxis == 0f)
+                        { neutralSeen = true; RiftMilestone("first_sampled_neutral"); }
+                        bool full = FullLowerContact(out float clearance, out float upward);
+                        if (releaseIssued && Input.IsPhysicalKeyPressed(Key.D) &&
+                            input.RawFrame.MoveAxis > .99f && input.CurrentFrame.MoveAxis > .99f && ++reverseSamples == 1)
+                            RiftMilestone("first_sampled_brake");
+                        if (!lowerContactSeen && float.IsFinite(upward))
+                        {
+                            lowerContactSeen = true;
+                            firstLowerContactFull = full;
+                            RiftMilestone("first_lower_contact", $" full={full} post_motor_clearance={clearance:R} least_upward={upward:R}");
+                        }
+                        bool stopped = full && player.Velocity.LengthSquared() <= .25f &&
+                            input.RawFrame.MoveAxis == 0f && input.CurrentFrame.MoveAxis == 0f &&
+                            !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D);
+                        stoppedSupportSamples = stopped ? stoppedSupportSamples + 1 : 0;
+                        if (!lowerHeightSeen && bodyShape?.Shape is CapsuleShape2D capsule &&
+                            lowerShape?.Shape is RectangleShape2D lower &&
+                            bodyShape.GlobalPosition.Y + capsule.Height * .5f >= lowerShape.GlobalPosition.Y - lower.Size.Y * .5f)
+                        { lowerHeightSeen = true; RiftMilestone("reached_lower_top_height"); }
+                    }
+                    catch (Exception error) { riftTraceFault ??= error.GetType().Name + ": " + error.Message; }
+                }
+            };
+            RiftMilestone("middle_catch_departure");
+            observeRiftRecovery = reason => RiftMilestone("recovery_requested",
+                " reason=" + System.Text.Json.JsonSerializer.Serialize(reason));
+            bool riftLanded = false;
+            try
+            {
+                level.AddChild(riftObserver);
+                const float lowerDepartureX = 1460f;
+                const int lowerDepartureBudget = 150;
+                void RecordLowerDeparture(Key key)
+                {
+                    releaseSequence = input.CurrentFrameSequence;
+                    releaseIssued = true;
+                    RiftMilestone("key_released", $" key={key}");
+                    TestAssert.True(key == Key.A && player.Velocity.X < -.5f && !player.IsOnFloor(),
+                        "the real A departure has unpowered leftward momentum to brake in air");
+                }
+                if (frozenWallOnly)
+                {
+                    // The render-wait walk can consume several A samples after
+                    // x=1460, spending the clearance needed to stop in the deck.
+                    // Use the same completed-physics clock as the reverse brake.
+                    int approach = 0;
+                    float previousX = player.GlobalPosition.X;
+                    KeyboardActionRuntimeTests.KeyEvent(Key.A, true);
+                    for (; approach < lowerDepartureBudget && player.GlobalPosition.X > lowerDepartureX; approach++)
+                    {
+                        previousX = player.GlobalPosition.X;
+                        await AdvanceOneRiftPhysicsStep();
+                    }
+                    KeyboardActionRuntimeTests.KeyEvent(Key.A, false);
+                    TestAssert.True(approach > 0 && previousX > lowerDepartureX && player.GlobalPosition.X <= lowerDepartureX,
+                        $"the first completed A sample crossing the original lower approach threshold authorizes braking: " +
+                        $"previous_x={previousX:R} current_x={player.GlobalPosition.X:R} samples={approach}/{lowerDepartureBudget}");
+                    RecordLowerDeparture(Key.A);
+                }
+                else await WalkTo(lowerDepartureX, lowerDepartureBudget, RecordLowerDeparture, settle: 0);
+                // Use no more than the former 8+100 await budget, now as an
+                // exact physics-step cap. Release D before the next Motor step.
+                const int lowerBudget = 108;
+                int steps = 0;
+                KeyboardActionRuntimeTests.KeyEvent(Key.D, true);
+                for (; steps < lowerBudget && player.Velocity.X < -.5f; steps++) await AdvanceOneRiftPhysicsStep();
+                KeyboardActionRuntimeTests.KeyEvent(Key.D, false);
+                RiftMilestone("brake_released", $" reverse_samples={reverseSamples}");
+                for (; steps < lowerBudget && stoppedSupportSamples < 3; steps++) await AdvanceOneRiftPhysicsStep();
+                TestAssert.True(riftTraceFault == null && lowerContactSeen && firstLowerContactFull,
+                    "ENTRANCE_LOWER_FULL_CONTACT_RED: first real lower-deck contact must be upward with the complete capsule inside the deck");
+                TestAssert.True(neutralSeen && reverseSamples > 0 && stoppedSupportSamples >= 3,
+                    $"lower handoff must sample actual D braking and settle on the original deck without keys: " +
+                    $"reverse={reverseSamples} neutral={neutralSeen} stable={stoppedSupportSamples} " +
+                    $"player={player.GlobalPosition} velocity={player.Velocity}");
+                riftLanded = true;
+                GD.Print($"ENTRANCE_LOWER_FULL_CONTACT_OK first=true full=true neutral=true reverse_samples={reverseSamples} " +
+                    $"stable_samples={stoppedSupportSamples} physics_steps={steps} budget={lowerBudget} recovery=0");
+                GD.Print($"ENTRANCE_NATURAL_DROP_OK body=RiftLowerCatch player={player.GlobalPosition} recovery=0");
+            }
+            finally
+            {
+                observeRiftRecovery = null;
+                riftObserver.Observe = null;
+                GD.Print($"ENTRANCE_RIFT_TRACE_BEGIN scope=middle_to_lower steps={riftSteps} " +
+                    $"retained={lastRiftSteps.Count} landed={riftLanded} faults={riftTraceFault != null}");
+                foreach (string row in riftMilestones) GD.Print("ENTRANCE_RIFT_TRACE_MILESTONE " + row);
+                foreach (string row in lastRiftSteps) GD.Print("ENTRANCE_RIFT_TRACE_STEP " + row);
+                if (riftTraceFault != null) GD.Print("ENTRANCE_RIFT_TRACE_FAULT " + riftTraceFault);
+                GD.Print($"ENTRANCE_RIFT_TRACE_END scope=middle_to_lower requests={requests} recoveries={recoveries}");
+            }
             await Capture("05-lower-rift");
             await WalkTo(1350f, 80);
             await LandOn("ArchiveEntry", "ENTRANCE_ARCHIVE_ACCESS_RED: authored branch admits the unchanged40px capsule");
@@ -369,16 +594,54 @@ public static partial class PrologueCanyonTraversalTests
             await WalkTo(1610f, 100);
             await LandOn("ArchiveShelf", "archive entry descends onto its intended supply approach");
             await Capture("05b-expanded-archive-shelf");
-            // The wider shelf starts1480;1520 is now deliberately supported,
-            // not a walk-off point. Leave its real left edge, without a warp.
-            await WalkTo(1440f, 80);
+            // The shelf starts1480 and the actual floor below starts1400.
+            // Neutral air coasting was carrying the test left past that floor.
+            // Walk off, then use the real opposite key to brake inside it.
+            KeyboardActionRuntimeTests.KeyEvent(Key.A,true);
+            int archiveDepartureFrames=0;
+            for(;archiveDepartureFrames<80 && player.GlobalPosition.X>1450f;archiveDepartureFrames++) await Tick();
+            KeyboardActionRuntimeTests.KeyEvent(Key.A,false);
+            KeyboardActionRuntimeTests.KeyEvent(Key.D,true);
+            for(;archiveDepartureFrames<80 && player.Velocity.X<0f;archiveDepartureFrames++) await Tick();
+            KeyboardActionRuntimeTests.KeyEvent(Key.D,false);
             await LandOn("ArchiveFloor", "archive approach retains its actual floor");
+            GD.Print("ENTRANCE_ARCHIVE_AIR_BRAKE_OK original_floor=true reverse_input=true new_pose_writes=0");
             await WalkTo(1350f, 100);
             await LandOn("FrozenLeftCatch", "ENTRANCE_ARCHIVE_EXIT_RED: real branch opening reaches the existing frozen catch");
             TestAssert.True(player.GlobalPosition.X is >= 1300f and <= 1380f,
                 "frozen branch departure keeps the whole unchanged capsule inside the sector");
             GD.Print($"ENTRANCE_ARCHIVE_FROZEN_EXIT_OK player={player.GlobalPosition} " +
                 $"health={player.GetNode<HealthComponent>("Health").CurrentHealth} position_writes=0 recovery=0");
+            if (frozenWallOnly)
+            {
+                // The original title-to-archive drive has landed next to the
+                // thin saved recess wall. Replacing/removing its blocker, even
+                // with another nearby collider, must not pass this pressure test.
+                using var frozenWall = new Task10OrdinaryWallSweepEvidence.Observer(tree, level, player, frozen: true);
+                async Task AdvanceOneFrozenStep()
+                {
+                    int before = frozenWall.FrozenSampleCount;
+                    for (int i = 0; i < 2 && frozenWall.FrozenSampleCount == before; i++)
+                    {
+                        await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+                        AssertEntranceStillLive();
+                    }
+                    TestAssert.Equal(before + 1, frozenWall.FrozenSampleCount,
+                        "the frozen pressure drive consumes one completed Motor sample");
+                }
+
+                KeyboardActionRuntimeTests.KeyEvent(Key.A, true);
+                for (int i = 0; i < 48 && !frozenWall.FrozenBlocked; i++) await AdvanceOneFrozenStep();
+                TestAssert.True(frozenWall.FrozenBlocked, "FROZEN_WALL_SWEEP_RED: real A must reach and sustain pressure on the original recess wall");
+                KeyboardActionRuntimeTests.KeyEvent(Key.A, false);
+                await AdvanceOneFrozenStep();
+                KeyboardActionRuntimeTests.KeyEvent(Key.D, true);
+                for (int i = 0; i < 20 && !frozenWall.FrozenRetreated; i++) await AdvanceOneFrozenStep();
+                KeyboardActionRuntimeTests.KeyEvent(Key.D, false);
+                AssertEntranceStillLive();
+                frozenWall.AssertFrozenComplete();
+                return;
+            }
             await Capture("06-archive-exit");
         }
         finally
@@ -388,6 +651,7 @@ public static partial class PrologueCanyonTraversalTests
             level.RecoveryRequested -= Requested;
             level.RecoveryCompleted -= Recovered;
             if (ceilingObserverAttached) tree.PhysicsFrame -= ObserveCeiling;
+            ordinaryWallObserver?.Dispose();
             tree.Paused = false;
             await TestSceneTeardown.FreeSceneAfterAudioDrain(tree, level);
         }
@@ -570,6 +834,39 @@ public static partial class PrologueCanyonTraversalTests
         {
             SendAction(InputActions.Jump, false);
             SendAction(InputActions.MoveRight, false);
+        }
+    }
+
+    internal static async Task Task10EntrancePlateApproach(SceneTree tree,CharacterBody2D player,
+        CanyonSpringboard pad,int budget)
+    {
+        var motor=player.GetNode<PlayerMotor>("Motor");
+        int jumps=motor.AcceptedJumpCount,dashes=motor.AcceptedDashCount;
+        ulong launches=pad.LaunchSequence;
+        var support=pad.GetNode<StaticBody2D>(pad.SupportBodyPath);
+        TestAssert.True(pad.HasLiveSensor && pad.GlobalPosition==new Vector2(228,636) &&
+            Task4HasFloorContact(player,support),"normal pilot begins on the current enabled authored plate's real support");
+        int frames=0;
+        try
+        {
+            SendAction(InputActions.MoveLeft,false);SendAction(InputActions.MoveRight,true);
+            for(;frames<budget && player.GlobalPosition.X<176;frames++) await PhysicsFrames(tree,1);
+            TestAssert.True(player.IsOnFloor() && player.GlobalPosition.X<195,
+                "normal pilot reaches the measured pre-plate ground-jump waypoint");
+            SendAction(InputActions.Jump,true);
+            for(int i=0;i<7 && frames<budget;i++,frames++) await PhysicsFrames(tree,1);
+            SendAction(InputActions.Jump,false);
+            for(;frames<budget && player.GlobalPosition.X<298;frames++) await PhysicsFrames(tree,1);
+            TestAssert.True(player.GlobalPosition.X is >=295 and <=310 && Task4HasFloorContact(player,support) &&
+                motor.AcceptedJumpCount==jumps+1 && motor.AcceptedDashCount==dashes && pad.LaunchSequence==launches,
+                $"normal plate bypass shares the original approach budget without a launch, warp or second air jump; " +
+                $"position={player.GlobalPosition} velocity={player.Velocity} frames={frames}/{budget}");
+            GD.Print($"TASK10_ENTRANCE_PLATE_APPROACH_OK budget={budget} ordinary_ground_jump=1 " +
+                "actual_space=true pad_launches=0 pose_writes=0 recovery_waiver=false");
+        }
+        finally
+        {
+            SendAction(InputActions.Jump,false);SendAction(InputActions.MoveRight,false);
         }
     }
 
@@ -878,10 +1175,141 @@ public static partial class PrologueCanyonTraversalTests
         }
     }
 
+    // Saved-sector component entry at v157's exact PRE-K stance. This does not
+    // run/replace the normal route's owner-dependent preparation or full tail.
+    // Only the original K and left-clearance interval are isolated here.
+    public static async Task RunAscentNineEntryOnly(SceneTree tree)
+    {
+        ActiveTree = tree; ReleaseAll();
+        var root = new RangedFairnessRecoveryProbe { Name = "AscentNineControlledEntry" };
+        KeyboardRouteInputDriver keyboard = null;
+        Action previousObserver = Task4FrameObserver;
+        try
+        {
+            var sector = GD.Load<PackedScene>("res://scenes/prologue/sectors/CanyonAscent.tscn")
+                .Instantiate<PrologueSector>();
+            sector.Position = CanyonWorldLayout.SectorBounds[PrologueSectorId.CanyonAscent].Position;
+            root.AddChild(sector);
+            foreach (KillZone zone in ShieldLaneNodes(sector).OfType<KillZone>())
+                zone.RoomControllerPath = zone.GetPathTo(root);
+            var source = sector.GetNode<StaticBody2D>("Gameplay/Collision/AscentGrip8");
+            var target = sector.GetNode<StaticBody2D>("Gameplay/Collision/AscentGrip9");
+            CharacterBody2D player = NewPlayer();
+            player.Position = new Vector2(4773.679f, 1603.9601f);
+            player.Velocity = Vector2.Zero;
+            player.GetNode<Camera2D>("Camera2D").Enabled = true;
+            root.AddChild(player); ActiveInputCanvas = player;
+            tree.Root.AddChild(root);
+            keyboard = KeyboardRouteInputDriver.Begin(player);
+            for (int setup = 0; setup < 8 && !player.IsOnFloor(); setup++) await PhysicsFrames(tree, 1);
+            var health = player.GetNode<HealthComponent>("Health");
+            var motor = player.GetNode<PlayerMotor>("Motor");
+            var claw = player.GetNode<MechanicalClawController>("MechanicalClaw");
+            TestAssert.True(player.IsOnFloor() && Task4HasFloorContact(player, source) &&
+                player.GlobalPosition.DistanceTo(new Vector2(4773.679f, 1603.9601f)) < 1f &&
+                player.Velocity.Length() <= 2f && health.CurrentHealth > 0,
+                "controlled Grip9 entry settles on exact saved Grip8 at the frozen original pre-K stance");
+            int hp = health.CurrentHealth, jumps = motor.AcceptedJumpCount, dashes = motor.AcceptedDashCount;
+            ulong nextCast = claw.CurrentFrame.NextCastId, start = Engine.GetPhysicsFrames();
+            Task4FrameObserver = () =>
+            {
+                previousObserver?.Invoke(); keyboard.ObserveFrame();
+                TestAssert.True(Engine.GetPhysicsFrames() - start <= 300UL &&
+                    health.CurrentHealth == hp && motor.AcceptedJumpCount == jumps &&
+                    motor.AcceptedDashCount == dashes && root.RecoveryRequests == 0 &&
+                    claw.CurrentFrame.NextCastId <= nextCast + 1UL,
+                    "controlled Grip9 preparation/transfer/tail share original300 without HP/action/recovery bypass");
+            };
+            GD.Print($"ASCENT_NINE_CONTROLLED_ENTRY physics={start} player={player.GlobalPosition} " +
+                $"source={source.GetPath()} target={target.GetPath()} hp={hp} " +
+                "saved_sector=true pre_tree_pose=true actors_omitted=true full_route=false live_pose_writes=0");
+            var post = sector.GetNode<StaticBody2D>("Gameplay/Collision/AscentGrip9Grip");
+            var surface = post.GetNode<GrappleSurface2D>("GrappleSurfaceProfile");
+            var shape = (RectangleShape2D)post.GetNode<CollisionShape2D>("Collision").Shape;
+            Vector2 aim = new(post.GlobalPosition.X, post.GlobalPosition.Y - shape.Size.Y / 2f + 10f);
+            Vector2 direction = PlayerKeyboardAimModel.ResolveDirection(aim - player.GlobalPosition, -1);
+            var preview = new MechanicalClawTargetResolver().ResolveKeyboard(player, direction);
+            TestAssert.True(preview.Surface == surface && preview.Snapshot.HasLineOfSight,
+                "controlled pre-K stance independently resolves the original saved Grip9");
+            var input = player.GetNode<PlayerInputReader>("Input");
+            SendAction(InputActions.SelectGrappleMode, true);
+            await PhysicsFrames(tree, 1);
+            SendAction(InputActions.SelectGrappleMode, false);
+            ulong sequence = input.CurrentFrameSequence;
+            ulong lastSequence = sequence;
+            int edges = keyboard.ClawEdges, acceptedSamples = 0;
+            try
+            {
+                SendMouse(MouseButton.Left, true, aim);
+                for (int frame = 0; frame < 8; frame++)
+                {
+                    await PhysicsFrames(tree, 1);
+                    if (input.CurrentFrameSequence > lastSequence)
+                    {
+                        lastSequence = input.CurrentFrameSequence;
+                        if (input.CurrentFrame.ClawPressed) acceptedSamples++;
+                    }
+                    if (acceptedSamples > 0 && claw.CurrentFrame.State is MechanicalClawState.Aim or
+                        MechanicalClawState.Windup or MechanicalClawState.Travel) break;
+                }
+                TestAssert.True(acceptedSamples == 1 && keyboard.ClawEdges == edges + 1 &&
+                    claw.CurrentTarget == surface && claw.CurrentFrame.Failure == MechanicalClawFailure.None,
+                    $"controlled interval accepts the single original physical K at Grip9; " +
+                    $"samples={acceptedSamples} edges={edges}->{keyboard.ClawEdges} sequence={sequence}->{input.CurrentFrameSequence} " +
+                    $"state={claw.CurrentFrame.State} failure={claw.CurrentFrame.Failure} " +
+                    $"target={claw.CurrentTarget?.GetPath()} expected={surface.GetPath()}");
+            }
+            finally { SendMouse(MouseButton.Left, false, aim); }
+            // Literal independently derived from saved Grip8 post's left face4748
+            // minus actual capsule radius20 minus original4px clearance margin.
+            const float clearX = 4724f;
+            SendAction(InputActions.MoveLeft, true);
+            for (int frame = 0; frame < 60 && player.GlobalPosition.X > clearX; frame++)
+            {
+                await PhysicsFrames(tree, 1);
+                TestAssert.True(player.IsOnFloor() && Task4HasFloorContact(player, source) &&
+                    health.CurrentHealth == hp && claw.CurrentFrame.Failure == MechanicalClawFailure.None &&
+                    claw.CurrentTarget == surface && claw.CurrentFrame.CastId == nextCast,
+                    "ascent clearance walk retains HP, original support and the single real admitted cast");
+                TestAssert.True(claw.CurrentFrame.State is MechanicalClawState.Windup or
+                    MechanicalClawState.Travel or MechanicalClawState.Latched,
+                    "controlled clearance must finish before original automatic Reel begins");
+            }
+            SendAction(InputActions.MoveLeft, false);
+            TestAssert.True(player.GlobalPosition.X <= clearX && claw.CurrentFrame.NextCastId == nextCast + 1UL,
+                "controlled interval clears the original post with one admitted cast");
+            GD.Print("THRUSTER_ASCENT_NINE_CONTROL_OK saved_sector=true original_command_interval=true " +
+                "pre_tree_pose=true actors_omitted=true full_preparation_and_tail=false one_cast=true " +
+                "hp_unchanged=true recovery_zero=true full_route=false human=false");
+        }
+        finally
+        {
+            Task4FrameObserver = previousObserver;
+            keyboard?.Dispose(); ReleaseAll(); ActiveInputCanvas = null;
+            if (GodotObject.IsInstanceValid(root)) root.Free();
+        }
+    }
+
     internal static async Task Task4ReachSupport(SceneTree tree, CharacterBody2D player, StaticBody2D support, bool clawRequired,
         bool keyboardShortcutSideBoost = false)
     {
-        var shape = (RectangleShape2D)support.GetNode<CollisionShape2D>("Collision").Shape;
+        var supportCollision = support.GetNode<CollisionShape2D>("Collision");
+        bool grip8RaisedLip = support.Name == "AscentGrip8" && clawRequired &&
+            KeyboardRouteInputDriver.Current != null;
+        if (grip8RaisedLip)
+        {
+            var lip = support.GetNodeOrNull<CollisionShape2D>("RaisedBaffle");
+            var visual = support.GetNodeOrNull<Polygon2D>("../../../VisualRoot/GameplayReadable/AscentGrip8/RaisedBaffle");
+            TestAssert.True(lip is { Disabled: false, Shape: RectangleShape2D lipRect } &&
+                lipRect.Size.IsEqualApprox(new Vector2(4, 21)) &&
+                supportCollision.Shape is RectangleShape2D floorRect &&
+                floorRect.Size.IsEqualApprox(new Vector2(240, 40)) &&
+                lip.Position.IsEqualApprox(new Vector2(-118, -29.5f)) &&
+                visual != null && visual.Visible && visual.GlobalPosition.IsEqualApprox(lip.GlobalPosition),
+                "Grip8 loads the saved matching baffle and retains the original platform rectangle");
+            GD.Print($"TASK4_GRIP8_SAVED_BAFFLE center={lip.GlobalPosition} physics={Engine.GetPhysicsFrames()}");
+        }
+        var shape = (RectangleShape2D)supportCollision.Shape;
         Vector2 center = support.GlobalPosition;
         float top = center.Y-shape.Size.Y/2;
         int direction = center.X>player.GlobalPosition.X ? 1 : -1;
@@ -897,6 +1325,16 @@ public static partial class PrologueCanyonTraversalTests
         bool steamTopReleaseObserved = false;
         bool steamTopPreviousFloor = player.IsOnFloor(), steamTopPreviousExact = false;
         BasinBoardingTickObserver steamTopObserver = null;
+        bool galleryFlightObservation = KeyboardRouteInputDriver.Current != null && !clawRequired &&
+            support.Name == "UpperGearGalleryOne";
+        int galleryJumpsAtIssue = sideMotor.AcceptedJumpCount, galleryDashesAtIssue = sideMotor.AcceptedDashCount;
+        int galleryObservedFrames = 0, galleryObservationFaults = 0;
+        bool galleryAcceptedJumpSeen = false;
+        Vector2 galleryFirstJumpPosition = Vector2.Zero, galleryFirstJumpVelocity = Vector2.Zero;
+        float galleryMinimumFeetY = float.PositiveInfinity;
+        bool galleryCeilingSeen = false;
+        Vector2 galleryCeilingPosition = Vector2.Zero, galleryCeilingVelocity = Vector2.Zero;
+        string galleryCeilingContacts = "not_observed";
         bool FullSteamTop()
         {
             var collision = player.GetNode<CollisionShape2D>("BodyCollider");
@@ -1129,12 +1567,33 @@ public static partial class PrologueCanyonTraversalTests
         ReleaseAll();
         // The saved Step8 is wholly inside Top at the same height. Native floor
         // caches can legitimately keep Step8 after that transfer; this is not a
-        // reason to manufacture a jump. Enter only with real Step8 support, then
-        // walk to Top's exclusive strip and still demand the original exact Top
-        // contact. All control and settling share the original 300-tick cap.
-        var coplanarSource = steamTopTrace && !FullSteamTop()
+        // reason to manufacture a jump. Either native contact can be the entry,
+        // but both must walk to the same Top-only return strip. Exact Top
+        // contact alone cannot authorize a later LandingGrip cast from its right edge.
+        // All control and settling share the original 300-tick cap.
+        var coplanarSource = steamTopTrace
             ? support.GetParent().GetNodeOrNull<StaticBody2D>("SteamRejoinStep8") : null;
-        if (coplanarSource != null && player.IsOnFloor() && Task4HasFloorContact(player, coplanarSource) &&
+        bool InSteamTopReturnStrip(float neutralDistance)
+        {
+            if (coplanarSource?.GetNodeOrNull<CollisionShape2D>("Collision") is not
+                    { Disabled: false, Shape: RectangleShape2D sourceRect } sourceBody ||
+                support.GetNodeOrNull<CollisionShape2D>("Collision") is not
+                    { Disabled: false, Shape: RectangleShape2D targetRect } targetBody ||
+                player.GetNodeOrNull<CollisionShape2D>("BodyCollider") is not
+                    { Disabled: false, Shape: CapsuleShape2D playerCapsule } playerBody ||
+                !sourceBody.GlobalTransform.X.IsEqualApprox(Vector2.Right) ||
+                !sourceBody.GlobalTransform.Y.IsEqualApprox(Vector2.Down) ||
+                !targetBody.GlobalTransform.X.IsEqualApprox(Vector2.Right) ||
+                !targetBody.GlobalTransform.Y.IsEqualApprox(Vector2.Down) ||
+                !playerBody.GlobalTransform.X.IsEqualApprox(Vector2.Right) ||
+                !playerBody.GlobalTransform.Y.IsEqualApprox(Vector2.Down)) return false;
+            float left = targetBody.GlobalPosition.X - targetRect.Size.X / 2f + playerCapsule.Radius + player.SafeMargin;
+            float right = sourceBody.GlobalPosition.X - sourceRect.Size.X / 2f - player.SafeMargin;
+            float bodyX = playerBody.GlobalPosition.X;
+            return Task4SteamTopReturnStripAccepted(bodyX, bodyX + neutralDistance, left, right);
+        }
+        if (coplanarSource != null && player.IsOnFloor() &&
+            (Task4HasFloorContact(player, coplanarSource) || FullSteamTop()) &&
             claw.CurrentFrame.State == MechanicalClawState.Idle && !sideMotor.IsDashing)
         {
             var sourceCollision = coplanarSource.GetNode<CollisionShape2D>("Collision");
@@ -1197,9 +1656,15 @@ public static partial class PrologueCanyonTraversalTests
                     !sideInput.CurrentFrame.JumpPressed && !sideInput.CurrentFrame.JumpHeld &&
                     !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D) &&
                     !Input.IsPhysicalKeyPressed(Key.Space);
+                if (settled)
+                {
+                    var stopped = FreeMotionForecast.Neutral(player.Velocity.X, true, sideMotor.MotionSettings,
+                        sideMotor.ThrusterState.Module, delta, 300 - waits, 2f);
+                    settled = stopped.SpeedThresholdReached && InSteamTopReturnStrip(stopped.NetDistance);
+                }
             }
             SendAction(InputActions.MoveLeft, false); SendAction(InputActions.MoveRight, false);
-            TestAssert.True(settled && FullSteamTop() && waits <= 300 &&
+            TestAssert.True(settled && FullSteamTop() && InSteamTopReturnStrip(0f) && waits <= 300 &&
                 Engine.GetPhysicsFrames() - startPhysics <= 300UL && sideHealth.CurrentHealth == hp &&
                 sideMotor.AcceptedJumpCount == jumps && sideMotor.AcceptedDashCount == dashes &&
                 claw.CurrentFrame.NextCastId == nextCast,
@@ -1208,6 +1673,7 @@ public static partial class PrologueCanyonTraversalTests
             SteamTopSnapshot("coplanar-ground-transfer-complete", "callsite-after-completed-cache");
             GD.Print($"TASK4_STEAM_TOP_COPLANAR_OK waits={waits}/300 physics={Engine.GetPhysicsFrames()} " +
                 $"stance_x={stanceX:R} speed_cap={speedCap:R} player={player.GlobalPosition} velocity={player.Velocity} " +
+                $"safe_left={safeLeft:R} exclusive_right={exclusiveRight:R} return_strip=true " +
                 $"hp={hp}->{sideHealth.CurrentHealth} jumps={jumps}->{sideMotor.AcceptedJumpCount} " +
                 $"dashes={dashes}->{sideMotor.AcceptedDashCount} next_cast={nextCast}->{claw.CurrentFrame.NextCastId} " +
                 "exact_top_contact=true full_capsule=true extra_jump=false ground_transfer_only=true");
@@ -1222,7 +1688,7 @@ public static partial class PrologueCanyonTraversalTests
                 sideMotor.ThrusterState.Module, 1d / Engine.PhysicsTicksPerSecond, 300, 2f);
             float finalX = player.GlobalPosition.X + neutral.NetDistance;
             var capsule = (CapsuleShape2D)player.GetNode<CollisionShape2D>("BodyCollider").Shape;
-            if (neutral.SpeedThresholdReached &&
+            if (neutral.SpeedThresholdReached && InSteamTopReturnStrip(neutral.NetDistance) &&
                 finalX - capsule.Radius >= center.X - shape.Size.X / 2f &&
                 finalX + capsule.Radius <= center.X + shape.Size.X / 2f)
             {
@@ -1241,7 +1707,8 @@ public static partial class PrologueCanyonTraversalTests
                     stable = Mathf.Abs(player.Velocity.X) <= 2f && Mathf.Abs(player.Velocity.Y) <= 2f &&
                         sideInput.CurrentFrame.MoveAxis == 0f && !sideInput.CurrentFrame.JumpPressed &&
                         !sideInput.CurrentFrame.JumpHeld && !Input.IsPhysicalKeyPressed(Key.A) &&
-                        !Input.IsPhysicalKeyPressed(Key.D) && !Input.IsPhysicalKeyPressed(Key.Space);
+                        !Input.IsPhysicalKeyPressed(Key.D) && !Input.IsPhysicalKeyPressed(Key.Space) &&
+                        InSteamTopReturnStrip(0f);
                 }
                 TestAssert.True(stable, "already-arrived Steam Top settles inside the original300 cap");
                 SteamTopSnapshot("already-arrived-neutral-complete", "callsite-pre-node");
@@ -1406,7 +1873,8 @@ public static partial class PrologueCanyonTraversalTests
             var previousGripSurface=previousGripPost?.GetNodeOrNull<GrappleSurface2D>("GrappleSurfaceProfile");
             bool previousPostBlocker=previousGripSurface!=null && resolution.Surface==previousGripSurface;
             bool previousBodyPostBlocker=false;
-            if(keyboardDriver!=null && mirroredAscent && ascentIndex>=4 && previousGripPost!=null &&
+            bool targetBodyCornerBlocker=false;
+            if(keyboardDriver!=null && mirroredAscent && ascentIndex>=3 && previousGripPost!=null &&
                 castPost!=null && resolution.Surface==castPost.GetNode<GrappleSurface2D>("GrappleSurfaceProfile") &&
                 player.IsOnFloor() && Task4HasFloorContact(player,previousAscent))
             {
@@ -1427,16 +1895,26 @@ public static partial class PrologueCanyonTraversalTests
                     resolution.Snapshot.SurfaceNormal,capsule,settings.MinimumRopeLength,settings.ArrivalMargin);
                 TestAssert.True(dock.IsFinite(),"body-path preparation has a finite predicted dock before the native query");
                 using var predictedContact=new KinematicCollision2D();
-                previousBodyPostBlocker=player.TestMove(player.GlobalTransform,dock-player.GlobalPosition,
-                    predictedContact,player.SafeMargin,false) && predictedContact.GetCollider()==previousGripPost;
-                if(previousBodyPostBlocker)
+                bool hit=player.TestMove(player.GlobalTransform,dock-player.GlobalPosition,
+                    predictedContact,player.SafeMargin,false);
+                previousBodyPostBlocker=ascentIndex>=4 && hit && predictedContact.GetCollider()==previousGripPost;
+                targetBodyCornerBlocker=ascentIndex==3 && hit && predictedContact.GetCollider()==support;
+                if(previousBodyPostBlocker || ascentIndex==3)
                     GD.Print($"TASK4_ASCENT_BODY_PREFLIGHT support={support.Name} player={player.GlobalPosition} " +
-                        $"dock={dock} blocker={previousGripPost.GetPath()} travel={predictedContact.GetTravel()} " +
+                        $"dock={dock} hit={hit} blocker={(hit ? (predictedContact.GetCollider() as Node)?.GetPath().ToString() : "none")} " +
+                        $"target_corner={targetBodyCornerBlocker} travel={predictedContact.GetTravel()} " +
                         $"normal={predictedContact.GetNormal()} body_moved=false");
             }
+            // The fly-claw's actual hit face can differ from the initial preview.
+            // Prepare the proven body corridor on the original support, not a new
+            // jump/cast budget or a change to production claw motion.
+            bool grip3SafeStance = keyboardDriver!=null && ascentIndex==3 && mirroredAscent &&
+                previousAscent!=null && castPost!=null && player.IsOnFloor() &&
+                Task4HasFloorContact(player,previousAscent) &&
+                resolution.Surface==castPost.GetNode<GrappleSurface2D>("GrappleSurfaceProfile");
             if(keyboardDriver!=null && gripPost!=null && mirroredAscent &&
                 (resolution.Surface==support.GetNode<GrappleSurface2D>("GrappleSurfaceProfile") ||
-                    previousPostBlocker || previousBodyPostBlocker))
+                    previousPostBlocker || previousBodyPostBlocker || targetBodyCornerBlocker || grip3SafeStance))
             {
                 var previous=previousAscent;
                 var blocker=resolution.Surface;
@@ -1572,7 +2050,12 @@ public static partial class PrologueCanyonTraversalTests
                         projectedStopX=player.GlobalPosition.X+stop.NetDistance;
                         stopForecastSteps=stop.Steps;
                         float braking=Mathf.Max(0,walkDirection*stop.NetDistance);
-                        if(walkDirection==0 || (stanceX-player.GlobalPosition.X)*walkDirection<=braking) break;
+                        bool forecastInSafeStance=grip3SafeStance &&
+                            Mathf.Abs(projectedStopX-stanceX)<=4f && direction*(projectedStopX-originLimit)<=0 &&
+                            projectedStopX-bodyHalf.X>=previousLeft+cornerMargin &&
+                            projectedStopX+bodyHalf.X<=previousRight-cornerMargin;
+                        if(walkDirection==0 || forecastInSafeStance ||
+                            (stanceX-player.GlobalPosition.X)*walkDirection<=braking) break;
                         await PreparationTick(); preparationFrames++;
                     }
                     SendAction(InputActions.MoveLeft,false); SendAction(InputActions.MoveRight,false);
@@ -1583,11 +2066,66 @@ public static partial class PrologueCanyonTraversalTests
                     PrepareGuard();
                     plannedDirection=PlayerKeyboardAimModel.ResolveDirection(aim-player.GlobalPosition,direction);
                     resolution=resolver.ResolveKeyboard(player,plannedDirection);
+                    if (ascentIndex == 8 && castPost != null &&
+                        OS.GetEnvironment("KNIGHT_GRIP8_PREVIEW_CLEAR_PROBE") == "1")
+                    {
+                        var intended = castPost.GetNode<GrappleSurface2D>("GrappleSurfaceProfile");
+                        bool IsSavedEcho(GrappleSurface2D surface) => surface is ThreadTarget2D &&
+                            surface.GetParent() is CharacterBody2D receiver &&
+                            receiver.IsInsideTree() && !receiver.IsQueuedForDeletion() &&
+                            receiver.GetNodeOrNull<ResidentSceneBinding>("ResidentBinding")?.Profile?.SubtypeId == "lost-echo" &&
+                            receiver.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is > 0;
+                        int wait = 0;
+                        while (resolution.Surface != intended && IsSavedEcho(resolution.Surface) &&
+                            Engine.GetPhysicsFrames() - preparationPhysics < 52)
+                        {
+                            if (wait == 0)
+                                GD.Print($"TASK4_GRIP8_RECEIVER_WAIT physics={Engine.GetPhysicsFrames()} " +
+                                    $"target={resolution.Surface.GetPath()} scene={resolution.Surface.GetParent().SceneFilePath} " +
+                                    $"player={player.GlobalPosition} anchor={resolution.Snapshot.WorldAnchor}");
+                            await PreparationTick();
+                            wait++;
+                            resolution = resolver.ResolveKeyboard(player, plannedDirection);
+                        }
+                        if (wait > 0)
+                        {
+                            GD.Print($"TASK4_GRIP8_RECEIVER_RESULT physics={Engine.GetPhysicsFrames()} waited={wait} " +
+                                $"cleared={resolution.Surface == intended} target={resolution.Surface?.GetPath()} hp={health.CurrentHealth}");
+                            if (resolution.Surface != intended && IsSavedEcho(resolution.Surface))
+                            {
+                                ulong receiverId = resolution.Surface.GetInstanceId();
+                                ulong gripId = intended.GetInstanceId();
+                                var audit = new MechanicalClawKeyboardTrace(256, gripId);
+                                var audited = resolver.ResolveKeyboard(player, plannedDirection, audit);
+                                TestAssert.Equal(resolution.Surface, audited.Surface,
+                                    "Grip8 observation must not change original resolution");
+                                for (int row = 0; row < audit.Count; row++)
+                                {
+                                    var fact = audit.Read(row);
+                                    if (fact.Stage is KeyboardClawTraceStage.Baseline or KeyboardClawTraceStage.Result ||
+                                        fact.Stage is KeyboardClawTraceStage.Candidate or KeyboardClawTraceStage.EnemyPromotion &&
+                                        (fact.Surface == receiverId || fact.Surface == gripId))
+                                        GD.Print($"TASK4_GRIP8_RESOLVER_AUDIT stage={fact.Stage} reason={fact.Reason} " +
+                                            $"surface={fact.Surface} baseline={fact.Baseline} angle={fact.Angle:R} " +
+                                            $"distance={fact.Distance:R} los={fact.LosEvaluated}/{fact.Los} path={fact.Path}");
+                                }
+                                GD.Print($"TASK4_GRIP8_RESOLVER_SUMMARY grip={gripId} receiver={receiverId} " +
+                                    $"count={audit.Count} dropped={audit.Dropped} faults={audit.Faults}");
+                                for (int octant = 0; octant < 8; octant++)
+                                {
+                                    var aimOctant = Vector2.Right.Rotated(octant * Mathf.Pi / 4f);
+                                    var preview = resolver.ResolveKeyboard(player, aimOctant);
+                                    GD.Print($"TASK4_GRIP8_OCTANT octant={octant} direction={aimOctant} " +
+                                        $"surface={preview.Surface?.GetPath()} intended={preview.Surface == intended}");
+                                }
+                            }
+                        }
+                    }
                     float cornerRise=(targetNear-direction*(bodyHalf.X+cornerMargin)-player.GlobalPosition.X)*direction*slope;
                     float clearance=targetTop-(player.GlobalPosition.Y-cornerRise+bodyHalf.Y);
                     GD.Print($"TASK4_KEYBOARD_STANCE support={support.Name} previous={previous.Name} from={from} to={player.GlobalPosition} " +
-                        $"blocker={(previousBodyPostBlocker ? previousGripPost.GetPath() : blocker.GetPath())} " +
-                        $"blocker_kind={(previousBodyPostBlocker ? "previous-body-post" : previousPostBlocker ? "previous-post" : "target-platform")} walk_direction={walkDirection} " +
+                        $"blocker={(targetBodyCornerBlocker ? support.GetPath() : previousBodyPostBlocker ? previousGripPost.GetPath() : blocker.GetPath())} " +
+                        $"blocker_kind={(grip3SafeStance ? "grip3-safe-stance" : previousBodyPostBlocker ? "previous-body-post" : previousPostBlocker ? "previous-post" : "target-platform")} walk_direction={walkDirection} " +
                         $"stance_x={stanceX} limit_x={originLimit} body_half={bodyHalf} bbox_margin={cornerMargin} " +
                         $"corner={new Vector2(targetNear,targetTop)} clearance={clearance} budget={preparationFrames}/{settleFrames} " +
                         $"predicted_stop_x={projectedStopX:R} forecast_steps={stopForecastSteps}/12 " +
@@ -1755,6 +2293,17 @@ public static partial class PrologueCanyonTraversalTests
         }
         else
         {
+            if (galleryFlightObservation)
+            {
+                galleryJumpsAtIssue = sideMotor.AcceptedJumpCount;
+                galleryDashesAtIssue = sideMotor.AcceptedDashCount;
+                GD.Print($"TASK4_GALLERY_LAUNCH boundary=before-original-input physics={Engine.GetPhysicsFrames()} " +
+                    $"sample={sideInput.CurrentFrameSequence} player={player.GlobalPosition} velocity={player.Velocity} " +
+                    $"target={support.GetPath()} center={center} size={shape.Size} top={top} floor={player.IsOnFloor()} " +
+                    $"rawADSpace={Input.IsPhysicalKeyPressed(Key.A)}/{Input.IsPhysicalKeyPressed(Key.D)}/{Input.IsPhysicalKeyPressed(Key.Space)} " +
+                    $"axis={sideInput.CurrentFrame.MoveAxis} jump={sideInput.CurrentFrame.JumpPressed}/{sideInput.CurrentFrame.JumpHeld} " +
+                    $"jumps={galleryJumpsAtIssue} dashes={galleryDashesAtIssue} observer_only=true");
+            }
             SendAction(InputActions.MoveLeft,direction<0); SendAction(InputActions.MoveRight,direction>0);
             if(top <= player.GlobalPosition.Y+36+4) SendAction(InputActions.Jump,true);
             SteamTopSnapshot("ordinary-input-issued", "callsite-before-sampling");
@@ -1768,6 +2317,37 @@ public static partial class PrologueCanyonTraversalTests
             SideGuard();
             await PhysicsFrames(tree,1);
             SideGuard();
+            if (galleryFlightObservation)
+            {
+                try
+                {
+                    galleryObservedFrames++;
+                    var bodyCollision = player.GetNode<CollisionShape2D>("BodyCollider");
+                    var capsule = (CapsuleShape2D)bodyCollision.Shape;
+                    galleryMinimumFeetY = Mathf.Min(galleryMinimumFeetY,
+                        bodyCollision.ToGlobal(new Vector2(0f, capsule.Height / 2f)).Y);
+                    if (!galleryAcceptedJumpSeen && sideMotor.AcceptedJumpCount > galleryJumpsAtIssue)
+                    {
+                        galleryAcceptedJumpSeen = true;
+                        galleryFirstJumpPosition = player.GlobalPosition;
+                        galleryFirstJumpVelocity = player.Velocity;
+                    }
+                    if (!galleryCeilingSeen && player.IsOnCeiling())
+                    {
+                        galleryCeilingSeen = true;
+                        galleryCeilingPosition = player.GlobalPosition;
+                        galleryCeilingVelocity = player.Velocity;
+                        var contacts = new List<string>(8);
+                        for (int index = 0; index < Math.Min(player.GetSlideCollisionCount(), 8); index++)
+                        {
+                            var contact = player.GetSlideCollision(index);
+                            contacts.Add($"{(contact.GetCollider() as Node)?.GetPath()}:{contact.GetNormal()}");
+                        }
+                        galleryCeilingContacts = string.Join(";",contacts);
+                    }
+                }
+                catch (Exception) { galleryObservationFaults++; }
+            }
             if (ascentWalkPending)
             {
                 TestAssert.True(sideHealth.CurrentHealth == sideHp && sideMotor.AcceptedJumpCount == sideJumps &&
@@ -1873,6 +2453,17 @@ public static partial class PrologueCanyonTraversalTests
                 SendAction(InputActions.Jump,false); sideJumpReleased=true;
             }
             if(verboseTrace && currentlyAttached && !releaseIssued) Task4DiagnosePull(player,claw,i);
+            if (support.Name == "AscentGrip3" && (i < 12 || i < 120 && i % 5 == 0))
+            {
+                var current = claw.CurrentFrame;
+                var contacts = new List<string>();
+                for (int hit = 0; hit < player.GetSlideCollisionCount(); hit++)
+                {
+                    var contact = player.GetSlideCollision(hit);
+                    contacts.Add($"{(contact.GetCollider() as Node)?.Name}:{contact.GetNormal()}");
+                }
+                GD.Print($"TASK4_GRIP3_TRACE i={i} player={player.GlobalPosition} velocity={player.Velocity} state={current.State} failure={current.Failure} cast={current.CastId} target={claw.CurrentTarget?.GetPath()} dock={current.DockPoint} arrived={current.Arrived} axis={sideInput.CurrentFrame.MoveAxis} contacts=[{string.Join(",", contacts)}]");
+            }
             if(currentlyAttached && castPost != null && !releaseIssued)
                 TestAssert.Equal(castPost.GetNode<GrappleSurface2D>("GrappleSurfaceProfile"),claw.CurrentTarget,
                     "shortcut pull hits its real above-shelf post, not an intervening platform corner");
@@ -1918,6 +2509,20 @@ public static partial class PrologueCanyonTraversalTests
             }
             if(departed && MathF.Abs(player.GlobalPosition.X-center.X)<=shape.Size.X/2-20 && Task4HasFloorContact(player,support))
             {
+                if (grip8RaisedLip)
+                {
+                    bool originalFloor = false;
+                    for (int contactIndex = 0; contactIndex < player.GetSlideCollisionCount(); contactIndex++)
+                    {
+                        var contact = player.GetSlideCollision(contactIndex);
+                        if (contact.GetCollider() != support || contact.GetNormal().Y >= -.99f) continue;
+                        uint owner = support.ShapeFindOwner(contact.GetColliderShapeIndex());
+                        originalFloor |= support.ShapeOwnerGetOwner(owner) == supportCollision;
+                    }
+                    TestAssert.True(originalFloor && Mathf.Abs(player.GlobalPosition.Y + 36f - top) < 1f,
+                        "Grip8 lands on the original floor shape, not on its raised baffle");
+                    GD.Print($"TASK4_GRIP8_RAISED_LIP_ORIGINAL_FLOOR player={player.GlobalPosition} top={top:R} physics={Engine.GetPhysicsFrames()}");
+                }
                 if(keyboardShortcutSideBoost) TestAssert.True(sideBoostReceipt && sideBoostRiseSamples==2 && !sideInvalidReceipt &&
                     sideAttached && sideArrived && sideKSamples==1 &&
                     KeyboardRouteInputDriver.Current.ClawEdges==sideEdges+1 &&
@@ -1959,6 +2564,40 @@ public static partial class PrologueCanyonTraversalTests
                 direction,"failed-before-original-throw",shortcut2996LastLocalFrame,
                 departed,ref shortcut2996Samples);
         SteamTopSnapshot("failed-before-original-throw", "callsite-pre-node");
+        if (galleryFlightObservation)
+        {
+            try
+            {
+                var bodyCollision = player.GetNode<CollisionShape2D>("BodyCollider");
+                var capsule = (CapsuleShape2D)bodyCollision.Shape;
+                Vector2 half = new(capsule.Radius, capsule.Height / 2f);
+                Rect2 bodyBounds = new Rect2(bodyCollision.ToGlobal(-half),
+                    bodyCollision.ToGlobal(half) - bodyCollision.ToGlobal(-half)).Abs();
+                var targetCollision = support.GetNode<CollisionShape2D>("Collision");
+                Rect2 targetBounds = new Rect2(targetCollision.ToGlobal(-shape.Size / 2f),
+                    targetCollision.ToGlobal(shape.Size / 2f) - targetCollision.ToGlobal(-shape.Size / 2f)).Abs();
+                var contacts = new List<string>(8);
+                for (int index = 0; index < Math.Min(player.GetSlideCollisionCount(), 8); index++)
+                {
+                    var contact = player.GetSlideCollision(index);
+                    contacts.Add($"{(contact.GetCollider() as Node)?.GetPath()}:{contact.GetNormal()}");
+                }
+                GD.Print($"TASK4_GALLERY_FAILURE boundary=before-original-throw-before-clear physics={Engine.GetPhysicsFrames()} " +
+                    $"sample={sideInput.CurrentFrameSequence} frames={galleryObservedFrames}/300 departed={departed} " +
+                    $"player={player.GlobalPosition} velocity={player.Velocity} body={bodyBounds} target={targetBounds} " +
+                    $"floor={player.IsOnFloor()} wall={player.IsOnWall()} exact_target={Task4HasFloorContact(player,support)} " +
+                    $"rawADSpace={Input.IsPhysicalKeyPressed(Key.A)}/{Input.IsPhysicalKeyPressed(Key.D)}/{Input.IsPhysicalKeyPressed(Key.Space)} " +
+                    $"axis={sideInput.CurrentFrame.MoveAxis} jump={sideInput.CurrentFrame.JumpPressed}/{sideInput.CurrentFrame.JumpHeld} " +
+                    $"jumps={galleryJumpsAtIssue}->{sideMotor.AcceptedJumpCount} dashes={galleryDashesAtIssue}->{sideMotor.AcceptedDashCount} " +
+                    $"first_jump_seen={galleryAcceptedJumpSeen} first_jump_position={galleryFirstJumpPosition} " +
+                    $"first_jump_velocity={galleryFirstJumpVelocity} minimum_feet_y={galleryMinimumFeetY} " +
+                    $"ceiling_seen={galleryCeilingSeen} ceiling_position={galleryCeilingPosition} " +
+                    $"ceiling_velocity={galleryCeilingVelocity} ceiling_contacts=[{galleryCeilingContacts}] " +
+                    $"contacts=[{string.Join(";",contacts)}] observation_faults={galleryObservationFaults} observer_only=true");
+            }
+            catch (Exception error)
+            { GD.Print($"TASK4_GALLERY_OBSERVATION_FAULT type={error.GetType().Name} original_failure_preserved=true"); }
+        }
         throw new InvalidOperationException($"Actual input/capsule failed support {support.Name}: position={player.GlobalPosition} state={claw.CurrentFrame.State} failure={claw.CurrentFrame.Failure}");
         }
         finally
@@ -2909,7 +3548,7 @@ public static partial class PrologueCanyonTraversalTests
                              "ShortcutStep3796", new Rect2(3840, 3796, 150, 32), false),
                          (PrologueSectorId.CanyonAscent, new Vector2(3915, 3547), new Vector2(3915, 3548),
                              "LiftEntryFloor", new Rect2(3840, 3584, 160, 16), false),
-                         (PrologueSectorId.CanyonAscent, new Vector2(4780, 1283), new Vector2(4780, 1284),
+                         (PrologueSectorId.CanyonAscent, new Vector2(4870, 1283), new Vector2(4870, 1284),
                              "AscentFinalCatch", new Rect2(4660, 1320, 240, 40), true)
                      })
             {
@@ -2926,6 +3565,7 @@ public static partial class PrologueCanyonTraversalTests
                 {
                     await PhysicsFrames(tree, 8);
                     await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                    await BasinAscentCameraRuntimeTests.WaitForPlaying(tree, level);
                     Camera2D camera = player.GetNode<Camera2D>("Camera2D");
                     CollisionShape2D collider = player.GetNode<CollisionShape2D>("BodyCollider");
                     TestAssert.True(collider.Shape is CapsuleShape2D,

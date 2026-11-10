@@ -73,7 +73,10 @@ public partial class PrologueMinimapView : Control
         _boundaryMaterial.SetShaderParameter("outer_feather", EffectiveOuterFeather);
         _image = Image.CreateFromData(CacheWidth, CacheHeight, false, Image.Format.R8, _pixels);
         _texture = ImageTexture.CreateFromImage(_image); TextureCreationCount++;
-        _maskMaterial.SetShaderParameter("known_mask", _texture);
+        // The object-to-Variant argument owns a native reference independently
+        // of both this wrapper and the material. Do not leave it to the GC.
+        using (Variant maskArgument = Variant.From(_texture))
+            _maskMaterial.SetShaderParameter("known_mask", maskArgument);
         _maskMaterial.SetShaderParameter("space_color", KnownSpaceColor);
         _boundaryMaterial.SetShaderParameter("boundary_color", KnownBoundaryColor);
         _surface = new ColorRect { Name = "KnownTerrain", MouseFilter = MouseFilterEnum.Ignore,
@@ -84,6 +87,27 @@ public partial class PrologueMinimapView : Control
             ShowBehindParent = true, View = this };
         AddChild(_boundaryLayer);
         Visible = false;
+    }
+
+    public override void _Notification(int what)
+    {
+        if (what != NotificationPredelete) return;
+        // These four wrappers belong to this view, not to the resource cache.
+        // Free them at final deletion only: an ExitTree may be a temporary
+        // reparent, and Ready does not run again on ordinary reentry.
+        if (GodotObject.IsInstanceValid(_surface)) _surface.Material = null;
+        if (GodotObject.IsInstanceValid(_boundaryLayer))
+        {
+            _boundaryLayer.Material = null;
+            _boundaryLayer.View = null;
+        }
+        // Unbind the material's texture reference before disposing our wrapper.
+        _maskMaterial?.SetShaderParameter("known_mask", default(Variant));
+        _maskMaterial?.Dispose(); _maskMaterial = null;
+        _boundaryMaterial?.Dispose(); _boundaryMaterial = null;
+        _texture?.Dispose(); _texture = null;
+        _image?.Dispose(); _image = null;
+        // The GD.Load shader is borrowed/shared and must not be disposed here.
     }
 
     public void ConfigureCheckpoints(ReadOnlySpan<MinimapCheckpointDescriptor> descriptors)
@@ -107,14 +131,18 @@ public partial class PrologueMinimapView : Control
         if (changed)
         {
             _model = model;
-            if (!ReferenceEquals(_catalog, model.Catalog)) { _catalog = model.Catalog; BuildBoundaryDirectory(); }
+            if (!ReferenceEquals(_catalog, model.Catalog))
+            {
+                _catalog = model.Catalog; BuildBoundaryDirectory();
+                _maskMaterial.SetShaderParameter("cell_size", (float)_catalog.CellSize);
+            }
             _hasCenter = false;
         }
         _center = !_hasCenter ? actorWorld : _center.Lerp(actorWorld, (float)(1 - Math.Exp(-12 * Math.Max(0, delta))));
         if (!MinimapTerrainCatalog.Finite(_center)) { ClearPresentation(); return; }
         _actor = actorWorld; _hasCenter = true; _facing = facing.LengthSquared() > .001f ? facing.Normalized() : _facing;
         Vector2 worldSize = new(WorldViewWidth, WorldViewWidth * Size.Y / Size.X);
-        if (worldSize.Y > CacheHeight * 8 - 32) { ClearPresentation(); return; }
+        if (worldSize.Y > CacheHeight * _catalog.CellSize - 32) { ClearPresentation(); return; }
         // Preserve ordinary smoothing, but a discontinuous recovery/mount jump must
         // not leave the actor unreadable outside the complete drawable marker area.
         Vector2 smoothedActor = Size * .5f + (_actor - _center) * Size / worldSize;
@@ -154,7 +182,9 @@ public partial class PrologueMinimapView : Control
 
     private void BuildBoundaryDirectory()
     {
-        _bucketColumns = (_catalog.Columns + 7) / 8; _bucketRows = (_catalog.Rows + 7) / 8;
+        // Buckets index exact boundary geometry in world units, not free cells.
+        _bucketColumns = (int)Math.Ceiling(_catalog.WorldBounds.Size.X / 64d);
+        _bucketRows = (int)Math.Ceiling(_catalog.WorldBounds.Size.Y / 64d);
         _heads = new int[_bucketColumns * _bucketRows]; Array.Fill(_heads, -1);
         _next = new int[_catalog.BoundaryCount];
         for (int id = 0; id < _next.Length; id++)
@@ -170,10 +200,11 @@ public partial class PrologueMinimapView : Control
     private void RebuildCache(string reason)
     {
         Vector2 lattice = _catalog.WorldBounds.Position;
-        Vector2 origin = lattice + new Vector2(Mathf.Floor((_center.X - lattice.X) / 8) - CacheWidth / 2,
-            Mathf.Floor((_center.Y - lattice.Y) / 8) - CacheHeight / 2) * 8;
-        CacheWorldRect = new Rect2(origin, new Vector2(CacheWidth, CacheHeight) * 8);
-        int col = (int)Math.Round((origin.X - lattice.X) / 8), row = (int)Math.Round((origin.Y - lattice.Y) / 8);
+        int cellSize = _catalog.CellSize;
+        Vector2 origin = lattice + new Vector2(Mathf.Floor((_center.X - lattice.X) / cellSize) - CacheWidth / 2,
+            Mathf.Floor((_center.Y - lattice.Y) / cellSize) - CacheHeight / 2) * cellSize;
+        CacheWorldRect = new Rect2(origin, new Vector2(CacheWidth, CacheHeight) * cellSize);
+        int col = (int)Math.Round((origin.X - lattice.X) / cellSize), row = (int)Math.Round((origin.Y - lattice.Y) / cellSize);
         for (int y = 0; y < CacheHeight; y++) for (int x = 0; x < CacheWidth; x++)
         {
             int gx = col + x, gy = row + y;
@@ -230,7 +261,7 @@ public partial class PrologueMinimapView : Control
         foreach (var checkpoint in _checkpoints)
         {
             Vector2 offset = checkpoint.WorldPosition - _catalog.WorldBounds.Position;
-            int x = (int)Math.Floor(offset.X / 8), y = (int)Math.Floor(offset.Y / 8);
+            int x = (int)Math.Floor(offset.X / _catalog.CellSize), y = (int)Math.Floor(offset.Y / _catalog.CellSize);
             if (x < 0 || y < 0 || x >= _catalog.Columns || y >= _catalog.Rows ||
                 !_model.IsCellExplored(y * _catalog.Columns + x)) continue;
             DiscoveredCheckpointCount++;

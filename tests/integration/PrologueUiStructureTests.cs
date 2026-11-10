@@ -21,7 +21,7 @@ public static class PrologueUiStructureTests
             Require<PrologueControlsView>(root, "ControlsView");
             foreach (string row in new[]
                      { "AttackMode", "GrappleMode", "Shield", "Loadout" })
-                Require<Label>(root, $"ControlsView/Panel/Rows/{row}");
+                Require<Label>(root, $"ControlsView/Panel/Scroll/Rows/{row}");
             Panel mainPanel = Require<Panel>(root, "MainMenu/Panel");
             TestAssert.True(mainPanel.Theme != null, "formal main menu has the production theme");
             TestAssert.True(mainPanel.AnchorLeft == 0.5f && mainPanel.AnchorRight == 0.5f &&

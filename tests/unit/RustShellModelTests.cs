@@ -8,6 +8,7 @@ public static class RustShellModelTests
 {
     public static void Run()
     {
+        ReachQualificationOnlyControlsNewWarnings();
         TuningRejectsInvalidRangesDurationsAndFirstLevelDamage();
         IdleRemainsStillOutsideDetectionRange();
         ChaseMovesTowardVisiblePlayer();
@@ -17,6 +18,38 @@ public static class RustShellModelTests
         RecoverPreventsImmediateSecondAttack();
         ThreadPullCausesPointTwoFiveSecondStun();
         DeadOverridesEveryOtherState();
+    }
+
+    private static void ReachQualificationOnlyControlsNewWarnings()
+    {
+        foreach (float side in new[] { -1f, 1f })
+        {
+            var model = new RustShellModel();
+            var approach = model.Step(side * 70, true, false, false, 0, canBeginStrike: false);
+            TestAssert.True(approach.State == RustShellState.Chase && approach.MoveDirection == side &&
+                approach.AttackTimeline.AttackId == 0,
+                "RUST_REACH_INITIATION_RED: an unreachable start must keep approaching without spending attack identity");
+            var warning = model.Step(side * 65, true, false, false, 0, canBeginStrike: true);
+            TestAssert.True(warning.State == RustShellState.Telegraph && warning.AttackTimeline.AttackId == 1,
+                "RUST_REACH: qualified approach starts the original complete warning");
+            var active = model.Step(side * 300, true, false, false, .65, canBeginStrike: false);
+            TestAssert.True(active.State == RustShellState.Attack && active.AttackActive && active.AttackTimeline.AttackId == 1,
+                "RUST_REACH: retreat does not cancel a committed warning or create a new identity");
+            var recovery = model.Step(side * 300, true, false, false, .14, canBeginStrike: false);
+            TestAssert.True(recovery.State == RustShellState.Recover && recovery.AttackTimeline.AttackId == 1,
+                "RUST_REACH: committed attack retains original recovery");
+            var reapproach = model.Step(side * 70, true, false, false, .65, canBeginStrike: false);
+            TestAssert.True(reapproach.State == RustShellState.Chase && reapproach.MoveDirection == side,
+                "RUST_REACH: recovery must not restart another unreachable warning");
+            var next = model.Step(side * 69, true, false, false, 0, canBeginStrike: true);
+            TestAssert.True(next.State == RustShellState.Telegraph && next.AttackTimeline.AttackId == 2,
+                "RUST_REACH: new permitted warning has fresh identity");
+            var capped = new RustShellModel().Step(side * 71, true, false, false, 0, canBeginStrike: true);
+            TestAssert.Equal(RustShellState.Chase, capped.State, "RUST_REACH: geometry cannot extend original70 upper cap");
+        }
+        TestAssert.Equal(RustShellState.Telegraph,
+            new RustShellModel().Step(0, true, false, false, 0, canBeginStrike: true).State,
+            "RUST_REACH: very-close accepted starts retain the original model contract");
     }
 
     private static void IdleRemainsStillOutsideDetectionRange()

@@ -9,12 +9,17 @@ namespace Knight.Enemies.Skitter;
 
 public partial class CanyonSkitter : CharacterBody2D, IThreadPullReceiver, IEncounterActor
 {
+#if REFCOUNTED_FATAL_IDENTITY
+    [Export] public CanyonSkitterSettings Settings { get; set; } = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveOriginalDefault(new CanyonSkitterSettings(), "scripts/enemies/skitter/CanyonSkitter.cs:Settings");
+#else
     [Export] public CanyonSkitterSettings Settings { get; set; } = new();
+#endif
     public event Action Defeated;
     public event Action<AttackPresentationFrame> AttackFrameChanged;
     public event Action<PresentationCue> PresentationCueRequested;
     public event Action<CanyonSkitterFrame> FrameChanged;
     public CanyonSkitterFrame CurrentFrame { get; private set; }
+    internal float AttackTelegraphSeconds => _model?.AttackTelegraphSeconds ?? 0f;
 
     private CanyonSkitterModel _model;
     private HealthComponent _health;
@@ -267,22 +272,28 @@ public partial class CanyonSkitter : CharacterBody2D, IThreadPullReceiver, IEnco
 
     private bool WorldUnder(Vector2 point, float reach)
     {
-        var query = PhysicsRayQueryParameters2D.Create(point + new Vector2(0f, -4f),
+        using var query = PhysicsRayQueryParameters2D.Create(point + new Vector2(0f, -4f),
             point + new Vector2(0f, reach), CombatCollisionLayers.World);
         query.CollideWithAreas = false;
         query.CollideWithBodies = true;
-        query.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
-        return GetWorld2D().DirectSpaceState.IntersectRay(query).Count > 0;
+        var exclusions = new Godot.Collections.Array<Rid> { GetRid() };
+        using Godot.Collections.Array exclusionBacking = (Godot.Collections.Array)exclusions;
+        query.Exclude = exclusions;
+        using Godot.Collections.Dictionary hit = GetWorld2D().DirectSpaceState.IntersectRay(query);
+        return hit.Count > 0;
     }
 
     private bool HasClearWorldPath(Vector2 from, Vector2 to)
     {
         if (!Finite(from) || !Finite(to)) return false;
-        var query = PhysicsRayQueryParameters2D.Create(from, to, CombatCollisionLayers.World);
+        using var query = PhysicsRayQueryParameters2D.Create(from, to, CombatCollisionLayers.World);
         query.CollideWithAreas = false;
         query.CollideWithBodies = true;
-        query.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
-        return GetWorld2D().DirectSpaceState.IntersectRay(query).Count == 0;
+        var exclusions = new Godot.Collections.Array<Rid> { GetRid() };
+        using Godot.Collections.Array exclusionBacking = (Godot.Collections.Array)exclusions;
+        query.Exclude = exclusions;
+        using Godot.Collections.Dictionary hit = GetWorld2D().DirectSpaceState.IntersectRay(query);
+        return hit.Count == 0;
     }
 
     private bool CanHit(Hurtbox hurtbox)

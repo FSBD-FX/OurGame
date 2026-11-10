@@ -28,12 +28,15 @@ public partial class MinimapTerrainCatalog : Resource
                 throw new ArgumentException("Invalid serialized catalog length.");
             using var stream = new MemoryStream(value, false);
             using var reader = new BinaryReader(stream);
-            if (reader.ReadInt32() != 1) throw new ArgumentException("Invalid catalog schema.");
+            int schema = reader.ReadInt32();
+            if (schema is not (1 or 2)) throw new ArgumentException("Invalid catalog schema.");
+            int cellSize = schema == 1 ? 8 : reader.ReadInt32();
+            if (schema == 2 && cellSize != 16) throw new ArgumentException("Invalid catalog grid.");
             Rect2 bounds = new(ReadVector(reader), ReadVector(reader));
             int revisionLength = reader.ReadInt32(), solidCount = reader.ReadInt32(), boundaryCount = reader.ReadInt32();
             if (revisionLength is < 1 or > 1024 || solidCount < 0 || solidCount > MaximumBits ||
                 boundaryCount < 0 || boundaryCount > MaximumBits ||
-                stream.Length != 32L + revisionLength + 40L * solidCount + 28L * boundaryCount)
+                stream.Length != (schema == 1 ? 32L : 36L) + revisionLength + 40L * solidCount + 28L * boundaryCount)
                 throw new ArgumentException("Invalid serialized catalog counts.");
             string revision = System.Text.Encoding.UTF8.GetString(reader.ReadBytes(revisionLength));
             var solids = new MinimapSolid[solidCount];
@@ -43,7 +46,7 @@ public partial class MinimapTerrainCatalog : Resource
                     new Rect2(ReadVector(reader), ReadVector(reader)));
             for (int i = 0; i < boundaries.Length; i++)
                 boundaries[i] = new(reader.ReadInt32(), ReadVector(reader), ReadVector(reader), ReadVector(reader));
-            Configure(bounds, revision, solids, boundaries);
+            Configure(bounds, revision, solids, boundaries, cellSize);
             _serialized = (byte[])value.Clone();
         }
     }
@@ -52,17 +55,20 @@ public partial class MinimapTerrainCatalog : Resource
     public int Columns { get; private set; }
     public int Rows { get; private set; }
     public int CellCount { get; private set; }
+    public int CellSize { get; private set; } = 8;
     public int SolidCount => _solids.Length;
     public int BoundaryCount => _boundaries.Length;
     public MinimapTerrainCatalog() { }
     public MinimapTerrainCatalog(Rect2 bounds, string revision,
-        ReadOnlySpan<MinimapSolid> solids = default, ReadOnlySpan<MinimapBoundary> boundaries = default)
+        ReadOnlySpan<MinimapSolid> solids = default, ReadOnlySpan<MinimapBoundary> boundaries = default, int cellSize = 8)
     {
-        Configure(bounds, revision, solids, boundaries);
+        Configure(bounds, revision, solids, boundaries, cellSize);
         using var stream = new MemoryStream();
         using var writer = new BinaryWriter(stream);
         byte[] revisionBytes = System.Text.Encoding.UTF8.GetBytes(revision);
-        writer.Write(1); WriteVector(writer, bounds.Position); WriteVector(writer, bounds.Size);
+        writer.Write(cellSize == 8 ? 1 : 2);
+        if (cellSize != 8) writer.Write(cellSize);
+        WriteVector(writer, bounds.Position); WriteVector(writer, bounds.Size);
         writer.Write(revisionBytes.Length); writer.Write(solids.Length); writer.Write(boundaries.Length); writer.Write(revisionBytes);
         foreach (MinimapSolid solid in solids)
         {
@@ -76,12 +82,12 @@ public partial class MinimapTerrainCatalog : Resource
         _serialized = stream.ToArray();
     }
     private void Configure(Rect2 bounds, string revision,
-        ReadOnlySpan<MinimapSolid> solids, ReadOnlySpan<MinimapBoundary> boundaries)
+        ReadOnlySpan<MinimapSolid> solids, ReadOnlySpan<MinimapBoundary> boundaries, int cellSize)
     {
         if (!Valid(bounds) || string.IsNullOrWhiteSpace(revision) || System.Text.Encoding.UTF8.GetByteCount(revision) > 1024 ||
-            bounds.Size.X % 8 != 0 || bounds.Size.Y % 8 != 0 ||
-            bounds.Size.X / 8 > MaximumBits || bounds.Size.Y / 8 > MaximumBits ||
-            (double)(bounds.Size.X / 8) * (bounds.Size.Y / 8) > MaximumBits ||
+            cellSize is not (8 or 16) || bounds.Size.X % cellSize != 0 || bounds.Size.Y % cellSize != 0 ||
+            bounds.Size.X / cellSize > MaximumBits || bounds.Size.Y / cellSize > MaximumBits ||
+            (double)(bounds.Size.X / cellSize) * (bounds.Size.Y / cellSize) > MaximumBits ||
             boundaries.Length > MaximumBits || solids.Length > MaximumBits)
             throw new ArgumentException("Invalid or over-capacity minimap catalog.");
         foreach (MinimapSolid solid in solids)
@@ -99,7 +105,8 @@ public partial class MinimapTerrainCatalog : Resource
         }
         _solids = solids.ToArray(); _boundaries = boundaries.ToArray();
         WorldBounds = bounds; Revision = revision;
-        Columns = (int)(bounds.Size.X / 8); Rows = (int)(bounds.Size.Y / 8);
+        CellSize = cellSize;
+        Columns = (int)(bounds.Size.X / cellSize); Rows = (int)(bounds.Size.Y / cellSize);
         CellCount = Columns * Rows;
     }
     private static Vector2 ReadVector(BinaryReader reader) => new(reader.ReadSingle(), reader.ReadSingle());
@@ -107,7 +114,7 @@ public partial class MinimapTerrainCatalog : Resource
     public Rect2 Cell(int id)
     {
         if ((uint)id >= (uint)CellCount) throw new ArgumentOutOfRangeException(nameof(id));
-        return new Rect2(WorldBounds.Position + new Vector2(id % Columns * 8, id / Columns * 8), new Vector2(8, 8));
+        return new Rect2(WorldBounds.Position + new Vector2(id % Columns * CellSize, id / Columns * CellSize), new Vector2(CellSize, CellSize));
     }
     public MinimapSolid Solid(int id) => (uint)id < (uint)_solids.Length ? _solids[id] :
         throw new ArgumentOutOfRangeException(nameof(id));

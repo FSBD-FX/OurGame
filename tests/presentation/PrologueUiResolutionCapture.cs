@@ -83,7 +83,7 @@ public partial class PrologueUiResolutionCapture : SceneTree
         await Frames(1);
         Control settingsPanel = ui.GetNode<Control>("SettingsMenu/Panel");
         AssertCenteredAndSafe(settingsPanel, LogicalResolution, "settings panel");
-        Control settingsRows = settingsPanel.GetNode<Control>("Rows");
+        Control settingsRows = settingsPanel.GetNode<Control>("Scroll/Rows");
         Control settingsBack = settingsPanel.GetNode<Control>("Back");
         foreach (Node child in settingsRows.GetChildren())
         {

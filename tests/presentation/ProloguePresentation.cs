@@ -24,6 +24,51 @@ using Knight.Tests.Integration;
 
 namespace Knight.Tests.Presentation;
 
+internal readonly record struct PlayerArmMotionPoint(ulong ArmId, string Slot, Vector2 Position);
+
+internal sealed class PlayerArmMotionProbe
+{
+    private PlayerArmMotionPoint[] _previous;
+    private ulong _visualId;
+    private int _frame;
+
+    public PlayerArmMotionPoint[] Observe(PlayerFormalVisual visual, int frame)
+    {
+        ulong visualId = visual.GetInstanceId();
+        if (frame < 0 || _previous != null && _visualId == visualId && frame <= _frame)
+            throw new InvalidOperationException("arm Draw motion requires increasing sample frames");
+        var current = new PlayerArmMotionPoint[4];
+        int index = 0;
+        foreach (string name in new[] { "NearArm", "FarArm" })
+        {
+            var arm = visual.GetNode<PlayerFormalLayer>(name);
+            // Formal-parent space, like the weapon bitmap channel: retain actual
+            // articulation but exclude character travel/root-facing from jitter.
+            current[index++] = new(arm.GetInstanceId(), name + "/Elbow", arm.Transform * arm.ArmElbowLocal);
+            current[index++] = new(arm.GetInstanceId(), name + "/Wrist", arm.Transform * arm.ArmWristLocal);
+        }
+        for (index = 0; index < current.Length; index++)
+        {
+            PlayerArmMotionPoint point = current[index];
+            if (!float.IsFinite(point.Position.X) || !float.IsFinite(point.Position.Y))
+                throw new InvalidOperationException("arm Draw motion contains a non-finite point: " + point.Slot);
+            if (_previous != null && _visualId == visualId && frame == _frame + 1 &&
+                point.ArmId == _previous[index].ArmId)
+            {
+                float displacement = point.Position.DistanceTo(_previous[index].Position);
+                if (displacement > 32f)
+                    throw new InvalidOperationException($"arm Draw motion exceeds original60FPS32 budget: {point.Slot} delta={displacement}");
+            }
+        }
+        // Commit only after all four channels pass; a failed sample cannot
+        // overwrite an earlier baseline or retain a scene/native resource.
+        _previous = current;
+        _visualId = visualId;
+        _frame = frame;
+        return current;
+    }
+}
+
 public partial class ProloguePresentation : SceneTree
 {
     // Keep the real completion card on screen for two seconds after the Boss has
@@ -114,6 +159,7 @@ public partial class ProloguePresentation : SceneTree
     private int _threadHitCount;
     private int _threadFailureCount;
     private readonly Dictionary<string, MotionSample> _previousMotion = new();
+    private readonly PlayerArmMotionProbe _playerArmMotion = new();
     private readonly Dictionary<string, MotionEvidence> _motionEvidence = new();
     private readonly Dictionary<string, int> _targetMarkerBoundsSamples = new();
     private readonly Dictionary<EnemyAttackKind, BossGuidanceEvidence> _bossGuidanceEvidence = new();
@@ -1844,18 +1890,60 @@ public partial class ProloguePresentation : SceneTree
             ObserveNodeMotion(transition, $"player/{slot}", part,
                 transition.Length > 0 && slot == "Weapon");
         }
+        var weapon = visual.GetNode<PlayerFormalLayer>("Weapon");
+        ObserveMotionSample(transition, $"{weapon.GetInstanceId()}/player/WeaponBitmap",
+            new MotionSample(_frame, transition, PlayerWeaponMotionOrigin(visual), weapon.Rotation, weapon.Scale));
+        foreach (PlayerArmMotionPoint point in _playerArmMotion.Observe(visual, _frame))
+            ObserveMotionSample(transition, $"{point.ArmId}/player/{point.Slot}",
+                new MotionSample(_frame, transition, point.Position, 0f, Vector2.One));
         if (transition.Length > 0)
         {
             Vector2 heading = visual.GetNode<Node2D>("Body").ToGlobal(new Vector2(10f, -19f));
             if (_forceVisibilityBoundsFailure && _frame == 300)
                 heading += new Vector2(5000f, 0f);
             AssertWorldGeometryWithinBounds(transition, "player/feet-heading-weapon",
-                visual.GetNode<Node2D>("NearLeg").ToGlobal(new Vector2(0f, 22f)),
-                visual.GetNode<Node2D>("FarLeg").ToGlobal(new Vector2(0f, 20f)),
-                heading,
-                visual.GetNode<Node2D>("Weapon").ToGlobal(new Vector2(-2f, 0f)),
-                visual.GetNode<Node2D>("Weapon").ToGlobal(new Vector2(45f, -6f)));
+                PlayerMotionGeometry(visual, heading));
         }
+    }
+
+    // The observer must judge the image actually drawn, not the removed line's
+    // endpoints. Draw-owned arm chains also move without changing slot matrices.
+    // Keep the original seven points stable, then include all arm bounds corners.
+    internal static Vector2[] PlayerMotionGeometry(PlayerFormalVisual visual, Vector2 heading)
+    {
+        var weapon = visual.GetNode<PlayerFormalLayer>("Weapon");
+        Rect2 rect = weapon.WeaponDrawRect;
+        var near = visual.GetNode<PlayerFormalLayer>("NearArm");
+        var far = visual.GetNode<PlayerFormalLayer>("FarArm");
+        Rect2 nearBounds = near.ArmDrawRect, farBounds = far.ArmDrawRect;
+        var nearLeg=visual.GetNode<PlayerFormalLayer>("NearLeg");
+        var farLeg=visual.GetNode<PlayerFormalLayer>("FarLeg");
+        return
+        [
+            nearLeg.ToGlobal(nearLeg.LegSoleLocal),
+            farLeg.ToGlobal(farLeg.LegSoleLocal),
+            heading,
+            weapon.ToGlobal(rect.Position),
+            weapon.ToGlobal(new Vector2(rect.End.X, rect.Position.Y)),
+            weapon.ToGlobal(rect.End),
+            weapon.ToGlobal(new Vector2(rect.Position.X, rect.End.Y)),
+            near.ToGlobal(nearBounds.Position),
+            near.ToGlobal(new Vector2(nearBounds.End.X, nearBounds.Position.Y)),
+            near.ToGlobal(nearBounds.End),
+            near.ToGlobal(new Vector2(nearBounds.Position.X, nearBounds.End.Y)),
+            far.ToGlobal(farBounds.Position),
+            far.ToGlobal(new Vector2(farBounds.End.X, farBounds.Position.Y)),
+            far.ToGlobal(farBounds.End),
+            far.ToGlobal(new Vector2(farBounds.Position.X, farBounds.End.Y))
+        ];
+    }
+
+    internal static Vector2 PlayerWeaponMotionOrigin(PlayerFormalVisual visual)
+    {
+        var weapon = visual.GetNode<PlayerFormalLayer>("Weapon");
+        // Parent-local, like other slot motion samples: captures Draw-origin
+        // movement without counting whole-character travel as animation jitter.
+        return weapon.Transform * weapon.WeaponDrawRect.Position;
     }
 
     private void PublishPlayerSensoryMarkers(PlayerFormalVisual visual)

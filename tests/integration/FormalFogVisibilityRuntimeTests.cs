@@ -69,7 +69,7 @@ public static class FormalFogVisibilityRuntimeTests
                 }
             TestAssert.True(darkened >= 40 && accessible >= darkened * .75f && nearUnchanged >= 10,
                 $"saved world pixels show distance fog, half-opacity accessibility and a clear actor neighborhood; far={darkened} reduced={accessible} near={nearUnchanged}");
-            foreach (string name in new[] { "Fragments", "Attacks", "Interaction", "Terrain", "Steam", "ShieldLane", "PressureGates", "MovingBodies", "Barriers" })
+            foreach (string name in new[] { "Fragments", "Attacks", "Interaction", "Terrain", "Steam", "ShieldLane", "PressureGates", "MovingBodies", "Barriers", "Recycling" })
             {
                 var consumer = level.GetNode<Node2D>("ProtectedCues/" + name);
                 consumer.Hide(); await Frames(tree, 2);

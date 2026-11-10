@@ -1,5 +1,23 @@
 # 序章敌人及NPC完整分配总表 · v002
 
+2026-10-26 v134：[喉口修正与居民支撑](2026-10-26-gallery-throat-and-gravity-return-v134.md)。正式右棚收短16px但当前JSON heavy完整巡逻[2864,2984]仍双侧各8px余量；26+50=76/1Boss/NPC/ECHO分配、AI/HP/伤害不变。受控census真实50ready/720步及Gear巡逻/访问专项通过，不等全人口自然战斗/美术。正常Main返程与三Gallery已通过，counterweight组仍失败；Explore返程通过后LowerBell交叉火力仍失败。骨骸/幽灵/正式全动作、视听和真人性能仍OPEN；现有atlas主要程序原型，不能据文件数称完整美术。
+
+2026-10-26 v133：[实际同台战斗与居民交叉威胁](2026-10-26-safe-claw-and-carriage-handoff-v133.md)。26+50=76普通/1Boss/NPC/ECHO分配、AI/HP/伤害/地形未改；本轮只测试消费者联调。近Moth真实K先控再J2，升降台段HP2保持；后续gear-pistons.02废弃游荡者与原Bell交叉攻击仍使Explore失败，未删怪或削弱凑绿。主线Bell J7K3/HP4成立但横廊失败。下一RightShelf16px候选需保留当前JSON precision-heavy完整巡逻[2864,2984]，不能改成旧候选坐标或切掉其支撑；尚未实施。正式全人口自然实战/族系视听/真人性能和完整双路线仍OPEN。
+
+2026-10-26 v132：[近处敌人抓取优先](2026-10-26-near-enemy-keyboard-priority-v132.md)。用户批准的纯键盘选择变化已实装，真实Moth/Heavy资格及Player K链路局部通过；不是新增/削弱敌人。26+50=76普通/1Boss/NPC/ECHO分配、AI、HP、伤害和地形不变。Main/Explore新旧驾驶准备未闭合，pre/postHandle严格FAIL；全人口自然实战、正式族系视听和真人性能继续OPEN。
+
+2026-10-26 v131：[关节门与同帧候选](2026-10-26-draw-joint-motion-and-posthop-candidates-v131.md)。26+50=76普通/1Boss/NPC/ECHO分配、AI、血量伤害和地形未变；4Moth快照是当前actorRoot直接子级数据，不冒称全人口活敌。Main仍7376死亡；最终post原75+owner8但4HandleERROR严格FAIL，旧资源/双路/正式视听/真人性能OPEN。用户新批准的是选择优先级，不是减少怪物或削弱数值，也尚未实施。
+
+2026-10-26 v130：[双手握持制作](2026-10-26-secondary-grip-and-connected-arms-v130.md)。本轮仅玩家关节表现/获批左片与对应测试；26+50=76普通/1Boss/NPC/ECHO的数量、族系、分配、AI、伤害与地形完全保留。最终前后段75+owner8和模型通过不是全部居民自然实战或完整双路线验收；早前资源FATAL、现有Main/Explore失败及正式视听/真人性能仍OPEN。用户NOTSEEN，原十一项ACTIVE。
+
+2026-10-23当前边界v072：[灯接入及入口教学](2026-10-23-approved-lantern-and-entry-readability-v072.md)。原26+新50=76普通、1Boss、NPC/ECHO分配不改，不删怪或改AI/血量取绿。已有独立灯接入/入口提示避免头灯遮挡，不是正式族系或全关视听完成；普通布局2ObjectDB及旧资源/完整双路线/全50自然实战/真人性能/发行仍OPEN。原十一项继续，下方旧时点保留。
+
+2026-10-23当前实现边界v071：[失败取证与自有清理](2026-10-23-transfer-evidence-and-owned-fixture-cleanup-v071.md)。原26+新50=76普通、1Boss及NPC/ECHO分配不改。没有关闭/移除或减血敌人取绿；Main第二K首碰liveprecision-heavyHurtboxHP6，三内部候选未成立；Explore仅受伤失败。最终pre FATAL/post超时Handle，PresentationProfile包装已命名但nativeowner未知。正常双路/全50自然实战/正式族系视听/真人性能/发行及十一项均未全量完成，本轮新最终视听0。下方历史。
+
+2026-10-23当前实现边界：[v070死亡本体与实际消费者](2026-10-23-dead-air-body-and-current-consumers-v070.md)。原26+新50=76普通、1Boss及NPC/ECHO分配不变。仅修已证实死亡常驻Moth本体挡爪；保持mask/Shape/活体休眠/幽灵隐身与复活。飞行14、边界6、幽灵空中8行为有局部证据但退出4ShapeRID，不能作整族严格通过；旧空中综合严格PASS。A九案2PASS7FAIL，B仍Handle/FATAL；Main乘梯推进不等全人口实战，正式五族/Boss视听、探索与主线/资源/真人性能/发行仍OPEN。没有删除或关闭敌人来通过路线，原十一项继续ACTIVE；新最终视听0。下方历史。
+
+2026-10-23当前实现边界：[v069原身体数据与恢复验证](2026-10-23-saved-body-reader-and-recovery-barrier-v069.md)。正常开发人口已自动接入，仍是明确占位外观，不能以下文历史0/50/null覆盖现状。旧26/新50/76普通＋1Boss、骨骸10/幽灵10/ECHO身份均不减；9种旧身体36预留在新保存直读下保持，正常24/跨区50生命周期及死亡恢复专项通过，非全50自然战斗。最终同源12案9PASS3断言FAIL，正常双路/正式五族与Boss视听/资源历史故障/真人性能/交付仍OPEN，完整原十一项ACTIVE。本轮新最终视听0、无付费/自动化/Git写入；下方各日期为历史。
+
 2026-10-18当前实现边界：[候选父场景与内嵌小地图](2026-10-18-candidate-parent-embedded-minimap-v001.md)。五个真实区快照及同源132 catalog搬移／实际Ready／native平台／存活唯一Player通过；局部机械爪往返观察修正后再次通过，能力和正式地图不改。最终十一门6GREEN5FAIL，资源三Handle／154及31RID／Upper／Bell未关闭。正式127／新增0／50null／24Unimplemented，全50仍43候选／7未解／20889诊断，不是已入图。本表旧26＋新50＝76普通＋1Boss、骨骸10／幽灵10及ECHO一个身份完全不减。下一同132候选旧活动兼容，再余七与全50／manager；目标未完成，工具当前null、不重建或缩减，以下为历史时点。
 
 2026-10-18当前实现边界：[冰区同角色抓爪往返与停靠净空](2026-10-18-frozen-player-roundtrip-and-dock-clearance-v001.md)。60→80px候选通道真实RED→GREEN，一保存Player抓墙／一次借力／抓顶／新台／回原出口、HP5→5；机关不活动，非全关／真人。两幽灵巡逻保持，全50联合43候选／7未解、20889诊断，不是已入图；正式仍127地形／新0／50null／24Unimplemented，父Minimap未交接。最终十门6GREEN4FAIL，资源154／31及Upper／Bell仍未关闭。本文76普通＋1Boss及骨骸10／幽灵10等分配完全不减；完整目标未完成（工具usageLimited未改），下方为历史时点。

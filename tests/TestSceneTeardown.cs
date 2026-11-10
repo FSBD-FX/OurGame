@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Godot;
 using Knight.Audio;
+using Knight.Prologue;
 
 namespace Knight.Tests;
 
@@ -17,9 +18,18 @@ public static class TestSceneTeardown
     {
         if (!GodotObject.IsInstanceValid(visibleRoot) || !visibleRoot.IsInsideTree())
             throw new InvalidOperationException("audio drain requires a visible root inside the SceneTree");
+        // Cancelling only the current preparation is insufficient: a deferred
+        // InitializeAfterLevelReady can otherwise start a new generation while
+        // this owner remains alive for its final audio mix.
+        if (visibleRoot is PrologueLevelController level)
+        {
+            var flow = level.GetNodeOrNull<PrologueGameFlowController>("GameFlow");
+            if (flow != null) flow.BeginSceneRetirement();
+            else level.CancelResidentPreparation();
+        }
         PrologueAudioDirector audio = visibleRoot.GetNodeOrNull<PrologueAudioDirector>("Audio") ??
             throw new InvalidOperationException("audio drain requires the formal AudioDirector owner");
-        audio.Shutdown();
+        audio.BeginApplicationQuit();
         audio.QueueFree();
         await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
 
@@ -28,15 +38,19 @@ public static class TestSceneTeardown
         ulong deadline = startedAt + MaximumAudioDrainMilliseconds;
         bool observedMix = false;
         int observedAfterFrames = -1;
+        ulong observedAt = 0;
         for (int frame = 1; frame <= MaximumAudioDrainFrames && Time.GetTicksMsec() <= deadline; frame++)
         {
             await Task.Delay(2);
             await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            ulong sampledAt = Time.GetTicksMsec();
+            if (sampledAt > deadline) break;
             double mixAge = AudioServer.GetTimeSinceLastMix();
             if (mixAge < priorMixAge)
             {
                 observedMix = true;
                 observedAfterFrames = frame;
+                observedAt = sampledAt;
                 break;
             }
             priorMixAge = mixAge;
@@ -44,9 +58,10 @@ public static class TestSceneTeardown
         if (!observedMix)
             throw new TimeoutException(
                 $"AudioServer did not mix after AudioDirector release within " +
-                $"{MaximumAudioDrainFrames} frames / {MaximumAudioDrainMilliseconds} ms");
+                $"{MaximumAudioDrainFrames} frames / {MaximumAudioDrainMilliseconds} ms; " +
+                $"elapsed_ms={Time.GetTicksMsec() - startedAt}");
         GD.Print($"PROLOGUE_AUDIO_DRAIN_OK frames={observedAfterFrames} " +
-            $"elapsed_ms={Time.GetTicksMsec() - startedAt}");
+            $"elapsed_ms={observedAt - startedAt}");
         await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
         if (!GodotObject.IsInstanceValid(visibleRoot) || !visibleRoot.IsInsideTree())
             throw new InvalidOperationException("audio drain removed the visible scene root");

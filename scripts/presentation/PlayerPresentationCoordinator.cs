@@ -32,6 +32,10 @@ public readonly record struct PlayerPresentationInput(
     Vector2 ShieldAim = default)
 {
     public ThrusterPresentationFrame Mobility { get; init; }
+    public PlayerGroundSample Ground { get; init; }
+    public PlayerLandingObservation Landing { get; init; }
+    public PlayerJumpObservation Jump { get; init; }
+    public PlayerGroundMotionObservation GroundMotion { get; init; }
 }
 
 /// <summary>
@@ -54,12 +58,19 @@ public sealed class PlayerPresentationTimeline
 
     private readonly PlayerTuning _tuning;
     private readonly SecondaryMotionModel _secondary = new();
+    private readonly PlayerGroundGait _groundGait = new();
+    private readonly PlayerLandingLoadModel _landingLoad = new();
+    private readonly PlayerAirJetPoseModel _airJet = new();
+    private readonly PlayerOrdinaryAirMotion _ordinaryAir = new();
+    private readonly PlayerGroundBrakeModel _groundBrake = new();
     private PlayerLocomotionState _locomotionState = PlayerLocomotionState.Idle;
     private float _locomotionElapsed;
     private bool _hasSample;
     private bool _wasGrounded;
+    private bool _unsupportedGroundDeparture;
     private Vector2 _previousVelocity;
     private int _previousFacing = 1;
+    private int _previousMotionFacing = 1;
     private float _previousFallVelocity;
     private ulong _attackId;
     private ulong _lastObservedAttackId;
@@ -76,10 +87,20 @@ public sealed class PlayerPresentationTimeline
     private float _shieldElapsed;
     private Vector2 _shieldAim;
     private float _mobilityLean;
+    private double _presentationTime;
+    private bool _hasBodyLoad;
+    private ulong _bodyLoadTick;
+    private Vector2 _bodyLoadRoot;
+    private float _bodyLoadVelocityX, _bodyLeanWorld, _pelvisDrop;
 
     public PlayerPresentationTimeline(PlayerTuning tuning = null)
     {
-        _tuning = tuning ?? new PlayerTuning();
+        _tuning = tuning ??
+#if REFCOUNTED_FATAL_IDENTITY
+            Knight.Tests.Diagnostics.ResidentProfileLifetimeTrace.PlayerTuningCreated(new PlayerTuning(), "timeline-fallback");
+#else
+            new PlayerTuning();
+#endif
         System.Collections.Generic.IReadOnlyList<string> errors = _tuning.Validate();
         if (errors.Count > 0)
             throw new ArgumentException("Invalid PlayerTuning: " + string.Join("; ", errors), nameof(tuning));
@@ -88,12 +109,25 @@ public sealed class PlayerPresentationTimeline
     public PlayerPresentationFrame Step(PlayerPresentationInput input, float deltaSeconds)
     {
         float delta = float.IsFinite(deltaSeconds) && deltaSeconds > 0f ? deltaSeconds : 0f;
+        _presentationTime += delta;
         int facing = input.Facing < 0 ? -1 : 1;
         Vector2 velocity = Finite(input.Velocity) ? input.Velocity : Vector2.Zero;
+        PlayerLandingLoadFrame landingLoad = _landingLoad.Step(input.Landing, input.Grounded,
+            input.Dead || input.CheckpointRecovering, delta);
         bool landed = _hasSample && !_wasGrounded && input.Grounded;
-        float landingSpeed = landed ? Mathf.Max(0f, _previousFallVelocity) : 0f;
+        float landingSpeed = landed ? Mathf.Max(0f,
+            landingLoad.Active ? input.Landing.Speed : _previousFallVelocity) : 0f;
 
-        PlayerLocomotionState nextLocomotion = ResolveLocomotion(input with { Velocity = velocity }, landingSpeed);
+        bool clawReplaces=input.Claw.State is MechanicalClawState.Latched or MechanicalClawState.Reel or MechanicalClawState.Swing or
+                MechanicalClawState.Boost or MechanicalClawState.Released or MechanicalClawState.Retract;
+        bool replaced=input.Dashing || input.Mobility.Burning || input.Mobility.Coasting || clawReplaces;
+        PlayerOrdinaryAirFrame ordinaryAir=_ordinaryAir.Step(new PlayerOrdinaryAirInput(input.Jump,input.Ground,input.Velocity,
+            facing,input.Grounded,input.Dead || input.CheckpointRecovering,replaced)
+            { SupportedJetCoast=input.Mobility.Coasting && !input.Dashing && !input.Mobility.Burning && !clawReplaces },delta);
+        PlayerGroundBrakeFrame groundBrake = _groundBrake.Step(input.GroundMotion, input.Ground,
+            input.Grounded, input.Dashing || input.Dead || input.CheckpointRecovering, delta);
+        PlayerLocomotionState nextLocomotion = ResolveLocomotion(input with { Velocity = velocity }, landingSpeed,
+            ordinaryAir.JumpStarted,ordinaryAir.JumpArc,replaced,groundBrake.Braking);
         if (nextLocomotion != _locomotionState)
         {
             _locomotionState = nextLocomotion;
@@ -105,6 +139,11 @@ public sealed class PlayerPresentationTimeline
         }
         PlayerLocomotionFrame locomotion = new(_locomotionState,
             NormalizedLocomotionTime(_locomotionState, _locomotionElapsed));
+        PlayerGroundGaitFrame gait=_groundGait.Step(input.Ground,
+            input.Grounded && (!input.Dashing || landingLoad.Active) && !input.Dead && !input.CheckpointRecovering,
+            delta,plantedImpact:landingLoad.Active,brakeStrength:groundBrake.Strength);
+        if(gait.Observed && gait.Weight>0 && locomotion.State==PlayerLocomotionState.Run)
+            locomotion=new(PlayerLocomotionState.Run,gait.Phase);
 
         if (input.AttackId != 0 && input.AttackId != _lastObservedAttackId)
         {
@@ -135,7 +174,7 @@ public sealed class PlayerPresentationTimeline
         Vector2 acceleration = (velocity - _previousVelocity) * accelerationScale;
         if (input.HurtTriggered && delta > 0f && Finite(input.HurtImpulse))
             acceleration += input.HurtImpulse / delta;
-        float turn = _hasSample && facing != _previousFacing ? facing : 0f;
+        float turn = _hasSample && facing != _previousMotionFacing ? facing : 0f;
         float facingSign = facing < 0 ? -1f : 1f;
         Vector2 facingLocalVelocity = new(velocity.X * facingSign, velocity.Y);
         Vector2 facingLocalAcceleration = new(acceleration.X * facingSign, acceleration.Y);
@@ -149,6 +188,8 @@ public sealed class PlayerPresentationTimeline
         PlayerActionPhase secondaryPhase = clawActive
             ? MechanicalClawSecondaryPhase(input.Claw.State)
             : ThreadSecondaryPhase(input.Thread.State);
+        if (_hasSample && facing != _previousFacing)
+            _secondary.ReflectHorizontalBasis();
         SecondaryMotionFrame secondary = _secondary.Step(new SecondaryMotionInput(
             facingLocalVelocity,
             facingLocalAcceleration,
@@ -156,15 +197,25 @@ public sealed class PlayerPresentationTimeline
             landingImpulse,
             _contactImpulse,
             secondaryPhase,
-            threadEnergy), delta);
+            threadEnergy,
+            GroundAttackSecondaryDrive(action, facing)), delta);
 
         _contactImpulse *= Mathf.Exp(-12f * delta);
-        if (!input.Grounded) _previousFallVelocity = velocity.Y;
-        else if (!landed) _previousFallVelocity = 0f;
-        _previousVelocity = velocity;
+        // Immediate event publication may refresh the current pose without any
+        // elapsed time. Do not consume its velocity/contact edge before the
+        // next integrating step can apply the acceleration and landing drive.
+        if (delta > 0f)
+        {
+            if (!input.Grounded) _previousFallVelocity = velocity.Y;
+            else if (!landed) _previousFallVelocity = 0f;
+            _previousVelocity = velocity;
+            _previousMotionFacing = facing;
+            _wasGrounded = input.Grounded;
+            _hasSample = true;
+        }
+        // This is a coordinate-basis change, not elapsed motion: the springs
+        // have already been reflected even for a zero-time facing refresh.
         _previousFacing = facing;
-        _wasGrounded = input.Grounded;
-        _hasSample = true;
 
         EntityPresentationFrame baseFrame = new(CoarseState(locomotion.State), facing, input.Grounded);
         ThrusterPresentationFrame mobility = input.Dead || input.CheckpointRecovering
@@ -186,9 +237,69 @@ public sealed class PlayerPresentationTimeline
         }
         return new PlayerPresentationFrame(baseFrame, locomotion, action, secondary)
         {
+            MantleMotionInParentSpace = true,
+            GroundBrake = groundBrake,
             Mobility = mobility,
-            MobilityLeanRadians = _mobilityLean
+            MobilityLeanRadians = _mobilityLean,
+            Gait = input.Dead || input.CheckpointRecovering ? default : gait,
+            PresentationTimeSeconds = _presentationTime,
+            BodyLoad = ObserveBodyLoad(input, delta),
+            LandingLoad = landingLoad,
+            AirJet = _airJet.Step(new(input.Landing.OwnerId,input.Velocity,input.Ground,
+                facing,input.Grounded,input.Dead || input.CheckpointRecovering,mobility),delta),
+            OrdinaryAir = ordinaryAir
         };
+    }
+
+    private static Vector2 GroundAttackSecondaryDrive(PlayerActionFrame action, int facing)
+    {
+        // Authority and phase time belong to the accepted action above, not to
+        // another input edge or independent timer. End/override removes only
+        // the target; existing springs retain their momentum and settle.
+        if (action.State != PlayerActionState.GroundAttack) return Vector2.Zero;
+        float time = action.NormalizedTime;
+        float ease = time * time * (3f - 2f * time);
+        float drive = action.Phase switch
+        {
+            PlayerActionPhase.Anticipation => -.35f * ease,
+            PlayerActionPhase.Burst => Mathf.Lerp(-.35f, 1f, ease),
+            PlayerActionPhase.Contact => Mathf.Lerp(1f, .25f, ease),
+            PlayerActionPhase.Recovery => .25f * (1f - ease),
+            _ => 0f
+        };
+        return new Vector2(action.Aim.X * (facing < 0 ? -1f : 1f), action.Aim.Y) * drive;
+    }
+
+    private PlayerBodyLoadFrame ObserveBodyLoad(PlayerPresentationInput input, float delta)
+    {
+        var sample=input.Ground;
+        if(!input.Grounded || input.Dashing || input.Dead || input.CheckpointRecovering ||
+            !sample.Observed || sample.PhysicsTick==0 || !sample.RootWorld.IsFinite() ||
+            !Finite(input.Velocity) || !float.IsFinite(sample.PhysicsStepSeconds) || sample.PhysicsStepSeconds<=0)
+        {
+            _hasBodyLoad=false; _bodyLeanWorld=_pelvisDrop=0;
+            return default;
+        }
+        int facing=input.Facing<0?-1:1;
+        if(delta<=0 || _hasBodyLoad && sample.PhysicsTick==_bodyLoadTick)
+            return _hasBodyLoad ? new(true,_pelvisDrop,_bodyLeanWorld*facing) : default;
+        if(!_hasBodyLoad || sample.PhysicsTick<_bodyLoadTick || sample.PhysicsTick-_bodyLoadTick>8 ||
+            sample.RootWorld.DistanceSquaredTo(_bodyLoadRoot)>4096)
+        {
+            _hasBodyLoad=true; _bodyLoadTick=sample.PhysicsTick;
+            _bodyLoadRoot=sample.RootWorld; _bodyLoadVelocityX=input.Velocity.X;
+            _bodyLeanWorld=_pelvisDrop=0;
+            return new(true,0,0);
+        }
+        double elapsed=(sample.PhysicsTick-_bodyLoadTick)*(double)sample.PhysicsStepSeconds;
+        double force=System.Math.Clamp(((double)input.Velocity.X-_bodyLoadVelocityX)/elapsed/2200d,-1d,1d);
+        float response=(float)(1d-System.Math.Exp(-elapsed/.06d));
+        _bodyLeanWorld=Mathf.Lerp(_bodyLeanWorld,(float)force*.085f,response);
+        float drop=(float)(System.Math.Abs(force)*1.2d+System.Math.Min(System.Math.Abs((double)input.Velocity.X)/260d,1d)*.15d);
+        _pelvisDrop=Mathf.Lerp(_pelvisDrop,drop,response);
+        _bodyLoadTick=sample.PhysicsTick; _bodyLoadRoot=sample.RootWorld;
+        _bodyLoadVelocityX=input.Velocity.X;
+        return new(true,_pelvisDrop,_bodyLeanWorld*facing);
     }
 
     internal void ClearAttackState()
@@ -206,17 +317,24 @@ public sealed class PlayerPresentationTimeline
         _shieldElapsed = 0f;
     }
 
-    private PlayerLocomotionState ResolveLocomotion(PlayerPresentationInput input, float landingSpeed)
+    private PlayerLocomotionState ResolveLocomotion(PlayerPresentationInput input, float landingSpeed,
+        bool jumpStarted=false,bool jumpArc=false,bool replaced=false,bool groundBraking=false)
     {
+        if(!input.Jump.Observed || input.Grounded || input.Dead || input.CheckpointRecovering ||
+            input.Dashing || replaced || jumpStarted || input.Velocity.Y<0f)
+            _unsupportedGroundDeparture=false;
+        else if(_hasSample && _wasGrounded)
+            _unsupportedGroundDeparture=true;
         if (input.CheckpointRecovering) return PlayerLocomotionState.Recovery;
         if (input.Dead) return PlayerLocomotionState.Dead;
         if (input.Dashing) return PlayerLocomotionState.Dash;
 
         if (!input.Grounded)
         {
-            if (_hasSample && _wasGrounded) return PlayerLocomotionState.JumpStart;
+            if (input.Jump.Observed ? jumpStarted : _hasSample && _wasGrounded) return PlayerLocomotionState.JumpStart;
             if (_locomotionState == PlayerLocomotionState.JumpStart &&
-                _locomotionElapsed < JumpStartSeconds) return PlayerLocomotionState.JumpStart;
+                _locomotionElapsed < JumpStartSeconds && (!input.Jump.Observed || jumpArc)) return PlayerLocomotionState.JumpStart;
+            if(input.Jump.Observed && _unsupportedGroundDeparture)return PlayerLocomotionState.Fall;
             if (input.Velocity.Y < -ApexVelocity) return PlayerLocomotionState.Rise;
             if (input.Velocity.Y <= ApexVelocity) return PlayerLocomotionState.Apex;
             return PlayerLocomotionState.Fall;
@@ -231,6 +349,7 @@ public sealed class PlayerPresentationTimeline
         if (_locomotionState == PlayerLocomotionState.SoftLand &&
             _locomotionElapsed < SoftLandSeconds) return PlayerLocomotionState.SoftLand;
 
+        if (groundBraking) return PlayerLocomotionState.Brake;
         bool moving = Mathf.Abs(input.Velocity.X) > RunThreshold;
         if (moving)
         {
@@ -293,13 +412,28 @@ public sealed class PlayerPresentationTimeline
         }
 
         PlayerActionFrame claw = MechanicalClawAction(input.Claw);
-        if (claw.State != PlayerActionState.None) return claw;
+        if (claw.State != PlayerActionState.None)
+        {
+            // A later accepted claw owns the pose, but does not pause Combat.
+            // Do not replay that old strike when the claw retracts to Idle.
+            if (_attackId != 0 && !_attackCancelled) AdvanceAttackClock(delta);
+            return claw;
+        }
 
         PlayerActionFrame thread = ThreadAction(input.Thread);
         if (thread.State != PlayerActionState.None) return thread;
 
+        bool attackClockAdvanced = false;
         if (_hurtActive)
         {
+            // Hurt owns the visible pose, not Combat's continuing attack.
+            // Keep its hidden age (including the existing hitpause) current,
+            // so releasing Hurt cannot replay an already expired strike.
+            if (_attackId != 0 && !_attackCancelled)
+            {
+                AdvanceAttackClock(delta);
+                attackClockAdvanced = true;
+            }
             _hurtElapsed += delta;
             float total = HurtContactSeconds + HurtRecoverySeconds;
             if (_hurtElapsed >= total)
@@ -328,10 +462,7 @@ public sealed class PlayerPresentationTimeline
             return PlayerActionFrame.None;
         }
 
-        if (_hitPauseRemaining > 0f)
-            _hitPauseRemaining = Mathf.Max(0f, _hitPauseRemaining - delta);
-        else
-            _attackElapsed += delta;
+        if (!attackClockAdvanced) AdvanceAttackClock(delta);
 
         float burstSeconds = _tuning.AttackActiveSeconds * .55f;
         float contactSeconds = _tuning.AttackActiveSeconds - burstSeconds;
@@ -367,6 +498,14 @@ public sealed class PlayerPresentationTimeline
         }
 
         return new PlayerActionFrame(_attackState, phase, progress, cancellable, _attackAim);
+    }
+
+    private void AdvanceAttackClock(float delta)
+    {
+        if (_hitPauseRemaining > 0f)
+            _hitPauseRemaining = Mathf.Max(0f, _hitPauseRemaining - delta);
+        else
+            _attackElapsed += delta;
     }
 
     private static PlayerActionFrame ThreadAction(ThreadCastFrame frame)
@@ -545,6 +684,9 @@ public partial class PlayerPresentationCoordinator : Node
     private bool _attackConnectedPending;
     private bool _hurtPending;
     private Vector2 _hurtImpulse;
+    private ulong _guardImpactEpoch, _guardImpactSourceEpoch;
+    private Action<PlayerShieldResult, ulong> _guardImpactObserver;
+    private Action _guardImpactSourceExiting, _guardImpactSourceEntered;
     private ulong _attackId;
     private AttackDirection _attackDirection;
     private MechanicalClawState _lastClawState = MechanicalClawState.Idle;
@@ -573,7 +715,12 @@ public partial class PlayerPresentationCoordinator : Node
         _mechanicalClaw = GetNodeOrNull<MechanicalClawController>(MechanicalClawPath);
         _recoverySource = FindAncestor<PrologueLevelController>(this);
         _effects = GetNodeOrNull(EffectsPath);
-        _timeline = new PlayerPresentationTimeline(_motor?.Tuning ?? _combat?.Tuning ?? new PlayerTuning());
+        _timeline = new PlayerPresentationTimeline(_motor?.Tuning ?? _combat?.Tuning ??
+#if REFCOUNTED_FATAL_IDENTITY
+            Knight.Tests.Diagnostics.ResidentProfileLifetimeTrace.PlayerTuningCreated(new PlayerTuning(), "coordinator-fallback"));
+#else
+            new PlayerTuning());
+#endif
         BindVisualRoot(GetNode(VisualRootPath));
         _presentationSourcesReady = true;
         AttachPresentationSources();
@@ -600,6 +747,15 @@ public partial class PlayerPresentationCoordinator : Node
         }
         if (_mechanicalClaw != null)
             _mechanicalClaw.ClawFrameChanged += OnClawFrameChanged;
+        if (IsInstanceValid(_shield))
+        {
+            ulong sourceId = _shield.GetInstanceId(), epoch = _guardImpactEpoch;
+            _guardImpactSourceExiting = () => OnGuardImpactSourceExiting(sourceId, epoch);
+            _guardImpactSourceEntered = () => OnGuardImpactSourceEntered(sourceId, epoch);
+            _shield.TreeExiting += _guardImpactSourceExiting;
+            _shield.TreeEntered += _guardImpactSourceEntered;
+            BindGuardImpactObserver(sourceId, epoch);
+        }
         if (_recoverySource != null)
         {
             _recoverySource.RecoveryRequested += OnRecoveryRequested;
@@ -617,6 +773,18 @@ public partial class PlayerPresentationCoordinator : Node
 
     private void DetachPresentationSources()
     {
+        _groundCarrySupport=default; _groundSample=default; _groundSamplePhysics=0;
+        _guardImpactEpoch++;
+        _guardImpactSourceEpoch++;
+        if (IsInstanceValid(_shield))
+        {
+            if (_guardImpactObserver != null) _shield.ShieldResolved -= _guardImpactObserver;
+            if (_guardImpactSourceExiting != null) _shield.TreeExiting -= _guardImpactSourceExiting;
+            if (_guardImpactSourceEntered != null) _shield.TreeEntered -= _guardImpactSourceEntered;
+        }
+        _guardImpactObserver = null;
+        _guardImpactSourceExiting = _guardImpactSourceEntered = null;
+        if (_visual is PlayerFormalVisual formal && IsInstanceValid(formal)) formal.ClearGuardImpact();
         if (IsInstanceValid(_combat))
         {
             _combat.AttackStarted -= OnAttackStarted;
@@ -651,7 +819,13 @@ public partial class PlayerPresentationCoordinator : Node
     public void BindVisualRoot(Node visualRoot)
     {
         Profile ??= new PresentationProfile();
+        IEntityVisual2D previous = _visual;
         _visual = Profile.Resolve(visualRoot);
+        if (!ReferenceEquals(previous, _visual))
+        {
+            if (previous is PlayerFormalVisual oldFormal && IsInstanceValid(oldFormal)) oldFormal.ClearGuardImpact();
+            if (_visual is PlayerFormalVisual newFormal && IsInstanceValid(newFormal)) newFormal.ClearGuardImpact();
+        }
     }
 
     public void Present(EntityPresentationFrame frame) => _visual?.ApplyFrame(frame);
@@ -679,6 +853,9 @@ public partial class PlayerPresentationCoordinator : Node
 
     private void PresentCurrent(float delta)
     {
+        bool shieldSourceLive = IsInstanceValid(_shield) && _shield.IsInsideTree() && !_shield.IsQueuedForDeletion();
+        if (!shieldSourceLive && _visual is PlayerFormalVisual withdrawn && IsInstanceValid(withdrawn))
+            withdrawn.ClearGuardImpact();
         bool dashing = _motor?.IsDashing ?? false;
         PlayerInputFrame sampledInput = _input?.CurrentFrame ?? default;
         MechanicalClawFrame claw = _mechanicalClaw?.CurrentFrame ?? default;
@@ -687,7 +864,7 @@ public partial class PlayerPresentationCoordinator : Node
             _facing = clawAim.X < 0f ? -1 : 1;
         else if (_combat?.IsAttacking ?? false)
             _facing = _attackFacing;
-        else if ((_shield?.IsActive ?? false) && !Mathf.IsZeroApprox(_shield.GuardDirection.X))
+        else if (shieldSourceLive && _shield.IsActive && !Mathf.IsZeroApprox(_shield.GuardDirection.X))
             _facing = _shield.GuardDirection.X < 0f ? -1 : 1;
         else if (!Mathf.IsZeroApprox(_body.Velocity.X))
             _facing = _body.Velocity.X < 0f ? -1 : 1;
@@ -695,7 +872,7 @@ public partial class PlayerPresentationCoordinator : Node
             (_health != null && _health.CurrentHealth <= 0 && !_recoveryPresentationRequested);
         bool presentationRecovering = _recoveryPresentationStage == RecoveryPresentationStage.Recovery ||
             (_recoveryPresentationStage == RecoveryPresentationStage.None && _checkpointRecovering);
-        bool shieldActive = _shield?.IsActive ?? false;
+        bool shieldActive = shieldSourceLive && _shield.IsActive;
         if (presentationDead || presentationRecovering || dashing || shieldActive)
         {
             ClearClawPresentationEnvelope();
@@ -724,7 +901,13 @@ public partial class PlayerPresentationCoordinator : Node
             shieldActive,
             _shield?.GuardDirection ?? Vector2.Zero)
         {
-            Mobility = _motor?.ThrusterPresentation ?? default
+            Mobility = _motor?.ThrusterPresentation ?? default,
+            Ground = delta>0 ? ReadGroundGaitSample() : _groundSample,
+            Landing = IsInstanceValid(_motor) ? new PlayerLandingObservation(_motor.GetInstanceId(),
+                _motor.LandingCount, _motor.LastPresentationLandingImpact.Speed, _motor.LastPresentationLandingImpact.IsReliable) : default,
+            Jump = IsInstanceValid(_motor) ? new PlayerJumpObservation(_motor.GetInstanceId(),
+                _motor.AcceptedJumpSequence,true) : default,
+            GroundMotion = IsInstanceValid(_motor) ? _motor.GroundMotionObservation : default
         }, delta);
         _attackConnectedPending = false;
         _hurtPending = false;
@@ -732,6 +915,92 @@ public partial class PlayerPresentationCoordinator : Node
         Present(LastPlayerFrame);
         SyncThrusterPresentation();
         PublishFrame(LastPlayerFrame);
+    }
+
+    private ulong _groundSamplePhysics;
+    private PlayerGroundSample _groundSample;
+    private PlayerGroundSupportObservation _groundCarrySupport;
+    private PlayerGroundSample ReadGroundGaitSample()
+    {
+        ulong physics=Engine.GetPhysicsFrames();
+        if(_groundSamplePhysics==physics && _groundSample.Observed) return _groundSample;
+        PlayerGroundSample prior=_groundSample;
+        _groundSamplePhysics=physics;
+        _groundSample=new(true,_body.GlobalPosition,0,Transform2D.Identity,Vector2.Zero,Vector2.Up)
+            { PhysicsTick=physics,PhysicsStepSeconds=(float)_body.GetPhysicsProcessDeltaTime(),Facing=_facing };
+        if(!_body.IsInsideTree() || !_body.IsOnFloor())
+        { _groundCarrySupport=default; return _groundSample; }
+        for(int i=0;i<_body.GetSlideCollisionCount();i++)
+        {
+            var contact=_body.GetSlideCollision(i);
+            Vector2 normal=contact.GetNormal();
+            if(!normal.IsFinite() || normal.Dot(Vector2.Up)<.7f || contact.GetCollider() is not CollisionObject2D support ||
+                !IsInstanceValid(support) || support.IsQueuedForDeletion()) continue;
+            int enabledShapes=0;
+            uint owner=0;
+            foreach(int rawOwner in support.GetShapeOwners())
+            {
+                uint candidate=(uint)rawOwner;
+                if(support.IsShapeOwnerDisabled(candidate)) continue;
+                int count=support.ShapeOwnerGetShapeCount(candidate);
+                enabledShapes+=count;
+                if(count>0) owner=candidate;
+                if(enabledShapes>1) break;
+            }
+            if(enabledShapes!=1) continue;
+            int contactIndex=contact.GetColliderShapeIndex();
+            if(contactIndex<0 || support.ShapeOwnerGetShapeIndex(owner,0)!=contactIndex ||
+                support.ShapeFindOwner(contactIndex)!=owner ||
+                support.ShapeOwnerGetOwner(owner) is not CollisionShape2D shape || !IsInstanceValid(shape) ||
+                shape.Disabled || shape.IsQueuedForDeletion() || shape.GetParent()!=support || contact.GetColliderShape()!=shape ||
+                support.ShapeOwnerGetShape(owner,0) is not RectangleShape2D rectangle || shape.Shape!=rectangle ||
+                !rectangle.Size.IsFinite()) continue;
+            Transform2D geometry=support.GlobalTransform*support.ShapeOwnerGetTransform(owner);
+            if(!geometry.IsEqualApprox(shape.GlobalTransform)) continue;
+            ulong id=shape.GetInstanceId();
+            if(prior.SupportId!=id)
+                _groundCarrySupport=prior.Observed && prior.SupportId!=0 && prior.HasBounds
+                    ? new(true,prior.SupportId,prior.SupportTransform,prior.SupportBounds) : default;
+            _groundCarrySupport=support is StaticBody2D && support is not AnimatableBody2D
+                ? RevalidateGroundCarry(_groundCarrySupport) : default;
+            _groundSample=new(true,_body.GlobalPosition,shape.GetInstanceId(),geometry,
+                contact.GetPosition(),normal)
+            {
+                HasBounds=true,SupportBounds=new(-rectangle.Size*.5f,rectangle.Size),
+                PhysicsTick=physics,PhysicsStepSeconds=(float)_body.GetPhysicsProcessDeltaTime(),Facing=_facing,
+                PreviousSupport=_groundCarrySupport
+            };
+            break;
+        }
+        return _groundSample;
+    }
+
+    private PlayerGroundSupportObservation RevalidateGroundCarry(PlayerGroundSupportObservation prior)
+    {
+        if(!prior.Observed || prior.SupportId==0 ||
+            GodotObject.InstanceFromId(prior.SupportId) is not CollisionShape2D shape ||
+            !IsInstanceValid(shape) || !shape.IsInsideTree() || shape.Disabled || shape.IsQueuedForDeletion() ||
+            shape.GetParent() is not StaticBody2D support || support is AnimatableBody2D ||
+            !IsInstanceValid(support) || !support.IsInsideTree() ||
+            (support.CollisionLayer&_body.CollisionMask)==0 || shape.Shape is not RectangleShape2D rectangle ||
+            prior.SupportBounds!=new Rect2(-rectangle.Size*.5f,rectangle.Size)) return default;
+        for(Node node=shape;node!=null;node=node.GetParent())
+            if(node.IsQueuedForDeletion()) return default;
+        int enabled=0;
+        uint owner=0;
+        foreach(int raw in support.GetShapeOwners())
+        {
+            uint candidate=(uint)raw;
+            if(support.IsShapeOwnerDisabled(candidate)) continue;
+            int count=support.ShapeOwnerGetShapeCount(candidate);
+            enabled+=count;
+            if(count>0) owner=candidate;
+        }
+        if(enabled!=1 || support.ShapeOwnerGetOwner(owner)!=shape ||
+            support.ShapeOwnerGetShape(owner,0)!=rectangle) return default;
+        Transform2D geometry=support.GlobalTransform*support.ShapeOwnerGetTransform(owner);
+        return geometry.IsEqualApprox(shape.GlobalTransform) && geometry==prior.SupportTransform
+            ? prior : default;
     }
 
     private void StopThrusterPresentation()
@@ -891,6 +1160,46 @@ public partial class PlayerPresentationCoordinator : Node
         PlayCue(PresentationCue.Hurt);
     }
 
+    private void BindGuardImpactObserver(ulong sourceId, ulong epoch)
+    {
+        if (!IsInstanceValid(_shield) || _shield.GetInstanceId() != sourceId ||
+            !_shield.IsInsideTree() || _shield.IsQueuedForDeletion() || _shield.GetParent() != _body) return;
+        if (_guardImpactObserver != null) _shield.ShieldResolved -= _guardImpactObserver;
+        ulong sourceEpoch = _guardImpactSourceEpoch;
+        _guardImpactObserver = (result, transitionId) => OnShieldResolved(sourceId, epoch, sourceEpoch, result, transitionId);
+        _shield.ShieldResolved += _guardImpactObserver;
+    }
+
+    private void OnGuardImpactSourceExiting(ulong sourceId, ulong epoch)
+    {
+        if (epoch != _guardImpactEpoch || !IsInstanceValid(_shield) || _shield.GetInstanceId() != sourceId) return;
+        _guardImpactSourceEpoch++;
+        if (_guardImpactObserver != null) _shield.ShieldResolved -= _guardImpactObserver;
+        _guardImpactObserver = null;
+        if (_visual is PlayerFormalVisual formal && IsInstanceValid(formal)) formal.ClearGuardImpact();
+    }
+
+    private void OnGuardImpactSourceEntered(ulong sourceId, ulong epoch)
+    {
+        if (epoch != _guardImpactEpoch || !IsInstanceValid(_shield) || _shield.GetInstanceId() != sourceId) return;
+        _guardImpactSourceEpoch++;
+        BindGuardImpactObserver(sourceId, epoch);
+    }
+
+    private void OnShieldResolved(ulong sourceId, ulong epoch, ulong sourceEpoch, PlayerShieldResult result, ulong transitionId)
+    {
+        if (epoch != _guardImpactEpoch || sourceEpoch != _guardImpactSourceEpoch || !IsInstanceValid(this) ||
+            !result.Guarded || result.DamageAmount != 0 || result.SpendHeavyEnergy || result.BrokeGuard ||
+            !IsInsideTree() || !CanProcess() || GetTree().Paused ||
+            !IsInstanceValid(_shield) || _shield.GetInstanceId() != sourceId || !_shield.IsInsideTree() ||
+            _shield.IsQueuedForDeletion() || !_shield.CanProcess() || _shield.GetParent() != _body || !_shield.IsActive ||
+            _checkpointRecovering || (_combat?.IsAttacking ?? false) || (_motor?.IsDashing ?? false)) return;
+        for (Node owner = this; owner != null; owner = owner.GetParent())
+            if (owner.IsQueuedForDeletion()) return;
+        if (_visual is PlayerFormalVisual formal && IsInstanceValid(formal))
+            formal.PresentGuardImpact(sourceId, transitionId, _shield.GuardDirection);
+    }
+
     private void OnDied()
     {
         StopThrusterPresentation();
@@ -915,6 +1224,8 @@ public partial class PlayerPresentationCoordinator : Node
 
     public void ResetRecoveryPresentation()
     {
+        _groundCarrySupport=default; _groundSample=default; _groundSamplePhysics=0;
+        if (_visual is PlayerFormalVisual formal && IsInstanceValid(formal)) formal.ClearGuardImpact();
         StopThrusterPresentation();
         ResetClawPresentationTransaction();
         _checkpointRecovering = false;
@@ -926,6 +1237,7 @@ public partial class PlayerPresentationCoordinator : Node
 
     private void OnRecoveryRequested(string reason)
     {
+        if (_visual is PlayerFormalVisual formal && IsInstanceValid(formal)) formal.ClearGuardImpact();
         StopThrusterPresentation();
         ClearPresentationAttack();
         ResetClawPresentationTransaction();

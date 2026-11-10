@@ -47,12 +47,12 @@ public partial class RunTask16PressureGateTests : SceneTree
         string storage = Path.GetFullPath(raw)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         string evidence = Path.GetFullPath(
-            "E:/OurGame/Knight/.evidence/september09-continuous-canyon/task16a")
+            "G:/knight/验证证据/september09-continuous-canyon/task16a")
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         string project = Path.GetFullPath(ProjectSettings.GlobalizePath("res://"))
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         string expectedProject = Path.GetFullPath(
-            "E:/OurGame/Knight/.worktrees/task6-certified-final-20260902T0555")
+            "G:/knight/Knight")
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         string? caseDirectory = Path.GetDirectoryName(storage);
         string? caseParent = caseDirectory == null ? null : Path.GetDirectoryName(caseDirectory);

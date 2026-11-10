@@ -15,10 +15,18 @@ public partial class SeamlessPrologueWorld : Node2D
     public event Action<PrologueSectorId, Vector2> CheckpointActivated;
     public string CheckpointId { get; private set; } = "canyon.v2.start";
     public event Action<PrologueSector> SectorMounted;
+    // Unlike SectorMounted, this publishes only after the active world commit
+    // and outgoing retirement. Feedback owners must finish the old generation
+    // here, before downstream physics publishers can emit in the new sector.
+    internal event Action<SeamlessPrologueWorld, PrologueSector> ActiveSectorCommitted;
+    internal event Action<PrologueSector> ResidentSectorResetting;
+    internal event Action<PrologueSector, bool> ResidentSectorResetFinished;
     internal static readonly StringName StagedSectorMeta = "_seamless_staged";
     [Export] public NodePath PlayerPath { get; set; } = new("../../PlayerRoot/Player");
     [Export] public PrologueSectorId InitialSector { get; set; } = PrologueSectorId.CanyonEntrance;
     [Export] public int LayoutVersion { get; set; } = 1;
+    [Export] public string CandidateProfileId {get;set;}=string.Empty;
+    public PrologueWorldProfile ProfileContract {get;private set;}
     [Export] public float CameraLimitBlendRate { get; set; } = 10f;
     [Export] public Godot.Collections.Array<PrologueSectorDefinition> Definitions { get; set; } = new();
 
@@ -70,15 +78,27 @@ public partial class SeamlessPrologueWorld : Node2D
         if (!float.IsFinite(CameraLimitBlendRate) || CameraLimitBlendRate <= 0f)
             throw new InvalidOperationException(
                 $"{nameof(CameraLimitBlendRate)} must be positive and finite.");
-        if (LayoutVersion is not (1 or CanyonWorldLayout.CurrentLayoutVersion))
+        ProfileContract=null;
+        if(!string.IsNullOrEmpty(CandidateProfileId))
+        {
+            if(!PrologueWorldProfiles.TryResolve(CandidateProfileId,out var selected) || LayoutVersion!=PrologueWorldProfile.LayoutVersion)
+                throw new InvalidOperationException("Unknown or mismatched candidate world profile.");
+            ProfileContract=selected;
+        }
+        else if (LayoutVersion is not (1 or CanyonWorldLayout.CurrentLayoutVersion))
             throw new InvalidOperationException(
                 $"{nameof(LayoutVersion)} must be 1 or {CanyonWorldLayout.CurrentLayoutVersion}.");
         if (Definitions == null)
             throw new InvalidOperationException($"{nameof(Definitions)} must not be null.");
 
         var definitions = new List<PrologueSectorDefinition>();
+        PrologueSectorDefinition.ObserveOperation("definition-enumeration", -1, true);
         foreach (PrologueSectorDefinition definition in Definitions) definitions.Add(definition);
-        _streamModel = new PrologueSectorStreamModel(definitions);
+        PrologueSectorDefinition.ObserveOperation("definition-enumeration", -1, false);
+        PrologueSectorDefinition.ObserveOperation("stream-model", -1, true);
+        ProfileContract?.ValidateDefinitions(definitions);
+        _streamModel = new PrologueSectorStreamModel(definitions,ProfileContract);
+        PrologueSectorDefinition.ObserveOperation("stream-model", -1, false);
         foreach (PrologueSectorDefinition definition in definitions)
             _definitions.Add(definition.Id, definition);
         if (!_definitions.ContainsKey(InitialSector))
@@ -105,6 +125,12 @@ public partial class SeamlessPrologueWorld : Node2D
             _cameraFocusModel = new CanyonCameraFocusModel(CanyonWorldLayout.CameraFocusRegions,
                 new PlayerMotionSettings().MaxFallSpeed);
         _initialPlayerPosition = _player.GlobalPosition;
+        if(ProfileContract!=null)
+        {
+            if(InitialSector!=ProfileContract.Start.SectorId || _initialPlayerPosition!=ProfileContract.Start.WorldPosition)
+                throw new InvalidOperationException("Candidate player must be authored at its canonical start before Ready.");
+            CheckpointId=ProfileContract.Start.StableId;
+        }
         _checkpointSector = InitialSector;
         _checkpointPosition = _initialPlayerPosition;
 
@@ -189,6 +215,12 @@ public partial class SeamlessPrologueWorld : Node2D
 
     public bool TryActivateCheckpoint(PrologueSectorId sectorId, Vector2 worldPosition)
     {
+        if(ProfileContract!=null)
+        {
+            foreach(var checkpoint in ProfileContract.Checkpoints)
+                if(checkpoint.SectorId==sectorId && checkpoint.WorldPosition==worldPosition)return TryActivateCheckpoint(checkpoint.StableId);
+            return false;
+        }
         if (LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion)
         {
             foreach (string id in CanyonWorldLayout.StableCheckpointIds)
@@ -209,6 +241,15 @@ public partial class SeamlessPrologueWorld : Node2D
 
     public bool TryActivateCheckpoint(string stableId)
     {
+        if(ProfileContract!=null)
+        {
+            if(!_initialized || !ProfileContract.TryResolveCheckpoint(stableId,out var candidateSector,out var candidatePosition) ||
+                stableId==ProfileContract.Start.StableId || candidateSector!=CurrentSector || !_mounted.ContainsKey(candidateSector) ||
+                CheckpointId!=stableId && !ProfileContract.CanAdvanceCheckpoint(CheckpointId,stableId))return false;
+            if(_flow!=null && (!GodotObject.IsInstanceValid(_flow) || !_flow.TryCommitCheckpoint(stableId)))return false;
+            CheckpointId=stableId;_checkpointSector=candidateSector;_checkpointPosition=candidatePosition;
+            CheckpointActivated?.Invoke(candidateSector,candidatePosition);return true;
+        }
         if (LayoutVersion != CanyonWorldLayout.CurrentLayoutVersion ||
             !CanyonWorldLayout.TryResolveCheckpoint(stableId, out var sector, out var position) ||
             !_initialized || sector != CurrentSector || !_mounted.ContainsKey(sector) ||
@@ -227,15 +268,21 @@ public partial class SeamlessPrologueWorld : Node2D
 
     public bool RestoreCheckpoint(string stableId)
     {
-        if (LayoutVersion != CanyonWorldLayout.CurrentLayoutVersion ||
-            !CanyonWorldLayout.TryResolveCheckpoint(stableId, out var sector, out var position)) return false;
+        PrologueSectorId sector;Vector2 position;
+        bool resolved=ProfileContract!=null ? ProfileContract.TryResolveCheckpoint(stableId,out sector,out position) :
+            CanyonWorldLayout.TryResolveCheckpoint(stableId,out sector,out position);
+        if(ProfileContract==null && LayoutVersion!=CanyonWorldLayout.CurrentLayoutVersion || !resolved)return false;
         string previous = CheckpointId;
         PrologueSectorId previousSector = _checkpointSector;
         Vector2 previousPosition = _checkpointPosition;
         CheckpointId = stableId;
         try
         {
-            if (RestoreCheckpoint(sector, position)) return true;
+            if (RestoreCheckpoint(sector, position))
+            {
+                RefreshCandidateCheckpointPresentation();
+                return true;
+            }
             CheckpointId = previous;
             return false;
         }
@@ -256,10 +303,38 @@ public partial class SeamlessPrologueWorld : Node2D
         return false;
     }
 
+    // Read captured authority only after the stream commits and queued work
+    // drains, never from a pre-commit SectorMounted callback. Not placement proof.
+    internal bool TryGetResidentSpawnContext(PrologueSectorId id, out PrologueSector sector,
+        out Node2D actors, out CharacterBody2D player, out Rect2 bounds)
+    {
+        sector = null; actors = null; player = null; bounds = default;
+        if (!_initialized || _transitioning || _queuedTransition.HasValue ||
+            !IsInsideTree() || !IsNodeReady() || IsQueuedForDeletion() ||
+            LayoutVersion != CanyonWorldLayout.CurrentLayoutVersion || GlobalTransform != Transform2D.Identity ||
+            !_definitions.TryGetValue(id, out var definition) || !_mounted.TryGetValue(id, out var actual) ||
+            !GodotObject.IsInstanceValid(actual) || !actual.IsInsideTree() || !actual.IsNodeReady() || actual.IsQueuedForDeletion() ||
+            actual.HasMeta(StagedSectorMeta) || !ReferenceEquals(actual.GetParent(), this) ||
+            actual.ValidateContract(definition).Count != 0 || actual.Position != definition.WorldOffset ||
+            !CanyonWorldLayout.SectorBounds.TryGetValue(id, out var expected) || definition.WorldBounds != expected ||
+            actual.GlobalTransform * actual.Bounds != expected ||
+            !GodotObject.IsInstanceValid(_player) || !_player.IsInsideTree() || !_player.IsNodeReady() || _player.IsQueuedForDeletion() ||
+            !GodotObject.IsInstanceValid(_playerParent) || !ReferenceEquals(_player.GetParent(), _playerParent) ||
+            !GodotObject.IsInstanceValid(_level) || !_level.IsInsideTree() || !_level.IsNodeReady() || _level.IsQueuedForDeletion() ||
+            !ReferenceEquals(_playerParent.GetParent(), _level) || !ReferenceEquals(GetParent()?.GetParent(), _level) ||
+            !ReferenceEquals(_level.Player, _player) ||
+            _player.GetWorld2D() != GetWorld2D()) return false;
+        var root = actual.GetNodeOrNull<Node2D>("Gameplay/Actors");
+        if (!GodotObject.IsInstanceValid(root) || !root.IsInsideTree() || !root.IsNodeReady() || root.IsQueuedForDeletion() ||
+            !PrologueSectorDefinition.Finite(root.GlobalTransform.X) || !PrologueSectorDefinition.Finite(root.GlobalTransform.Y) ||
+            !PrologueSectorDefinition.Finite(root.GlobalTransform.Origin) || MathF.Abs(root.GlobalTransform.Determinant()) < .001f) return false;
+        sector = actual; actors = root; player = _player; bounds = expected; return true;
+    }
+
     public void ResetCurrentSectorForCheckpoint()
     {
         if (!TryGetMountedSector(CurrentSector, out PrologueSector sector)) return;
-        ResetDescendants(sector);
+        ResetRegisteredSector(sector);
     }
 
     internal void ResetRecoverySectorsForCheckpoint(PrologueSectorId departingId,
@@ -275,7 +350,7 @@ public partial class SeamlessPrologueWorld : Node2D
         // Never remount or reset a replacement with the same sector ID.
         if (TryGetMountedSector(departingId, out PrologueSector departing) &&
             departing.GetInstanceId() == departingInstanceId)
-            ResetDescendants(departing);
+            ResetRegisteredSector(departing);
     }
 
     public bool RestoreCheckpoint()
@@ -288,6 +363,13 @@ public partial class SeamlessPrologueWorld : Node2D
 
     public bool RestoreCheckpoint(PrologueSectorId sectorId, Vector2 worldPosition)
     {
+        if(ProfileContract!=null)
+        {
+            bool canonical=false;
+            foreach(var checkpoint in ProfileContract.Checkpoints)
+                if(checkpoint.SectorId==sectorId && checkpoint.WorldPosition==worldPosition){canonical=true;break;}
+            if(!canonical)return false;
+        }
         if (!_initialized || !GodotObject.IsInstanceValid(_player) ||
             !PrologueSectorDefinition.Finite(worldPosition) ||
             sectorId != InitialSector &&
@@ -305,9 +387,23 @@ public partial class SeamlessPrologueWorld : Node2D
         if (!_initialized || !GodotObject.IsInstanceValid(_player)) return;
         EnsurePersistentPlayer();
         _checkpointSector = InitialSector;
-        CheckpointId = "canyon.v2.start";
+        CheckpointId = ProfileContract?.Start.StableId ?? "canyon.v2.start";
         _checkpointPosition = _initialPlayerPosition;
         RequestTransition(new TransitionRequest(InitialSector, _initialPlayerPosition, true));
+        RefreshCandidateCheckpointPresentation();
+    }
+
+    private void RefreshCandidateCheckpointPresentation()
+    {
+        if(ProfileContract==null)return;
+        foreach(var checkpoint in _checkpointHandlers.Keys)
+        {
+            if(!GodotObject.IsInstanceValid(checkpoint) || checkpoint.IsQueuedForDeletion())continue;
+            string id=checkpoint.EntranceId.ToString();
+            bool activated=ProfileContract.TryResolveCheckpoint(id,out _,out _) &&
+                (id==CheckpointId || ProfileContract.CanAdvanceCheckpoint(id,CheckpointId));
+            checkpoint.RestorePresentation(activated);
+        }
     }
 
     private void SetCurrentSector(PrologueSectorId next) =>
@@ -347,6 +443,8 @@ public partial class SeamlessPrologueWorld : Node2D
 
     private void ExecuteTransition(TransitionRequest request)
     {
+        PrologueSectorId previousId = CurrentSector;
+        _mounted.TryGetValue(previousId, out PrologueSector previousSector);
         IReadOnlyList<PrologueSectorId> required =
             _streamModel.RequiredSet(request.Sector, _pinnedSectors);
         List<StagedSector> prepared = PrepareStaged(required);
@@ -369,9 +467,9 @@ public partial class SeamlessPrologueWorld : Node2D
         }
 
         CurrentSector = request.Sector;
-        _cameraTargetBounds = LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion
+        _cameraTargetBounds = ProfileContract?.DesignBounds ?? (LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion
             ? CanyonWorldLayout.DesignBounds
-            : _definitions[request.Sector].WorldBounds;
+            : _definitions[request.Sector].WorldBounds);
         if (request.Relocation.HasValue)
         {
             _player.GlobalPosition = request.Relocation.Value;
@@ -403,6 +501,29 @@ public partial class SeamlessPrologueWorld : Node2D
         }
 
         foreach (MountedSector item in detached) RetireDetached(item.Sector);
+
+        PrologueSector committedSector = _mounted[CurrentSector];
+        if (_initialized && (previousId != CurrentSector ||
+            !ReferenceEquals(previousSector, committedSector)))
+            DispatchActiveSectorCommitted(committedSector);
+    }
+
+    private void DispatchActiveSectorCommitted(PrologueSector sector)
+    {
+        Action<SeamlessPrologueWorld, PrologueSector> observers = ActiveSectorCommitted;
+        if (observers == null) return;
+        // The world is already committed. A feedback fault must neither skip
+        // later cleanup owners nor make callers roll back checkpoint metadata
+        // or abandon recovery. Record every fault; never retry side effects.
+        foreach (Delegate observer in observers.GetInvocationList())
+        {
+            try { ((Action<SeamlessPrologueWorld, PrologueSector>)observer)(this, sector); }
+            catch (Exception exception)
+            {
+                GD.PushWarning($"{nameof(SeamlessPrologueWorld)} isolated a throwing " +
+                    $"{nameof(ActiveSectorCommitted)} observer: {exception.Message}");
+            }
+        }
     }
 
     private void BindClawResidency()
@@ -526,7 +647,9 @@ public partial class SeamlessPrologueWorld : Node2D
             {
                 if (_mounted.ContainsKey(id)) continue;
                 PrologueSectorDefinition definition = _definitions[id];
+                PrologueSectorDefinition.ObserveOperation("staged-instantiate", (int)id, true);
                 Node instance = definition.Scene.Instantiate();
+                PrologueSectorDefinition.ObserveOperation("staged-instantiate", (int)id, false);
                 if (instance is not PrologueSector sector)
                 {
                     instance.Free();
@@ -552,7 +675,9 @@ public partial class SeamlessPrologueWorld : Node2D
                 var staged = new StagedSector(id, sector, processMode, visible, collisions,
                     ownedNodes, new List<CheckpointBinding>());
                 prepared.Add(staged);
+                PrologueSectorDefinition.ObserveOperation("staged-add-child", (int)id, true);
                 AddChild(sector);
+                PrologueSectorDefinition.ObserveOperation("staged-add-child", (int)id, false);
                 if (!GodotObject.IsInstanceValid(sector) || sector.IsQueuedForDeletion() ||
                     !ReferenceEquals(sector.GetParent(), this) ||
                     !sector.HasMeta(StagedSectorMeta))
@@ -574,6 +699,14 @@ public partial class SeamlessPrologueWorld : Node2D
             CleanupStaged(prepared);
             throw;
         }
+    }
+
+    private void ResetRegisteredSector(PrologueSector sector)
+    {
+        ResidentSectorResetting?.Invoke(sector);
+        try { ResetDescendants(sector); }
+        catch { ResidentSectorResetFinished?.Invoke(sector, false); throw; }
+        ResidentSectorResetFinished?.Invoke(sector, true);
     }
 
     private static void ResetDescendants(Node root)
@@ -692,13 +825,14 @@ public partial class SeamlessPrologueWorld : Node2D
             if (_checkpointHandlers.ContainsKey(checkpoint))
                 throw new InvalidOperationException(
                     $"Sector {item.Id} checkpoint {owned.Path} is already bound.");
-            Func<StringName, bool> handler = id => LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion
+            Func<StringName, bool> handler = id => ProfileContract!=null || LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion
                 ? TryActivateCheckpoint(id.ToString())
                 : TryActivateCheckpoint(item.Id, checkpoint.GlobalPosition);
             checkpoint.ActivationRequest = handler;
             _checkpointHandlers.Add(checkpoint, handler);
             item.Bindings.Add(new CheckpointBinding(checkpoint, handler, owned.Path));
         }
+        RefreshCandidateCheckpointPresentation();
     }
 
     private void ValidatePreparedBindings(StagedSector item)
@@ -735,7 +869,7 @@ public partial class SeamlessPrologueWorld : Node2D
     {
         if (ContainsPoint(_definitions[CurrentSector].WorldBounds, worldPosition))
             return CurrentSector;
-        foreach (PrologueSectorId id in Enum.GetValues<PrologueSectorId>())
+        foreach (PrologueSectorId id in ProfileContract?.SectorIds ?? Enum.GetValues<PrologueSectorId>())
             if (ContainsPoint(_definitions[id].WorldBounds, worldPosition)) return id;
         return CurrentSector;
     }
@@ -771,6 +905,11 @@ public partial class SeamlessPrologueWorld : Node2D
     private void BlendCameraBounds(float delta)
     {
         if (_camera == null || !GodotObject.IsInstanceValid(_camera)) return;
+        if(ProfileContract!=null)
+        {
+            _cameraBounds=_cameraTargetBounds=ProfileContract.DesignBounds;ApplyCameraBounds(_cameraBounds);
+            _camera.Position=_camera.Position.Lerp(_cameraRestPosition,1f-Mathf.Exp(-CameraLimitBlendRate*delta));return;
+        }
         if (LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion)
         {
             BlendRouteCamera(delta);
@@ -845,6 +984,12 @@ public partial class SeamlessPrologueWorld : Node2D
 
     private void SnapCameraToTarget()
     {
+        if(ProfileContract!=null)
+        {
+            _cameraBounds=_cameraTargetBounds=ProfileContract.DesignBounds;ApplyCameraBounds(_cameraBounds);
+            if(GodotObject.IsInstanceValid(_camera))_camera.Position=_cameraRestPosition;
+            return;
+        }
         if (LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion)
         {
             _cameraBounds = CanyonWorldLayout.DesignBounds;
@@ -864,7 +1009,7 @@ public partial class SeamlessPrologueWorld : Node2D
 
     private Vector2 CameraFollowPosition()
     {
-        if (CurrentSector != PrologueSectorId.CanyonAscent) return _cameraRestPosition;
+        if (ProfileContract!=null || CurrentSector != PrologueSectorId.CanyonAscent) return _cameraRestPosition;
         float headroom = AscentHeadroomPixels;
         // Released/Retract can still retain CurrentTarget. Follow the actual cast phase,
         // and reuse the motor's flight lifetime instead of inventing a camera-only timer.

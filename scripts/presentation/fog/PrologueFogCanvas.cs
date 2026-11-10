@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using Godot;
+using Knight.Prologue;
+using Knight.Prologue.Seamless;
 
 namespace Knight.Presentation.Fog;
 
@@ -16,6 +19,7 @@ public partial class PrologueFogCanvas : ColorRect
     private ImageTexture _geometryTexture;
     private ImageTexture _fieldTexture;
     private ShaderMaterial _fogMaterial;
+    private IReadOnlyList<PrologueFogField> _fields=PrologueFogModel.Fields;
     public bool FrameValid { get; private set; }
 
     public override void _Ready()
@@ -32,17 +36,21 @@ public partial class PrologueFogCanvas : ColorRect
             false, Image.Format.Rgbaf, _geometryBytes);
         _geometryTexture = ImageTexture.CreateFromImage(_geometryImage);
         _fogMaterial.SetShaderParameter("occluders", _geometryTexture);
+        for(Node owner=GetParent();owner!=null;owner=owner.GetParent())
+            if(owner is PrologueLevelController level){_fields=level.WorldProfile?.FogFields ?? PrologueFogModel.Fields;break;}
         UploadFields();
     }
 
     public void Present(Vector2 actorWorldPosition, Vector2 lampWorldPosition,
         Vector2 lampDirection, Transform2D viewportToWorld, HeadlampOcclusionFrame occlusion,
-        bool reducedFog = false)
+        bool reducedFog = false,PrologueWorldProfile profile=null)
     {
         if (_fogMaterial == null) return;
+        var selected=profile?.FogFields ?? PrologueFogModel.Fields;
+        if(!ReferenceEquals(_fields,selected)){_fields=selected;UploadFields();}
         FrameValid = occlusion != null && occlusion.IsComplete &&
             occlusion.Shapes.Count <= HeadlampOcclusionSampler.MaximumShapes &&
-            PrologueFogModel.Fields.Count <= MaxFields &&
+            _fields.Count <= MaxFields &&
             Finite(actorWorldPosition) && Finite(lampWorldPosition) && Finite(lampDirection) &&
             Finite(viewportToWorld.X) && Finite(viewportToWorld.Y) && Finite(viewportToWorld.Origin) &&
             float.IsFinite(viewportToWorld.Determinant()) && viewportToWorld.Determinant() != 0f &&
@@ -55,7 +63,7 @@ public partial class PrologueFogCanvas : ColorRect
             // inside this union AABB. Excluding a rectangle outside it cannot
             // grant light past a blocker; no angular sparse contour is used.
             float range = PrologueFogProfile.Exploration.OuterRadius;
-            foreach (PrologueFogField field in PrologueFogModel.Fields)
+            foreach (PrologueFogField field in _fields)
                 range = Mathf.Max(range, Mathf.Max(field.Profile.OuterRadius, field.Profile.BeamRange));
             range = Mathf.Max(range, PrologueFogProfile.Exploration.BeamRange);
             Vector2 min = actorWorldPosition.Min(lampWorldPosition) - Vector2.One * range;
@@ -104,11 +112,11 @@ public partial class PrologueFogCanvas : ColorRect
 
     private void UploadFields()
     {
-        int count = PrologueFogModel.Fields.Count;
+        int count = _fields.Count;
         var values = new float[Math.Max(1, count) * 12];
         for (int index = 0; index < count; index++)
         {
-            PrologueFogField field = PrologueFogModel.Fields[index];
+            PrologueFogField field = _fields[index];
             int offset = index * 12;
             values[offset] = field.Bounds.Position.X; values[offset + 1] = field.Bounds.Position.Y;
             values[offset + 2] = field.Bounds.End.X; values[offset + 3] = field.Bounds.End.Y;
@@ -119,8 +127,10 @@ public partial class PrologueFogCanvas : ColorRect
         var bytes = new byte[values.Length * sizeof(float)];
         Buffer.BlockCopy(values, 0, bytes, 0, bytes.Length);
         using Image image = Image.CreateFromData(3, Math.Max(1, count), false, Image.Format.Rgbaf, bytes);
+        var previous=_fieldTexture;
         _fieldTexture = ImageTexture.CreateFromImage(image);
         _fogMaterial.SetShaderParameter("fields", _fieldTexture);
+        previous?.Dispose();
         _fogMaterial.SetShaderParameter("field_count", Math.Min(count, MaxFields));
         PrologueFogProfile profile = PrologueFogProfile.Exploration;
         _fogMaterial.SetShaderParameter("base_profile", new Vector4(profile.ClearRadius,

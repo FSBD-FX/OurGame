@@ -19,7 +19,7 @@ public static class PrologueLevelRuntimeTests
     {
         IsolatedPrologueFixture.ValidateStorageRoot();
         await GeneratedMainDeathDefersRestoreAndPreservesRecoveryClosure(tree);
-        GD.Print("THRUSTER_GENERATED_MAIN_DEATH_OK original_saved_scene=true original_death_input=true same_checkpoint=true original_waits=true human=false full_route=false");
+        GD.Print("THRUSTER_GENERATED_MAIN_DEATH_OK original_saved_scene=true original_death_input=true same_checkpoint=true resident_commit_barrier=true sampled_resume=true human=false full_route=false");
     }
 
     public static async Task Run(SceneTree tree)
@@ -212,6 +212,7 @@ public static class PrologueLevelRuntimeTests
         tree.Root.AddChild(level);
         await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
         await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+        await BasinAscentCameraRuntimeTests.WaitForPlaying(tree, level);
         CharacterBody2D player = level.Player;
         PlayerInputReader input = player.GetNode<PlayerInputReader>("Input");
         PlayerMotor motor = player.GetNode<PlayerMotor>("Motor");
@@ -232,12 +233,14 @@ public static class PrologueLevelRuntimeTests
         var resettable = new RecordingResettable { Name = "DirtyRecoveryActor" };
         level.CurrentSectorRoot.GetNode("Gameplay").AddChild(resettable);
 
+        ulong beforeHeldSequence = input.CurrentFrameSequence;
         SendAction(InputActions.MoveRight, true);
         SendAction(InputActions.PrimaryAction, true);
         SendAction(InputActions.Shield, true);
-        await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
-        await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
-        TestAssert.True(input.Current.MoveAxis > .5f && input.Current.PrimaryHeld &&
+        for (int frame = 0; frame < 4 && input.CurrentFrameSequence == beforeHeldSequence; frame++)
+            await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+        TestAssert.True(input.CurrentFrameSequence > beforeHeldSequence &&
+            input.Current.MoveAxis > .5f && input.Current.PrimaryHeld &&
             input.Current.ShieldHeld,
             "recovery fixture begins with real held movement, primary and shield input sampled");
         HealthComponent health = player.GetNode<HealthComponent>("Health");
@@ -245,8 +248,15 @@ public static class PrologueLevelRuntimeTests
         int completed = 0;
         bool requestSawHeldInput = false;
         bool completionClosedTransients = false;
-        bool completionKeptGameplayDisabled = false;
-        bool actorStillDeferredAtCompletion = false;
+        bool completionEnabledGameplay = false;
+        bool actorResetAtCompletion = false;
+        bool residentCommitAtCompletion = false;
+        Vector2 completionPosition = default;
+        long recoveryEpoch = level.Residents.Epoch;
+        var beforeResetRevisions = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var site in level.ResidentLayout)
+            beforeResetRevisions.Add(site.Definition.StableId,
+                level.Residents.Snapshot(site.Definition.StableId).ResetRevision);
         level.RecoveryRequested += _ =>
         {
             requested++;
@@ -261,12 +271,20 @@ public static class PrologueLevelRuntimeTests
                 !combat.IsAttacking && claw.CurrentFrame.State == MechanicalClawState.Idle &&
                 !shield.IsActive && energy.EnergyRatio >= .999f && energy.HeatRatio <= .001f &&
                 motor.AcceptedDashCount == 0;
-            completionKeptGameplayDisabled = !player.IsPhysicsProcessing() &&
-                !input.IsPhysicsProcessing() && !motor.IsPhysicsProcessing() &&
-                !combat.IsPhysicsProcessing() && !claw.IsPhysicsProcessing() &&
-                !actionModes.IsPhysicsProcessing() && !shield.IsPhysicsProcessing() &&
-                !energy.IsPhysicsProcessing();
-            actorStillDeferredAtCompletion = resettable.Dirty && resettable.ResetCount == 0;
+            completionEnabledGameplay = player.IsPhysicsProcessing() &&
+                input.IsPhysicsProcessing() && motor.IsPhysicsProcessing() &&
+                combat.IsPhysicsProcessing() && claw.IsPhysicsProcessing() &&
+                actionModes.IsPhysicsProcessing() && shield.IsPhysicsProcessing() &&
+                energy.IsPhysicsProcessing();
+            actorResetAtCompletion = !resettable.Dirty && resettable.ResetCount == 1 &&
+                resettable.ResetSector == Prologue.Seamless.PrologueSectorId.CanyonEntrance;
+            residentCommitAtCompletion = !level.ResidentPreparationPending &&
+                level.ResidentPreparationFailure.Length == 0 && level.Residents.Epoch == recoveryEpoch;
+            foreach (var site in level.ResidentLayout)
+                residentCommitAtCompletion &= level.Residents.Snapshot(site.Definition.StableId).ResetRevision ==
+                    beforeResetRevisions[site.Definition.StableId] +
+                    (site.Definition.Sector == Prologue.Seamless.PrologueSectorId.CanyonEntrance ? 1 : 0);
+            completionPosition = player.GlobalPosition;
         };
         var deathTrace = new List<string>(8);
         bool deathTraceOverflow = false;
@@ -336,9 +354,12 @@ public static class PrologueLevelRuntimeTests
             "accepted recovery stops gameplay immediately but does not mutate the scene during the request callback");
 
         int completionWaitFrames = 0;
-        while (completed == 0 && completionWaitFrames < 4)
+        while (completed == 0 && completionWaitFrames < 180)
         {
-            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            TestAssert.True(flow.State == PrologueGameFlowState.Recovering &&
+                level.ResidentPreparationFailure.Length == 0,
+                "death recovery remains owned until its real resident commit: " + level.ResidentPreparationFailure);
+            await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
             completionWaitFrames++;
         }
         PrologueCheckpointSnapshot recoveredCheckpoint = level.Progress.RestoreCheckpoint();
@@ -347,32 +368,29 @@ public static class PrologueLevelRuntimeTests
             $"resolved_sector={checkpointSector} resolved_position={checkpointPosition} " +
             $"saved_scene_start={savedSceneStart} actual={player.GlobalPosition} " +
             $"recovered_id={recoveredCheckpoint.CheckpointId} recovered_activated={recoveredCheckpoint.HasActivatedCheckpoint}");
-        TestAssert.True(completed == 1 && completionClosedTransients &&
-            completionKeptGameplayDisabled && actorStillDeferredAtCompletion &&
-            player.GlobalPosition.DistanceTo(checkpointPosition) < 1.1f &&
+        TestAssert.True(requested == 1 && completed == 1 && completionClosedTransients &&
+            completionEnabledGameplay && actorResetAtCompletion && residentCommitAtCompletion &&
+            completionPosition.DistanceTo(checkpointPosition) < 1.1f &&
             recoveredCheckpoint.CheckpointId == checkpoint.CheckpointId &&
             !recoveredCheckpoint.HasActivatedCheckpoint && recoveredCheckpoint.SectorId == checkpointSector,
             $"deferred recovery completes once with the exact checkpoint and closed transients; " +
             $"wait_frames={completionWaitFrames} completed={completed} " +
-            $"transients={completionClosedTransients} disabled={completionKeptGameplayDisabled} " +
-            $"actor_pending={actorStillDeferredAtCompletion} position={player.GlobalPosition}");
+            $"transients={completionClosedTransients} enabled={completionEnabledGameplay} " +
+            $"actor_reset={actorResetAtCompletion} resident_commit={residentCommitAtCompletion} " +
+            $"completion_position={completionPosition} actual_position={player.GlobalPosition}");
 
-        int actorWaitFrames = 0;
-        while (resettable.ResetCount == 0 && actorWaitFrames < 4)
-        {
-            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
-            actorWaitFrames++;
-        }
         bool deferredActorReset = !resettable.Dirty && resettable.ResetCount == 1 &&
             resettable.ResetSector == Prologue.Seamless.PrologueSectorId.CanyonEntrance;
 
+        ulong completionSequence = input.CurrentFrameSequence;
         int resumeWaitFrames = 0;
-        while (!input.IsPhysicsProcessing() && resumeWaitFrames < 4)
+        while (input.CurrentFrameSequence == completionSequence && resumeWaitFrames < 4)
         {
             await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
             resumeWaitFrames++;
         }
-        bool resumedAtNextBoundary = input.IsPhysicsProcessing() && motor.IsPhysicsProcessing() &&
+        bool resumedAtNextBoundary = input.CurrentFrameSequence > completionSequence &&
+            input.IsPhysicsProcessing() && motor.IsPhysicsProcessing() &&
             combat.IsPhysicsProcessing() && claw.IsPhysicsProcessing() &&
             actionModes.IsPhysicsProcessing() && shield.IsPhysicsProcessing() &&
             energy.IsPhysicsProcessing();
@@ -382,13 +400,14 @@ public static class PrologueLevelRuntimeTests
         TestAssert.True(deferredActorReset && resumedAtNextBoundary && noStalePrimaryEdge &&
             actorResetExactlyOnce,
             $"deferred recovery resets the mounted actor exactly once and resumes without stale input; " +
-            $"actor_wait={actorWaitFrames} deferred_actor={deferredActorReset} " +
+            $"deferred_actor={deferredActorReset} " +
             $"resume_wait={resumeWaitFrames} resumed_next={resumedAtNextBoundary} " +
             $"stale_primary_blocked={noStalePrimaryEdge} actor_once={actorResetExactlyOnce} " +
             $"input={input.Current} energy={energy.EnergyRatio:0.000} heat={energy.HeatRatio:0.000}");
         GD.Print($"TASK9_POST_GENERATED_MAIN_DEATH_OK checkpoint={checkpointPosition} " +
             $"requested={requested} completed={completed} input_closure=True actor_deferred=1 " +
-            $"completion_wait={completionWaitFrames} resume_wait={resumeWaitFrames}");
+            $"completion_wait={completionWaitFrames} resume_wait={resumeWaitFrames} " +
+            $"resident_commit=True sampled_resume=True reset_before_completion=True");
         }
         catch (Exception exception)
         {

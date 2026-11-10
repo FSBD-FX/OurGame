@@ -21,6 +21,7 @@ using Knight.Presentation;
 using Knight.Prologue;
 using Knight.Save;
 using Knight.Prologue.Guidance;
+using Knight.Prologue.Residents;
 using Knight.Prologue.Seamless;
 using Knight.Prologue.Traversal;
 using Knight.Shared;
@@ -36,7 +37,371 @@ namespace Knight.Tests.Integration;
 /// </summary>
 public static partial class PrologueCanyonGeneratedMainRouteTests
 {
+    internal static async Task<(int Ticks, bool Complete, string Fault)> Task10ObserveFailedVolleyTail(
+        Func<bool> complete, Func<Task> advance)
+    {
+        int ticks = 0;
+        try
+        {
+            bool done = complete();
+            while (!done && ticks < 120)
+            {
+                await advance();
+                ticks++;
+                done = complete();
+            }
+            return (ticks, done, null);
+        }
+        catch (Exception error) { return (ticks, false, error.GetType().Name + ": " + error.Message); }
+    }
+
+    // Separate from Hop acceptance. It never changes inputs, HP, actor state,
+    // publications or the existing Hop counters; even a complete tail is not a pass.
+    private sealed class Task10VolleyTailJournal : IDisposable
+    {
+        private sealed class Shot
+        {
+            public ulong Id, Cycle, Ordinal;
+            public bool Emitted, Retired, Endpoint;
+        }
+        private readonly Dictionary<ulong, Shot> _shots = new();
+        private readonly Dictionary<RangedWeaponProjectile, ulong> _live = new();
+        private readonly List<string> _rows = new(160);
+        private readonly ulong _sourceId;
+        private RangedWeaponEnemy _source;
+        private CharacterBody2D _player;
+        private PlayerInputReader _input;
+        private HealthComponent _health;
+        private Func<ulong> _selectedCycle;
+        private Func<(bool Live, ulong Cycle)> _sourceSnapshotControl;
+        private BasinBoardingTickObserver _observer;
+        private ulong _cycle, _sequence;
+        private int _faults, _dropped, _outsideCycle, _samples;
+        private bool _disposed, _finished;
+        private bool _cycleRetained = true;
+        public bool Complete => _finished && _cycleRetained &&
+            _faults == 0 && _dropped == 0 && _outsideCycle == 0;
+
+        public Task10VolleyTailJournal(RangedWeaponEnemy source, CharacterBody2D player, Func<ulong> selectedCycle,
+            Func<(bool Live, ulong Cycle)> sourceSnapshotControl = null)
+        {
+            _source = source; _sourceId = source.GetInstanceId(); _player = player;
+            _input = player.GetNode<PlayerInputReader>("Input");
+            _health = player.GetNode<HealthComponent>("Health");
+            _selectedCycle = selectedCycle;
+            _sourceSnapshotControl = sourceSnapshotControl;
+        }
+        public void Bind() => Safe(() =>
+        {
+            // Before AddChild->Launch, so even a synchronous failed launch can
+            // produce a real unknown-ordinal retirement rather than disappearing.
+            _source.ChildEnteredTree += OnChild;
+            _source.ShotEmitted += OnShot;
+            _observer = new BasinBoardingTickObserver { ProcessPhysicsPriority = 100, Sample = Sample };
+            _player.AddChild(_observer);
+        });
+        private bool CurrentCycle()
+        {
+            if (_finished) return false;
+            ObserveSourceContinuity();
+            var snapshot = ReadSourceSnapshot();
+            if (!snapshot.Live) return false;
+            ulong selected = _selectedCycle();
+            ulong actual = snapshot.Cycle;
+            if (selected == 0 || actual != selected) { if (_cycle != 0) _outsideCycle++; return false; }
+            if (_cycle == 0) _cycle = selected;
+            return _cycle == selected;
+        }
+        private void ObserveSourceContinuity()
+        {
+            if (_cycle == 0 || _finished || !_cycleRetained) return;
+            var snapshot = ReadSourceSnapshot();
+            if (snapshot.Live && snapshot.Cycle == _cycle) return;
+            _cycleRetained = false; // Never re-authorize after a transient loss.
+            Row("cycle_revoked", $"actual_cycle={snapshot.Cycle} source_authority={snapshot.Live} " +
+                "latched_incomplete=true");
+        }
+        private (bool Live, ulong Cycle) ReadSourceSnapshot()
+        {
+            if (_sourceSnapshotControl != null) return _sourceSnapshotControl();
+            bool live = GodotObject.IsInstanceValid(_source) && _source.IsInsideTree() &&
+                !_source.IsQueuedForDeletion() && _source.HasPresentationAuthority;
+            return (live, live ? _source.CurrentFrame.AttackTimeline.AttackId : 0);
+        }
+        private void OnChild(Node node) => Safe(() =>
+        {
+            if (node is not RangedWeaponProjectile shot || !CurrentCycle()) return;
+            if (_shots.Count >= 3) throw new InvalidOperationException("more than three same-cycle projectile births");
+            ulong id = shot.GetInstanceId();
+            _shots.Add(id, new Shot { Id = id, Cycle = _cycle });
+            _live.Add(shot, id);
+            shot.Retired += OnRetired;
+            Row("birth", $"leaf={id} ordinal=unknown launched=false");
+        });
+        internal void OnShot(ulong ordinal, Vector2 origin) => Safe(() =>
+        {
+            if (!CurrentCycle()) return;
+            var matches = _live.Keys.Where(shot => GodotObject.IsInstanceValid(shot) && !shot.IsRetired &&
+                GodotObject.IsInstanceValid(shot.Telegraph) &&
+                shot.Telegraph.CurrentFrame.Timeline.AttackId == ordinal).ToArray();
+            if (ordinal == 0 || matches.Length != 1 || _shots.Values.Any(x => x.Emitted && x.Ordinal == ordinal))
+                throw new InvalidOperationException("emission requires one distinct actually launched projectile");
+            var shot = matches[0];
+            Shot record = _shots[_live[shot]];
+            record.Ordinal = ordinal; record.Emitted = true;
+            var frame = shot.Telegraph.CurrentFrame;
+            Row("emitted", $"leaf={record.Id} ordinal={ordinal} signal_origin={origin} " +
+                $"published_origin={frame.Shape.Origin} shape={frame.Shape.Kind} radius={frame.Shape.Extent.X:R} " +
+                $"aim={_source.CurrentFrame.AimDirection} projectile_priority={shot.ProcessPhysicsPriority}");
+        });
+        private void OnRetired(RangedWeaponProjectile shot) => Safe(() =>
+        {
+            if (!_live.TryGetValue(shot, out ulong id)) return;
+            ObserveSourceContinuity(); // Includes synchronous owner cancellation before its next frame.
+            Shot record = _shots[id];
+            record.Retired = true;
+            bool valid = GodotObject.IsInstanceValid(shot);
+            record.Endpoint = valid && shot.IsInsideTree();
+            // Telegraph has already been cleared. Read only the still-live node's
+            // endpoint and cached identity, never its emptied publication.
+            string endpoint = record.Endpoint
+                ? $"endpoint={shot.GlobalPosition} travelled={shot.TravelledDistance:R} queued={shot.IsQueuedForDeletion()}"
+                : "endpoint_unavailable=true";
+            Row("retired", $"leaf={id} ordinal={record.Ordinal} emitted={record.Emitted} {endpoint} " +
+                "retirement_reason=unknown counted_as_safe=false");
+            if (valid) shot.Retired -= OnRetired;
+            _live.Remove(shot);
+            _finished = _shots.Count == 3 && _shots.Values.All(x => x.Emitted && x.Retired && x.Endpoint);
+        });
+        internal void Sample(double delta) => Safe(() =>
+        {
+            if (_finished) return;
+            ObserveSourceContinuity(); // Not only new-birth/emission boundaries.
+            if (_live.Count == 0 || ++_samples % 4 != 0) return;
+            foreach (var pair in _live)
+                if (GodotObject.IsInstanceValid(pair.Key) && pair.Key.IsInsideTree())
+                    Row("post_node_sample", $"leaf={pair.Value} ordinal={_shots[pair.Value].Ordinal} " +
+                        $"position={pair.Key.GlobalPosition} travelled={pair.Key.TravelledDistance:R} delta={delta:R} " +
+                        "boundary=priority100_observer production_sweep_intercepted=false");
+        });
+        public void Mark(string edge, string detail) => Safe(() => Row(edge, detail));
+        private void Row(string edge, string detail)
+        {
+            if (_rows.Count >= 160) { _dropped++; return; }
+            bool playerLive = GodotObject.IsInstanceValid(_player) && _player.IsInsideTree();
+            _rows.Add($"MIXED_VOLLEY_PASSIVE sequence={++_sequence} edge={edge} physics={Engine.GetPhysicsFrames()} " +
+                $"sample={(GodotObject.IsInstanceValid(_input) ? _input.CurrentFrameSequence : 0)} source={_sourceId} cycle={_cycle} " +
+                $"hp={(GodotObject.IsInstanceValid(_health) ? _health.CurrentHealth : -1)} player_live={playerLive} " +
+                $"player={(playerLive ? _player.GlobalPosition : Vector2.Zero)} " +
+                $"velocity={(playerLive ? _player.Velocity : Vector2.Zero)} {detail}");
+        }
+        private void Safe(Action action)
+        {
+            if (_disposed) return;
+            try { action(); }
+            catch (Exception error)
+            {
+                _faults++;
+                if (_rows.Count < 160) _rows.Add("MIXED_VOLLEY_PASSIVE edge=observer_fault message=" +
+                    System.Text.Json.JsonSerializer.Serialize(error.GetType().Name + ": " + error.Message));
+                else _dropped++;
+            }
+        }
+        public void Dispose()
+        {
+            if (_disposed) return;
+            Safe(() => { if (GodotObject.IsInstanceValid(_source)) _source.ChildEnteredTree -= OnChild; });
+            Safe(() => { if (GodotObject.IsInstanceValid(_source)) _source.ShotEmitted -= OnShot; });
+            foreach (var shot in _live.Keys.ToArray())
+                Safe(() => { if (GodotObject.IsInstanceValid(shot)) shot.Retired -= OnRetired; });
+            Safe(() =>
+            {
+                if (GodotObject.IsInstanceValid(_observer)) { _observer.Sample = null; _observer.Free(); }
+            });
+            _live.Clear(); _selectedCycle = null; _sourceSnapshotControl = null; _source = null; _player = null;
+            _input = null; _health = null; _observer = null; _disposed = true;
+        }
+        public void WriteSummary()
+        {
+            foreach (string row in _rows) GD.Print(row);
+            GD.Print($"MIXED_VOLLEY_PASSIVE_END births={_shots.Count} emitted={_shots.Values.Count(x => x.Emitted)} " +
+                $"retired={_shots.Values.Count(x => x.Retired)} endpoints={_shots.Values.Count(x => x.Endpoint)} " +
+                $"complete={Complete} cycle_retained={_cycleRetained} closed_at_final_retirement={_finished} " +
+                $"faults={_faults} dropped={_dropped} outside_cycle_events={_outsideCycle} " +
+                "diagnostic_only=true hop_accepted=false main_accepted=false rejected_damage_requests=unknown");
+        }
+    }
+
+    internal static void CheckTask10VolleyTailCycleControls(Node fixture, CharacterBody2D player)
+    {
+        var failures = new List<string>();
+        foreach (string mode in new[] { "stable", "retired-cycle-change", "sample-cycle-change", "owner-revoked" })
+        {
+            using var packed = ResourceLoader.Load<PackedScene>("res://scenes/enemies/BeltBurstGunner.tscn",
+                cacheMode: ResourceLoader.CacheMode.Ignore);
+            var source = packed.Instantiate<RangedWeaponEnemy>();
+            source.Position = new Vector2(300, 14);
+            source.ConfigureEncounterEnvelope(new Rect2(-2000, -2000, 4000, 4000));
+            fixture.AddChild(source);
+            source.SetPhysicsProcess(false); // Explicit callback control, not a natural volley proof.
+            ulong cycle = 5;
+            bool live = true;
+            var journal = new Task10VolleyTailJournal(source, player, () => 5, () => (live, cycle));
+            var leaves = new List<RangedWeaponProjectile>();
+            var ledger = new RangedVolleyDamageLedger();
+            using var settings = RangedWeaponSettings.ForRole(RangedWeaponRole.Burst);
+            try
+            {
+                journal.Bind();
+                for (ulong ordinal = 1; ordinal <= 3; ordinal++)
+                {
+                    var shot = new RangedWeaponProjectile();
+                    source.AddChild(shot); // Real native child-entered and retirement signals.
+                    shot.Launch(source, new Vector2(600, -400), Vector2.Right,
+                        new DamageAttackIdentity(source.GetInstanceId(), ordinal), settings, ledger,
+                        new Rect2(-2000, -2000, 4000, 4000));
+                    leaves.Add(shot);
+                    journal.OnShot(ordinal, shot.GlobalPosition); // Simulated emission callback only.
+                }
+                leaves[0].Retire(); leaves[1].Retire();
+                TestAssert.True(!journal.Complete, "live third projectile is not a complete tail");
+                if (mode == "retired-cycle-change") cycle = 6;
+                if (mode == "owner-revoked") live = false;
+                if (mode == "sample-cycle-change")
+                { cycle = 6; journal.Sample(1d / 60d); cycle = 5; }
+                leaves[2].Retire();
+                if (journal.Complete != (mode == "stable")) failures.Add(mode);
+                cycle = 5; live = true; journal.Sample(1d / 60d);
+                if (journal.Complete != (mode == "stable")) failures.Add(mode + "-revival");
+            }
+            finally { journal.Dispose(); source.Free(); ledger.Clear(); }
+        }
+        TestAssert.True(failures.Count == 0,
+            "VOLLEY_CYCLE_TAIL_RED: third-emission/last-retirement cycle loss must latch incomplete: " + string.Join(",", failures));
+        GD.Print("VOLLEY_CYCLE_TAIL_OK cases=4 native_leaf_signals=true source_snapshots_injected_control=true natural_volley_claim=false");
+    }
+
+
+    internal static bool ShouldTask10GuardLanding(string phase, bool keyboard,
+        MechanicalClawFrame frame, ulong expectedCast, ulong expectedTarget, ulong lastActiveTarget) =>
+        phase is "ascent-grip1" or "ascent-grip8" && keyboard && expectedCast > 0 && frame.CastId == expectedCast &&
+        expectedTarget > 0 && lastActiveTarget == expectedTarget &&
+        frame.State == MechanicalClawState.Released && frame.ReleaseKind == MechanicalClawReleaseKind.Cancel;
+
+    internal static async Task CheckGrip1LandingGuardFaults(SceneTree tree, CharacterBody2D player,
+        Node fixture, KeyboardRouteInputDriver keyboard)
+    {
+        // Owned input-lifetime control only. Arming is deliberately simulated here;
+        // the actual cast/release/landing contract is the independent full-route test.
+        using var shape = new RectangleShape2D { Size = new Vector2(100, 12) };
+        var support = new StaticBody2D { Position = new Vector2(0, 1060) };
+        support.AddChild(new CollisionShape2D { Name = "Collision", Shape = shape });
+        var actors = new Node();
+        var target = new GrappleSurface2D();
+        fixture.AddChild(support); fixture.AddChild(actors);
+        var failures = new List<string>();
+        try
+        {
+            foreach (string mode in new[] { "after-acquisition", "partial-acquisition", "unsubscribe" })
+            {
+                var cleanup = new List<string>();
+                Action<bool> emit = pressed =>
+                {
+                    keyboard.PointerButton(MouseButton.Right, pressed, player,
+                        pressed ? player.GlobalPosition + Vector2.Down * 96 : Vector2.Zero);
+                    if (pressed && mode == "partial-acquisition")
+                        throw new InvalidOperationException("owned partial input fault");
+                };
+                Action<string> cleanupProbe = name =>
+                {
+                    cleanup.Add(name);
+                    if (mode == "unsubscribe" && name == "claw")
+                        throw new InvalidOperationException("owned unsubscribe fault");
+                };
+                var scope = new Task10LandingGuard(player, actors, support, target, emit, cleanupProbe);
+                try
+                {
+                    typeof(Task10LandingGuard).GetField("_armed",
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).SetValue(scope, true);
+                    scope.Refresh();
+                    if (mode != "partial-acquisition")
+                    {
+                        await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+                        await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+                        TestAssert.True(Input.IsPhysicalKeyPressed(Key.S) && Input.IsPhysicalKeyPressed(Key.L) &&
+                            player.GetNode<PlayerShieldController>("Shield").IsActive,
+                            "fault control acquires real sampled S+L before injecting its failure");
+                        if (mode == "after-acquisition")
+                        {
+                            Action throwObserver = () => throw new InvalidOperationException("owned observer fault");
+                            typeof(Task10LandingGuard).GetMethod("Safe",
+                                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                                .Invoke(scope, new object[] { throwObserver });
+                        }
+                        else scope.Dispose();
+                    }
+                    TestAssert.True(scope.Fault != null && !Input.IsPhysicalKeyPressed(Key.S) &&
+                        !Input.IsPhysicalKeyPressed(Key.L),
+                        $"GRIP1_GUARD_FAULT_RED {mode}: first fault immediately withdraws owned S+L");
+                    scope.Refresh();
+                    TestAssert.True(!Input.IsPhysicalKeyPressed(Key.S) && !Input.IsPhysicalKeyPressed(Key.L),
+                        "faulted scope cannot reissue input on a later callback");
+                    TestAssert.True(cleanup.SequenceEqual(new[] { "input", "claw", "shield", "actors" }),
+                        "one failing unsubscribe cannot skip remaining independent teardown");
+                    bool HasScopeBinding(object owner, string field) =>
+                        (owner.GetType().GetField(field, System.Reflection.BindingFlags.NonPublic |
+                            System.Reflection.BindingFlags.Instance)?.GetValue(owner) as Delegate)?
+                            .GetInvocationList().Any(handler => ReferenceEquals(handler.Target, scope)) ?? false;
+                    TestAssert.True(!HasScopeBinding(player.GetNode<MechanicalClawController>("MechanicalClaw"), "ClawFrameChanged") &&
+                        !HasScopeBinding(player.GetNode<PlayerShieldController>("Shield"), "ShieldResolved"),
+                        "actual managed subscriptions no longer retain this owned scope");
+                    var connections = actors.GetSignalConnectionList(Node.SignalName.ChildEnteredTree);
+                    TestAssert.Equal(0, connections.Count, "actual native child-entered-tree subscription removed");
+                    var original = new InvalidOperationException("owned original route failure");
+                    Exception observed = null;
+                    try { try { throw original; } finally { scope.Dispose(); } }
+                    catch (Exception error) { observed = error; }
+                    TestAssert.True(ReferenceEquals(original, observed), "cleanup must preserve original exception identity");
+                    GD.Print($"GRIP1_GUARD_FAULT_OK mode={mode} actual_keys=true arming_simulated_control=true");
+                }
+                catch (Exception error)
+                {
+                    failures.Add(mode + ": " + error.Message);
+                    GD.Print($"GRIP1_GUARD_FAULT_RED mode={mode} message={error.Message}");
+                }
+                finally
+                {
+                    scope.Dispose();
+                    // Owned fixture reset only, never used to rescue a route.
+                    keyboard.PointerButton(MouseButton.Right, false, player, Vector2.Zero);
+                    await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+                    await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+                }
+            }
+        }
+        finally { support.Free(); actors.Free(); target.Free(); }
+        TestAssert.True(failures.Count == 0, string.Join(" | ", failures));
+    }
+
+    internal static bool Task10CapturePostHopObservation(Action observe, Action onFault)
+    {
+        try { observe(); return true; }
+        catch (Exception) { onFault(); return false; }
+    }
+
+    internal static void Task10RequirePostHopObservation(int attempted, int completed, int faults, int dropped)
+    {
+        // Optional until this one snapshot was attempted; never certify partial
+        // observation just because the gameplay route happened to finish.
+        bool countsValid = attempted >= 0 && completed >= 0 && faults >= 0 && dropped >= 0;
+        bool accepted = countsValid && (attempted == 0 && completed == 0 ||
+            attempted == 1 && completed == 1 && faults == 0 && dropped == 0);
+        TestAssert.True(accepted,
+            $"MIXED_POST_HOP_OBSERVER_RED attempted={attempted} completed={completed} faults={faults} dropped={dropped}");
+    }
+
     internal enum Task10RouteVariant { Main, Exploration }
+    private enum Task10GearHandoff { None, PistonTwo, Gallery }
     private const string MainPath = "res://scenes/prologue/PrologueLevel.tscn";
     private const int StableLandingFrames = 12;
     private const float LandingMarginRatio = .15f;
@@ -154,12 +519,21 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             "original_budgets=true full_route=false human=false");
     }
 
-    internal static async Task RunTask10HeadlessRoute(SceneTree tree, Task10RouteVariant variant)
+    internal static async Task RunTask10HeadlessRoute(SceneTree tree, Task10RouteVariant variant,
+        bool riftWallOnly = false)
     {
         TestAssert.True(DisplayServer.GetName() == "headless" && KeyboardRouteInputDriver.Current == null,
             "whole-route physics diagnostic never impersonates the visible realtime runner");
         PrologueContinuousRouteResult result = await RunTask10(tree, variant,
-            gearEntryWindowOnly: false, headlessNormalPlan: true);
+            gearEntryWindowOnly: false, headlessNormalPlan: true, riftWallOnly: riftWallOnly);
+        if (riftWallOnly)
+        {
+            TestAssert.True(result.Variant == "RiftWallDiagnostic" && result.StartedFromTitle &&
+                result.PersistentPlayer && result.PlayerInstanceId != 0 &&
+                result.RecoveryRequests == 0 && result.RecoveryCompletions == 0,
+                "localized Rift wall receipt retains the original keyboard route's start and player with zero recovery");
+            return;
+        }
         result.AssertComplete(variant.ToString());
         TestAssert.True(result.NormalRangedExerciseRequired &&
             result.RecoveryRequests == 0 && result.RecoveryCompletions == 0,
@@ -176,12 +550,14 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
 
     private static async Task<PrologueContinuousRouteResult> RunTask10(SceneTree tree,
         Task10RouteVariant variant, bool gearEntryWindowOnly, NaturalFragmentRouteContext naturalRoute = null,
-        bool descentHandoffOnly = false, bool headlessNormalPlan = false)
+        bool descentHandoffOnly = false, bool headlessNormalPlan = false, bool riftWallOnly = false)
     {
         TestAssert.True(!headlessNormalPlan || (DisplayServer.GetName() == "headless" &&
             !gearEntryWindowOnly && !descentHandoffOnly && naturalRoute == null &&
             Array.Exists(OS.GetCmdlineUserArgs(), value => value == "--keyboard-route")),
-            "explicit headless normal plan only belongs to a complete keyboard-route diagnostic");
+            "explicit headless normal plan only belongs to a keyboard-route diagnostic");
+        TestAssert.True(!riftWallOnly || headlessNormalPlan && variant == Task10RouteVariant.Main,
+            "Rift wall receipt only branches from the actual headless keyboard Main prefix");
         ReleaseAll(Vector2.Zero);
         Task10ApplicationPersistenceGuard persistence =
             Task10ApplicationPersistenceGuard.CreateFromArguments();
@@ -193,29 +569,45 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         flow.HeadlessAutoStart = false;
         flow.AutomationAutoStart = false;
         CharacterBody2D player = level.GetNode<CharacterBody2D>("PlayerRoot/Player");
-        using var keyboardDriver = Array.Exists(OS.GetCmdlineUserArgs(), value=>value=="--keyboard-route")
-            ? KeyboardRouteInputDriver.Begin(player) : null;
-        TestAssert.Equal(new Vector2(160f, 600f), player.Position,
-            "Task10 uses the authored normal spawn without a pre-tree override");
-        ulong playerId = player.GetInstanceId();
-        Camera2D camera = player.GetNode<Camera2D>("Camera2D");
-        camera.Enabled = true;
-        SeamlessPrologueWorld world = level.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors");
-        // Only the visible NORMAL runner owns this additional exercise contract. Natural-death,
-        // gear-window and fixture routes retain their dedicated recovery/coverage contracts.
-        using var rangedEvidence = (tree is Knight.Tests.RunRealtimePrologueProbe || headlessNormalPlan) &&
-            !gearEntryWindowOnly && naturalRoute == null
-            ? new Task10NormalRangedEvidence(tree, level, world, player, variant) : null;
-        tree.Root.AddChild(level);
-        var evidence = new Task10RouteEvidence(level, world, player);
-        var monitor = new RouteMonitor(level, player, camera, world, playerId,
-            allowRouteBacktracking: true, additionalObservation: () =>
-            {
-                evidence.Observe();
-                rangedEvidence?.AssertObserverHealthy();
-            });
+        KeyboardRouteInputDriver keyboardDriver=null;
+        Task10NormalRangedEvidence rangedEvidence=null;
+        Task10NormalOrdinaryJumpEvidence ordinaryJumps=null;
+        Task10NormalKeyGateEvidence keyGates=null;
+        Task10GroundSeamEvidence groundSeam=null;
+        RouteMonitor monitor=null;
+        Exception routeFailure=null;
+        bool mounted=false;
         try
         {
+            // Own each disposable from the first acquisition, including setup
+            // errors; no implicit using unwind may replace the final chain.
+            keyboardDriver = Array.Exists(OS.GetCmdlineUserArgs(), value=>value=="--keyboard-route")
+                ? KeyboardRouteInputDriver.Begin(player) : null;
+            TestAssert.Equal(new Vector2(160f, 600f), player.Position,
+                "Task10 uses the authored normal spawn without a pre-tree override");
+            ulong playerId = player.GetInstanceId();
+            Camera2D camera = player.GetNode<Camera2D>("Camera2D");
+            camera.Enabled = true;
+            SeamlessPrologueWorld world = level.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors");
+            // Only NORMAL owns this exercise; scoped/recovery contracts remain.
+            rangedEvidence = (tree is Knight.Tests.RunRealtimePrologueProbe || headlessNormalPlan) &&
+                !gearEntryWindowOnly && naturalRoute == null
+                ? new Task10NormalRangedEvidence(tree, level, world, player, variant) : null;
+            if (headlessNormalPlan)
+            {
+                ordinaryJumps = new Task10NormalOrdinaryJumpEvidence(level, flow, world, player, variant.ToString());
+                keyGates = new Task10NormalKeyGateEvidence(level, flow, world, player, variant.ToString());
+            }
+            tree.Root.AddChild(level);
+            mounted=true;
+            var evidence = new Task10RouteEvidence(level, world, player);
+            monitor = new RouteMonitor(level, player, camera, world, playerId,
+                allowRouteBacktracking: true, additionalObservation: () =>
+                {
+                    evidence.Observe();
+                    rangedEvidence?.AssertObserverHealthy();
+                });
+            if (rangedEvidence != null) monitor.CombatDecisionObserved = rangedEvidence.ObserveCombatDecision;
             await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
             await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
             TestAssert.True(flow.State == PrologueGameFlowState.Title &&
@@ -235,6 +627,9 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 "actual ui_accept on focused Start enters normal gameplay");
             TestAssert.True(level.GetNode("PlayerRoot").GetChildCount() == 1,
                 "normal Start retains exactly one Player under PlayerRoot");
+            groundSeam = headlessNormalPlan &&
+                !gearEntryWindowOnly && !descentHandoffOnly && !riftWallOnly && naturalRoute == null
+                ? new Task10GroundSeamEvidence(level, world, player, variant.ToString()) : null;
 
             void ObserveTask10()
             {
@@ -243,7 +638,18 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             await DriveTask10NormalRoute(tree, level, world, player, monitor, evidence,
                 ObserveTask10, variant, gearEntryWindowOnly,
                 persistence.ResolveWritablePath("temple-pre-boss-save.json"), naturalRoute,
-                descentHandoffOnly: descentHandoffOnly, headlessNormalPlan: headlessNormalPlan);
+                descentHandoffOnly: descentHandoffOnly, headlessNormalPlan: headlessNormalPlan, riftWallOnly: riftWallOnly);
+            if (riftWallOnly)
+            {
+                return new PrologueContinuousRouteResult
+                {
+                    Variant = "RiftWallDiagnostic", StartedFromTitle = true,
+                    PersistentPlayer = player.GetInstanceId() == playerId && player.GetParent()?.Name == "PlayerRoot",
+                    PlayerInstanceId = player.GetInstanceId(),
+                    RecoveryRequests = monitor.RecoveryRequested,
+                    RecoveryCompletions = monitor.RecoveryCompleted
+                };
+            }
             if (descentHandoffOnly)
             {
                 TestAssert.True(monitor.RecoveryRequested == 0 && monitor.RecoveryCompleted == 0 &&
@@ -272,6 +678,9 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             monitor.AssertComplete();
             keyboardDriver?.AssertComplete();
             rangedEvidence?.AssertComplete(monitor.RecoveryRequested, monitor.RecoveryCompleted);
+            ordinaryJumps?.AssertComplete(evidence.TerminalProof?.CompletionPhysics ?? 0UL);
+            keyGates?.AssertComplete(evidence.TerminalProof?.CompletionPhysics ?? 0UL);
+            groundSeam?.AssertComplete();
             return new PrologueContinuousRouteResult
             {
                 Variant = variant.ToString(),
@@ -297,21 +706,46 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 NormalRangedInstances = rangedEvidence?.Snapshot() ?? Array.Empty<Task10NormalRangedInstance>()
             };
         }
+        catch(Exception error)
+        {
+            routeFailure=error; ordinaryJumps?.ReportFailure(); keyGates?.ReportFailure(); throw;
+        }
         finally
         {
-            monitor.Dispose();
-            rangedEvidence?.Dispose();
-            ReleaseAll(player.GlobalPosition);
-            try
+            await Task10FinalizeRoute(routeFailure,new Func<Task>[]
             {
-                await TestSceneTeardown.FreeSceneAfterAudioDrain(tree, level);
-                await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
-            }
-            finally
-            {
-                persistence.AssertProtectedDefaultsUnchanged();
-            }
+                ()=>{groundSeam?.Dispose();return Task.CompletedTask;},
+                ()=>{monitor?.Dispose();return Task.CompletedTask;},
+                ()=>{rangedEvidence?.Dispose();return Task.CompletedTask;},
+                ()=>{ordinaryJumps?.Dispose();return Task.CompletedTask;},
+                ()=>{keyGates?.Dispose();return Task.CompletedTask;},
+                ()=>{ReleaseAll(player.GlobalPosition);return Task.CompletedTask;},
+                async()=>
+                {
+                    if (!mounted) return; // No new off-tree native release/fallback.
+                    await TestSceneTeardown.FreeSceneAfterAudioDrain(tree,level);
+                    await tree.ToSignal(tree,SceneTree.SignalName.PhysicsFrame);
+                },
+                ()=>{persistence.AssertProtectedDefaultsUnchanged();return Task.CompletedTask;},
+                ()=>{keyboardDriver?.Dispose();return Task.CompletedTask;}
+            });
         }
+    }
+
+    internal static async Task Task10FinalizeRoute(Exception primary,IReadOnlyList<Func<Task>> cleanupSteps)
+    {
+        var failures=new List<Exception>();
+        if (primary!=null) failures.Add(primary);
+        if (cleanupSteps==null) failures.Add(new ArgumentNullException(nameof(cleanupSteps)));
+        else foreach (var cleanup in cleanupSteps)
+        {
+            try { await cleanup(); }
+            catch(Exception error) { failures.Add(error); }
+        }
+        if (failures.Count==1)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        if (failures.Count>1)
+            throw new AggregateException("Task10 route/finalization failed; primary then ordered cleanup failures",failures);
     }
 
     private static float Task10GearEntryLaunchRequest(bool required)
@@ -340,7 +774,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         Task10RouteVariant variant, bool gearEntryWindowOnly, string templeCheckpointSnapshotPath,
         NaturalFragmentRouteContext naturalRoute = null, bool fragmentReturnFromCamp = false,
         Func<Task> atNaturalDeathCheckpoint = null, bool descentHandoffOnly = false,
-        bool headlessNormalPlan = false)
+        bool headlessNormalPlan = false, bool riftWallOnly = false)
     {
         PrologueSector Sector(PrologueSectorId id) => world.TryGetMountedSector(id, out var sector)
             ? sector
@@ -350,6 +784,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             Sector(id).GetNode<StaticBody2D>("Gameplay/Collision/" + name);
 
         Task10AscentGrip1Diagnostic ascentDiagnostic = null;
+        Task10LandingGuard landingGuard = null;
         Task10PendulumEntryDiagnostic pendulumDiagnostic = null;
         Action grip9ControlApproachGuard = null;
         Action SwapGrip9ControlApproachGuard(Action guard)
@@ -372,6 +807,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             templeEntryPreObserverGuard?.Invoke();
             observe();
             ascentDiagnostic?.ObserveDriver();
+            landingGuard?.Refresh();
             pendulumDiagnostic?.ObserveDriver();
             grip9ControlApproachGuard?.Invoke();
         }
@@ -383,7 +819,8 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             {
             await WaitForFloor(tree, monitor, 180);
             evidence.Observe();
-            await PrologueCanyonTraversalTests.Task4WalkTo(tree, player, 300f, 80);
+            await PrologueCanyonTraversalTests.Task10EntrancePlateApproach(tree,player,
+                Sector(PrologueSectorId.CanyonEntrance).GetNode<CanyonSpringboard>("Gameplay/Mechanisms/CombinationSpringboard"),80);
             await PrologueCanyonTraversalTests.Task4CrossEntranceGap(tree, player,
                 Body(PrologueSectorId.CanyonEntrance, "BridgeFarBank"));
             await PrologueCanyonTraversalTests.Task4WalkTo(tree, player, 520f, 80);
@@ -400,8 +837,13 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             await DefeatTask10Encounter(tree, level, world, player, monitor,
                 "canyon.v2.encounter.staggered-rift");
             await PrologueCanyonTraversalTests.Task4WalkTo(tree, player, 1940f, 180);
-            await WaitForStoppedRiftCatch(tree, player, monitor,
-                Body(PrologueSectorId.CanyonDescent, "RiftMiddleCatch"));
+            StaticBody2D middleRiftCatch = Body(PrologueSectorId.CanyonDescent, "RiftMiddleCatch");
+            await WaitForStoppedRiftCatch(tree, player, monitor, middleRiftCatch);
+            if (riftWallOnly)
+            {
+                await VerifyRiftAlternationWall(tree, level, player, monitor, middleRiftCatch);
+                return;
+            }
             await PrologueCanyonTraversalTests.Task4WalkTo(tree, player, 1460f, 180);
             await WaitForStoppedRiftCatch(tree, player, monitor,
                 Body(PrologueSectorId.CanyonDescent, "RiftLowerCatch"));
@@ -443,8 +885,9 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     Body(PrologueSectorId.CanyonDescent, "FrozenLeftCatch"));
                 await DefeatTask10Encounter(tree, level, world, player, monitor,
                     "canyon.v2.encounter.frozen-upper");
-                await PrologueCanyonTraversalTests.Task4ReachSupport(tree, player,
-                    Body(PrologueSectorId.CanyonDescent, "FrozenRightCatch"), clawRequired: false);
+                await ObserveFrozenRightDrop(tree, player, monitor,
+                    Sector(PrologueSectorId.CanyonDescent),
+                    Body(PrologueSectorId.CanyonDescent, "FrozenRightCatch"));
                 await DropFromSupportToLowerShelf(tree, player, monitor,
                     Body(PrologueSectorId.CanyonDescent, "FrozenRightCatch"),
                     Body(PrologueSectorId.CanyonDescent, "FrozenExit"));
@@ -641,17 +1084,24 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     $"{monitor.RecoveryCompleted}");
                 return;
             }
-            bool gearRoundTripReturned = false;
+            Task10GearHandoff gearHandoff = Task10GearHandoff.None;
             if (!fragmentReturnFromCamp)
-                gearRoundTripReturned = await DefeatTask10GearSafeEncounter(tree, level, world, player, monitor,
+                gearHandoff = await DefeatTask10GearSafeEncounter(tree, level, world, player, monitor,
                     gearEntry, Body(PrologueSectorId.CanyonBasin, "GearPistonOne"),
-                    Body(PrologueSectorId.CanyonBasin, "GearPistonTwo"), shieldLane);
+                    Body(PrologueSectorId.CanyonBasin, "GearPistonTwo"), shieldLane,
+                    finishOnGallery: variant == Task10RouteVariant.Main &&
+                        KeyboardRouteInputDriver.Current != null,
+                    useResidentCounter: variant == Task10RouteVariant.Exploration);
             else if (KeyboardRouteInputDriver.Current != null)
                 await BasinCounterweightRuntimeTests.TraverseForFullRoute(player,
                     Sector(PrologueSectorId.CanyonBasin), count => PhysicsFrames(tree,monitor,count));
-            if ((fragmentReturnFromCamp || gearRoundTripReturned) && KeyboardRouteInputDriver.Current != null)
+            if ((fragmentReturnFromCamp || gearHandoff == Task10GearHandoff.PistonTwo) && KeyboardRouteInputDriver.Current != null)
                 TestAssert.True(HasFloorContact(player,Body(PrologueSectorId.CanyonBasin,"GearPistonTwo")),
                     "keyboard return uses the lift's established PistonTwo support without an extra jump");
+            else if (gearHandoff == Task10GearHandoff.Gallery)
+                TestAssert.True(HasFloorContact(player,Body(PrologueSectorId.CanyonBasin,"UpperGearGalleryOne")) &&
+                    player.GlobalPosition.X is >= 3060f and <= 3260f && player.Velocity.Length() <= 2f,
+                    "post-Bell Gallery terminal is the actual current fully supported neutral player, not a prior visit");
             else await PrologueCanyonTraversalTests.Task4ReachSupport(tree, player,
                 Body(PrologueSectorId.CanyonBasin, "GearPistonTwo"), clawRequired: false);
 
@@ -669,13 +1119,39 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 {
                     foreach (string name in new[]
                              { "UpperGearGalleryOne", "UpperGearGalleryTwo", "UpperGearGalleryThree" })
+                    {
+                        if (gearHandoff == Task10GearHandoff.Gallery && name == "UpperGearGalleryOne") continue;
+                        bool upperBellGallery = gearHandoff == Task10GearHandoff.PistonTwo &&
+                            KeyboardRouteInputDriver.Current != null && name == "UpperGearGalleryOne";
+                        if (upperBellGallery)
+                        {
+                            var source = Body(PrologueSectorId.CanyonBasin,"GearPistonTwo");
+                            bool gallerySourceFull = TryTask10CapsuleCorridor(player,source.GetNode<CollisionShape2D>("Collision"),
+                                out float galleryBodyLeft,out float galleryBodyRight,out _,out float galleryFloorRight);
+                            TestAssert.True(HasFloorContact(player,source) && gallerySourceFull,
+                                "upper Bell gallery approach starts from actual complete PistonTwo support");
+                            // Reuse the old approach90 + transfer300 budgets. Walk
+                            // to the full-support edge before the ordinary jump.
+                            // The failed side-claw candidate remains evidence only;
+                            // minimum-rope docking pulled back under the low roof.
+                            float castX = galleryFloorRight - (galleryBodyRight-galleryBodyLeft)*.5f - 2f;
+                            await PrologueCanyonTraversalTests.Task4WalkTo(tree,player,castX,90);
+                            TestAssert.True(HasFloorContact(player,source) &&
+                                TryTask10CapsuleCorridor(player,source.GetNode<CollisionShape2D>("Collision"),out _,out _,out _,out _),
+                                "upper Bell real-key approach never accepts a partial or airborne casting stance");
+                        }
                         await PrologueCanyonTraversalTests.Task4ReachSupport(tree, player,
                             Body(PrologueSectorId.CanyonBasin, name), clawRequired: false);
+                        if (upperBellGallery)
+                            GD.Print($"TASK10_GEAR_UPPER_GALLERY_HANDOFF_OK player={player.GetInstanceId()} position={player.GlobalPosition} " +
+                                "ordinary_jump=true original_approach90_transfer300=true human=false");
+                    }
                 }
                 else
                 {
-                    await PrologueCanyonTraversalTests.Task4ReachSupport(tree, player,
-                        Body(PrologueSectorId.CanyonBasin, "UpperGearGalleryOne"), clawRequired: false);
+                    if (gearHandoff != Task10GearHandoff.Gallery)
+                        await PrologueCanyonTraversalTests.Task4ReachSupport(tree, player,
+                            Body(PrologueSectorId.CanyonBasin, "UpperGearGalleryOne"), clawRequired: false);
                     await SkipNaturalGearFragment(tree, level, world, player, monitor,
                         ObserveWithAscentDiagnostic, SwapGrip9ControlApproachGuard);
                     await PrologueCanyonTraversalTests.Task4ReachSupport(tree, player,
@@ -691,7 +1167,8 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     Body(PrologueSectorId.CanyonAscent, "LiftAccessStepTwo"),
                     Body(PrologueSectorId.CanyonAscent, "LiftBackLanding"));
                 await DefeatTask10Encounter(tree, level, world, player, monitor,
-                    "canyon.v2.encounter.counterweight-lift", headlessNormalPlan);
+                    "canyon.v2.encounter.counterweight-lift", headlessNormalPlan,
+                    postShotClawSchedule: true);
             }
             else
             {
@@ -705,7 +1182,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 "Gameplay/GrappleSurfaces/CounterweightLiftControl");
             if (variant == Task10RouteVariant.Main)
                 await RideTask10CounterweightLift(tree, player, lift, liftControl,
-                    Body(PrologueSectorId.CanyonAscent, "AscentGrip2"), monitor, observe);
+                    Body(PrologueSectorId.CanyonAscent, "AscentGrip2"), monitor, observe, headlessNormalPlan);
             else
             {
                 ascentDiagnostic = new Task10AscentGrip1Diagnostic(player, monitor);
@@ -727,6 +1204,10 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             {
                 if (index == 1) ascentDiagnostic?.Boundary("ascent-grip1", "before-Task4ReachSupport");
                 StaticBody2D ascentSupport = Body(PrologueSectorId.CanyonAscent, $"AscentGrip{index}");
+                bool mainGrip8LandingProbe = index == 8 && variant == Task10RouteVariant.Main &&
+                    KeyboardRouteInputDriver.Current != null &&
+                    OS.GetEnvironment("KNIGHT_GRIP8_MAIN_LANDING_GUARD_PROBE") == "1";
+                int mainGrip8EntryHp = mainGrip8LandingProbe ? player.GetNode<HealthComponent>("Health").CurrentHealth : 0;
                 Action ascentTransferGuard = null, previousAscentTransferGuard = null;
                 MechanicalClawController ascentClaw = null;
                 ulong ascentTransferStart = 0UL, ascentNextCast = 0UL;
@@ -766,6 +1247,12 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 }
                 try
                 {
+                    if (mainGrip8LandingProbe || (index is 1 or 8 && variant == Task10RouteVariant.Exploration &&
+                        KeyboardRouteInputDriver.Current != null))
+                        landingGuard = new Task10LandingGuard(player,
+                            ascent.GetNode<Node>("Gameplay/Actors"), ascentSupport,
+                            Body(PrologueSectorId.CanyonAscent, $"AscentGrip{index}Grip")
+                                .GetNode<GrappleSurface2D>("GrappleSurfaceProfile"), phase: $"ascent-grip{index}");
                     ascentTransferGuard?.Invoke();
                     if (variant == Task10RouteVariant.Exploration && index == 2 &&
                         KeyboardRouteInputDriver.Current != null)
@@ -795,8 +1282,31 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 }
                 finally
                 {
+                    landingGuard?.Dispose();
                     if (ascentTransferGuard != null) SwapTempleEntryPreObserverGuard(previousAscentTransferGuard);
                 }
+                if (landingGuard != null)
+                {
+                    TestAssert.True(landingGuard.Fault == null && landingGuard.Started && landingGuard.Landed,
+                        $"Grip{index} landing guard requires actual matching release and original full floor; fault={landingGuard.Fault}");
+                    landingGuard = null;
+                }
+                if (mainGrip8LandingProbe)
+                {
+                    int hp = player.GetNode<HealthComponent>("Health").CurrentHealth;
+                    TestAssert.True(mainGrip8EntryHp > 0 && hp == mainGrip8EntryHp,
+                        $"Main Grip8 real landing guard preserves HP through original floor: {mainGrip8EntryHp}->{hp}");
+                    GD.Print($"TASK10_MAIN_GRIP8_GUARD_HP_OK hp={mainGrip8EntryHp}->{hp} physics={Engine.GetPhysicsFrames()} test_only=true");
+                }
+#if CLAW_OBSTRUCTION_IDENTITY
+                if (index == 8 && variant == Task10RouteVariant.Exploration &&
+                    KeyboardRouteInputDriver.Current != null)
+                    ObserveTask10Grip8CombatInventory(world, player, ascentSupport);
+#endif
+                if (Task10Grip8GhostClearanceRoute(KeyboardRouteInputDriver.Current != null,
+                    variant == Task10RouteVariant.Main, variant == Task10RouteVariant.Exploration, index))
+                    await ClearTask10Grip8Ghost(tree,level,world,player,monitor,ascentSupport,
+                        ObserveWithAscentDiagnostic,SwapTempleEntryPreObserverGuard);
                 if (index == 1)
                 {
                     ascentDiagnostic?.Boundary("ascent-grip1", "Task4ReachSupport-return");
@@ -826,10 +1336,38 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 }
                 if (index == 9 && !fragmentReturnFromCamp)
                 {
+                    var gallery = Body(PrologueSectorId.CanyonAscent, "SplitUpperGallery");
                     await PrologueCanyonTraversalTests.Task4ReachSupport(tree, player,
-                        Body(PrologueSectorId.CanyonAscent, "SplitUpperGallery"), clawRequired: false);
+                        gallery, clawRequired: false);
                     await DefeatTask10Encounter(tree, level, world, player, monitor,
                         "canyon.v2.encounter.split-level");
+                    if (variant == Task10RouteVariant.Main && KeyboardRouteInputDriver.Current != null &&
+                        OS.GetEnvironment("KNIGHT_MAIN_GALLERY_RETURN_PROBE") == "1" && !HasFloorContact(player, gallery))
+                    {
+                        var barrier = ascent.GetNode<StaticBody2D>("Gameplay/Mechanisms/UpperBasinShortcutWinch/Barrier");
+                        var motor = player.GetNode<PlayerMotor>("Motor");
+                        var health = player.GetNode<HealthComponent>("Health");
+                        var claw = player.GetNode<MechanicalClawController>("MechanicalClaw");
+                        var galleryFloor = gallery.GetNode<CollisionShape2D>("Collision");
+                        var jumps = motor.AcceptedJumpCount;
+                        var dashes = motor.AcceptedDashCount;
+                        var cast = claw.CurrentFrame.NextCastId;
+                        int hp = health.CurrentHealth, requested = monitor.RecoveryRequested, recovered = monitor.RecoveryCompleted;
+                        ulong start = Engine.GetPhysicsFrames();
+                        TestAssert.True(player.IsOnFloor() && HasFloorContact(player, barrier),
+                            "Main Gallery return starts only on the real postcombat Barrier support");
+                        GD.Print($"TASK10_MAIN_GALLERY_RETURN_BEGIN physics={start} position={player.GlobalPosition} jumps={jumps}");
+                        await PrologueCanyonTraversalTests.Task4ReachSupport(tree, player, gallery, clawRequired: false);
+                        TestAssert.True(player.IsOnFloor() && HasFloorContact(player, gallery) &&
+                            TryTask10CapsuleCorridor(player, galleryFloor, out float left, out float right,
+                                out float floorLeft, out float floorRight) && left >= floorLeft && right <= floorRight &&
+                            motor.AcceptedJumpCount == jumps + 1 && motor.AcceptedDashCount == dashes &&
+                            claw.CurrentFrame.NextCastId == cast && health.CurrentHealth == hp &&
+                            monitor.RecoveryRequested == requested && monitor.RecoveryCompleted == recovered,
+                            "Main postcombat return uses exactly one ordinary jump, no cast/dash/HP loss/recovery, and full original Gallery support");
+                        GD.Print($"TASK10_MAIN_GALLERY_RETURN_OK physics={Engine.GetPhysicsFrames()} elapsed={Engine.GetPhysicsFrames()-start} " +
+                            $"position={player.GlobalPosition} jumps={jumps}->{motor.AcceptedJumpCount} hp={hp}->{health.CurrentHealth}");
+                    }
                 }
             }
 
@@ -923,6 +1461,52 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     catch (Exception error) { diagnostic.Failure(error); throw; }
                 }
             }
+            // Explicit pre-observer INPUT consumer, not the passive route observer.
+            // Use the existing per-physics boundary; add no waits or new traversal
+            // inputs. L's real keyboard direction/movement effects remain intact.
+            var courtyardTransferLeaves = new List<AttackTelegraphVisual>();
+            var courtyardTransferShield = player.GetNode<PlayerShieldController>("Shield");
+            var courtyardTransferCombat = player.GetNode<PlayerCombat>("Combat");
+            var courtyardTransferHealth = player.GetNode<HealthComponent>("Health");
+            bool courtyardTransferKeyboard = KeyboardRouteInputDriver.Current != null;
+            int courtyardTransferHp = courtyardTransferHealth.CurrentHealth;
+            int courtyardTransferSamples = 0, courtyardTransferRequests = 0, courtyardTransferBlocks = 0;
+            ulong courtyardTransferStart = Engine.GetPhysicsFrames();
+            bool courtyardTransferLastGuard = false;
+            Action courtyardPreviousInput = null;
+            Action<PlayerShieldResult, ulong> courtyardGuardResult = (result, _) =>
+            { if (result.Guarded) courtyardTransferBlocks++; };
+            void PrepareCourtyardTransferInput()
+            {
+                courtyardPreviousInput?.Invoke();
+                Task10EncounterDanger danger = default;
+                if (world.TryGetMountedSector(PrologueSectorId.LostTemple, out var mountedTemple) &&
+                    mountedTemple.GetNodeOrNull<Node>("Gameplay/Actors") is { } actorRoot)
+                    danger = Task10ObserveEncounterDanger(actorRoot,
+                        "canyon.v2.encounter.sealed-courtyard", null, false, courtyardTransferLeaves);
+                bool defend = !courtyardTransferCombat.IsAttacking &&
+                    Task10MixedDefendWindow(courtyardTransferShield, danger);
+                monitor.CombatDecisionObserved?.Invoke(danger.SourceActorId, danger, defend);
+                KeyboardRouteInputDriver.Current.PointerButton(MouseButton.Right, defend,
+                    player, danger.GuardSource, stopForGuard: true);
+                courtyardTransferSamples++;
+                if (defend) courtyardTransferRequests++;
+                if (defend != courtyardTransferLastGuard)
+                    GD.Print($"TASK10_COURTYARD_TRANSFER_GUARD physics={Engine.GetPhysicsFrames()} " +
+                        $"sample={player.GetNode<PlayerInputReader>("Input").CurrentFrameSequence} requested={defend} " +
+                        $"actor={danger.SourceActorId} attack={danger.AttackId} phase={danger.Phase} " +
+                        $"remaining={danger.RemainingSeconds:R} source={danger.GuardSource} player={player.GlobalPosition} " +
+                        $"guard={courtyardTransferShield.IsActive}/{courtyardTransferShield.GuardDirection} " +
+                        "phase_boundary_before_node_processing=true additional_wait=false");
+                courtyardTransferLastGuard = defend;
+            }
+            if (courtyardTransferKeyboard)
+            {
+                courtyardPreviousInput = SwapTempleEntryPreObserverGuard(PrepareCourtyardTransferInput);
+                courtyardTransferShield.ShieldResolved += courtyardGuardResult;
+            }
+            try
+            {
             await PrologueCanyonTraversalTests.Task4ReachSupport(tree, player,
                 Body(PrologueSectorId.CanyonAscent, "CourtyardApproach"), clawRequired: false);
             await PrologueCanyonTraversalTests.Task4WalkTo(tree, player, 5220f, 100);
@@ -1076,6 +1660,24 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             {
                 SnapshotCourtyardStep($"original-failure-{routeError.GetType().Name}");
                 throw;
+            }
+            if (courtyardTransferKeyboard)
+                TestAssert.Equal(courtyardTransferHp, courtyardTransferHealth.CurrentHealth,
+                    "keyboard courtyard transfer preserves entry HP with actual directional guarding, not recovery");
+            }
+            finally
+            {
+                if (courtyardTransferKeyboard)
+                {
+                    SwapTempleEntryPreObserverGuard(courtyardPreviousInput);
+                    if (GodotObject.IsInstanceValid(courtyardTransferShield))
+                        courtyardTransferShield.ShieldResolved -= courtyardGuardResult;
+                    SendMouse(MouseButton.Right, false, player, Vector2.Zero);
+                    GD.Print($"TASK10_COURTYARD_TRANSFER_GUARD_END samples={courtyardTransferSamples} " +
+                        $"held_requests={courtyardTransferRequests} guarded_contacts={courtyardTransferBlocks} " +
+                        $"physics_elapsed={Engine.GetPhysicsFrames()-courtyardTransferStart} " +
+                        "original_walk100_approach90_landing300_tail3=true added_jump_dash_attack=false full_route_not_implied=true");
+                }
             }
             if (!fragmentReturnFromCamp)
                 await DefeatTask10Encounter(tree, level, world, player, monitor,
@@ -4934,6 +5536,191 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         }
     }
 
+    // Keyboard strategy, NOT an observer. All input goes through the existing real key driver.
+    // Rust-only publications do not certify other attack classes or blocked-hit source ownership.
+    private sealed class Task10LandingGuard : IDisposable
+    {
+        private readonly CharacterBody2D _player;
+        private readonly Node _actors;
+        private readonly StaticBody2D _support;
+        private readonly CollisionShape2D _supportShape;
+        private readonly MechanicalClawController _claw;
+        private readonly PlayerInputReader _input;
+        private readonly PlayerShieldController _shield;
+        private readonly KeyboardRouteInputDriver _keyboard;
+        private readonly ulong _cast, _target;
+        private readonly Action<bool> _inputOverride;
+        private readonly Action<string> _cleanupProbe;
+        private readonly string _phase, _tag;
+        private Vector2 _guardPoint;
+        private readonly Dictionary<RustShellSquire, Action<AttackPresentationFrame>> _rust = new();
+        private ulong _lastTarget;
+        private bool _armed, _disposed, _ownsShield;
+        private int _rows, _suppressed, _guardResults;
+        public bool Started { get; private set; }
+        public bool Landed { get; private set; }
+        public string Fault { get; private set; }
+        public Task10LandingGuard(CharacterBody2D player, Node actors, StaticBody2D support,
+            GrappleSurface2D target, Action<bool> inputOverride = null, Action<string> cleanupProbe = null,
+            string phase = "ascent-grip1")
+        {
+            if (phase is not ("ascent-grip1" or "ascent-grip8")) throw new ArgumentException("Only the original Grip1/Grip8 landing scopes are admitted.");
+            _phase = phase;
+            _tag = phase == "ascent-grip8" ? "GRIP8_LANDING_GUARD" : "GRIP1_LANDING_GUARD";
+            _player = player; _actors = actors; _support = support;
+            _supportShape = support.GetNode<CollisionShape2D>("Collision");
+            _claw = player.GetNode<MechanicalClawController>("MechanicalClaw");
+            _input = player.GetNode<PlayerInputReader>("Input");
+            _shield = player.GetNode<PlayerShieldController>("Shield");
+            _keyboard = KeyboardRouteInputDriver.Current;
+            _inputOverride = inputOverride; _cleanupProbe = cleanupProbe;
+            _cast = _claw.CurrentFrame.NextCastId; _target = target.GetInstanceId();
+            try
+            {
+                _claw.ClawFrameChanged += OnClaw;
+                _shield.ShieldResolved += OnShield;
+                _actors.ChildEnteredTree += OnActor;
+                foreach (Node actor in _actors.GetChildren()) OnActor(actor);
+                Write("begin", $"cast={_cast} target={_target} coverage={(_phase == "ascent-grip8" ? "current_saved_ghost" : "local_rust_only")} other_attacks_unobserved=true private_permission=unknown");
+            }
+            catch (Exception error) { Fault ??= error.Message; Dispose(); }
+        }
+        private void OnActor(Node actor) => Safe(() =>
+        {
+            if (_disposed || actor is not RustShellSquire rust || _rust.ContainsKey(rust)) return;
+            if (_rust.Count >= 32) throw new InvalidOperationException("Grip1 Rust observer capacity");
+            ulong id = rust.GetInstanceId();
+            string lastState = null;
+            ulong lastPhysics = 0;
+            Action<AttackPresentationFrame> handler = frame => Safe(() =>
+            {
+                if (_disposed) return;
+                ulong physics = Engine.GetPhysicsFrames();
+                string state = $"{frame.Timeline.AttackId}/{frame.Timeline.Phase}";
+                if (state == lastState && (frame.Timeline.Phase == AttackPhase.None ||
+                    frame.Timeline.Phase != AttackPhase.Active && physics - lastPhysics < 6)) return;
+                lastState = state; lastPhysics = physics;
+                Write("rust-publication", $"actor={id} scene={rust.SceneFilePath} " +
+                    $"attack={frame.Timeline.AttackId} phase={frame.Timeline.Phase} " +
+                    $"remaining={frame.Timeline.PhaseRemainingSeconds} origin={frame.Shape.Origin} " +
+                    $"extent={frame.Shape.Extent} rotation={frame.Shape.RotationRadians} actor_position={rust.GlobalPosition} " +
+                    "timing=actor_publication_not_post_motor source_stable_id=not_inferred");
+            });
+            _rust.Add(rust, handler);
+            rust.AttackFrameChanged += handler;
+        });
+        private void OnClaw(MechanicalClawFrame frame, GrappleSurface2D target) => Safe(() =>
+        {
+            if (_disposed || Landed) return;
+            if (frame.CastId == _cast &&
+                frame.State is MechanicalClawState.Reel or MechanicalClawState.Swing or MechanicalClawState.Latched &&
+                GodotObject.IsInstanceValid(target)) _lastTarget = target.GetInstanceId();
+            if (!Started && ShouldTask10GuardLanding(_phase, _keyboard != null,
+                frame, _cast, _target, _lastTarget))
+            {
+                Started = true; _armed = true;
+                Write("released", $"cast={frame.CastId} release={frame.ReleaseKind} matched_target={_lastTarget} input_not_yet_issued=true");
+            }
+        });
+        private void OnShield(PlayerShieldResult result, ulong transition) => Safe(() =>
+        {
+            if (_disposed) return;
+            _guardResults++;
+            Write("shield-result", $"transition={transition} guarded={result.Guarded} broke={result.BrokeGuard} " +
+                $"direction={_shield.GuardDirection} source_ownership=unproved");
+        });
+        public void Refresh() => Safe(() =>
+        {
+            if (_disposed || !_armed || Fault != null) return;
+            if (_claw.CurrentFrame.State is MechanicalClawState.Reel or MechanicalClawState.Swing or
+                MechanicalClawState.Latched or MechanicalClawState.Travel or MechanicalClawState.Windup or MechanicalClawState.Aim)
+                throw new InvalidOperationException("landing shield cannot cancel a live claw");
+            if (_player.IsOnFloor() && HasFloorContact(_player, _support) &&
+                TryTask10CapsuleCorridor(_player, _supportShape, out float left, out float right,
+                    out float supportLeft, out float supportRight) && left >= supportLeft && right <= supportRight)
+            {
+                Landed = true; _armed = false; Release();
+                Write("floor", "original_named_support=true complete_body=true input_released=true");
+                return;
+            }
+            _guardPoint = _player.GlobalPosition + Vector2.Down * 96;
+            if (_phase == "ascent-grip8")
+            {
+                var points = new List<Vector2>();
+                Vector2 primary = default;
+                float nearest = float.PositiveInfinity;
+                ulong selectedActor = 0, selectedAttack = 0;
+                Vector2 origin = _player.GetNode<Hurtbox>("Hurtbox").GlobalPosition;
+                foreach (RustShellSquire actor in _rust.Keys)
+                    if (GhostLandingGuardRuntimeTests.TrySample(actor, _player, out Vector2 source, out ulong attack))
+                    {
+                        points.Add(source);
+                        float distance = origin.DistanceSquaredTo(source);
+                        if (distance < nearest)
+                        {
+                            nearest = distance; primary = source;
+                            selectedActor = actor.GetInstanceId(); selectedAttack = attack;
+                        }
+                    }
+                if (points.Count == 0 || !_shield.CanBeginGuard) { Release(); return; }
+                Vector2 direction = BasinCounterweightRuntimeTests.StationaryGuardDirection(origin, primary, points, true);
+                _guardPoint = _player.GlobalPosition + direction * 96;
+                Write("ghost-intent", $"actor={selectedActor} attack={selectedAttack} source={primary} " +
+                    $"direction={direction} candidates={points.Count} same_publication=true source_hit_ownership=unproved");
+            }
+            _ownsShield = true;
+            SetShieldIntent(true);
+            Write("input", $"timing=driver_callback_prior_sample_possible raw_S={Input.IsPhysicalKeyPressed(Key.S)} " +
+                $"raw_L={Input.IsPhysicalKeyPressed(Key.L)} raw_A={Input.IsPhysicalKeyPressed(Key.A)} " +
+                $"raw_D={Input.IsPhysicalKeyPressed(Key.D)} sampled_axis={_input.CurrentFrame.MoveAxis} " +
+                $"sampled_shield={_input.CurrentFrame.KeyboardShieldHeld} active={_shield.IsActive} direction={_shield.GuardDirection}");
+        });
+        private void Release()
+        {
+            if (!_ownsShield) return;
+            SetShieldIntent(false);
+            _ownsShield = false;
+        }
+        private void SetShieldIntent(bool pressed)
+        {
+            if (_inputOverride != null) _inputOverride(pressed);
+            else _keyboard.PointerButton(MouseButton.Right, pressed, _player,
+                pressed ? _guardPoint : Vector2.Zero);
+        }
+        private void Write(string kind, string detail)
+        {
+            if (_rows >= 160) { _suppressed++; return; }
+            _rows++;
+            GD.Print($"{_tag} kind={kind} physics={Engine.GetPhysicsFrames()} sequence={_input.CurrentFrameSequence} " +
+                $"player={_player.GlobalPosition} velocity={_player.Velocity} {detail}");
+        }
+        private void Safe(Action action)
+        {
+            try { action(); }
+            catch (Exception error)
+            {
+                Fault ??= error.GetType().Name + ":" + error.Message;
+                // First fault ends the input-owning scope immediately. Dispose sets
+                // its flag before independent cleanup, so a failing teardown cannot recurse.
+                if (!_disposed) Dispose();
+            }
+        }
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            Safe(() => { Release(); _cleanupProbe?.Invoke("input"); });
+            Safe(() => { if (GodotObject.IsInstanceValid(_claw)) _claw.ClawFrameChanged -= OnClaw; _cleanupProbe?.Invoke("claw"); });
+            Safe(() => { if (GodotObject.IsInstanceValid(_shield)) _shield.ShieldResolved -= OnShield; _cleanupProbe?.Invoke("shield"); });
+            Safe(() => { if (GodotObject.IsInstanceValid(_actors)) _actors.ChildEnteredTree -= OnActor; _cleanupProbe?.Invoke("actors"); });
+            foreach (var item in _rust)
+                Safe(() => { if (GodotObject.IsInstanceValid(item.Key)) item.Key.AttackFrameChanged -= item.Value; });
+            _rust.Clear();
+            Safe(() => GD.Print($"{_tag}_END started={Started} landed={Landed} guard_results={_guardResults} " +
+                $"rows={_rows} suppressed={_suppressed} cleanup_fault={Fault ?? "none"} extra_waits=0 whole_route=false"));
+        }
+    }
+
     private sealed class Task10AscentGrip1Diagnostic : IDisposable
     {
         private const int LineCap = 100;
@@ -5189,10 +5976,28 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         int stableLandingFrames = 0;
         string acceptedJumpTransition = "not-observed";
         string firstTargetCollision = "none";
+        PlayerEnergyController energy = player.GetNode<PlayerEnergyController>("Energy");
+        HealthComponent health = player.GetNode<HealthComponent>("Health");
+        var shieldBoundaryRows = new List<string>(3);
+        bool observedLaneExit = false;
+        float landingX = target.GlobalPosition.X - targetShape.Size.X * .25f;
+        void ObserveShieldBoundary(string boundary, int frame) => shieldBoundaryRows.Add(
+            $"TASK10_SHIELD_JUMP_BOUNDARY boundary={boundary} frame={frame} " +
+            $"physics={Engine.GetPhysicsFrames()} player={player.GlobalPosition} " +
+            $"velocity={player.Velocity} energy={energy.EnergyRatio:R} heat={energy.HeatRatio:R} " +
+            $"overheated={energy.IsOverheated} sampled_shield={input.Current.ShieldHeld} " +
+            $"shield_active={shield.IsActive} hp={health.CurrentHealth} " +
+            $"target_floor={HasFloorContact(player, target)} " +
+            $"lane_overlap={shieldLane.GetOverlappingBodies().Contains(player)}");
         for (int frame = 0; frame < 180 && stableLandingFrames < StableLandingFrames; frame++)
         {
             MoveMouse(player, player.GlobalPosition + Vector2.Right * 240f);
-            if (!movementReleased && player.GlobalPosition.X >= target.GlobalPosition.X)
+            var neutralStop = FreeMotionForecast.Neutral(player.Velocity.X, player.IsOnFloor(),
+                motor.MotionSettings, motor.ThrusterState.Module,
+                1d / Engine.PhysicsTicksPerSecond, 60, 2f);
+            if (!movementReleased && (player.GlobalPosition.X >= landingX ||
+                HasFloorContact(player, target) && neutralStop.SpeedThresholdReached &&
+                player.GlobalPosition.X + neutralStop.NetDistance >= landingX))
             {
                 SendAction(InputActions.MoveRight, false);
                 movementReleased = true;
@@ -5203,6 +6008,15 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             maximumSpeed = Mathf.Max(maximumSpeed, Mathf.Abs(player.Velocity.X));
             bool overlapsLane = shieldLane.GetOverlappingBodies().Contains(player);
             sawLaneOverlap |= overlapsLane;
+            if (sawLaneOverlap && !overlapsLane && !observedLaneExit)
+            {
+                observedLaneExit = true;
+                ObserveShieldBoundary("first-lane-exit", frame);
+                // L is required across the real lane, not for the subsequent
+                // supported approach. Holding it until twelve settled samples
+                // exhausted the unchanged shield before the next encounter.
+                SendMouse(MouseButton.Right, false, player, aim);
+            }
             if (overlapsLane && (!input.Current.ShieldHeld || !shield.IsActive))
                 shieldHeldThroughoutOverlap = false;
             if (acceptedJumpTransition == "not-observed" &&
@@ -5219,15 +6033,22 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     firstTargetCollision = $"frame={frame} position={collision.GetPosition()} " +
                         $"normal={collision.GetNormal()} player={player.GlobalPosition} " +
                         $"velocity={player.Velocity}";
+                    ObserveShieldBoundary("first-target-contact", frame);
                     break;
                 }
             }
             bool safelyInsideTarget = Mathf.Abs(player.GlobalPosition.X -
                 target.GlobalPosition.X) <= targetShape.Size.X / 2f - 20f;
-            stableLandingFrames = HasFloorContact(player, target) && safelyInsideTarget
+            stableLandingFrames = HasFloorContact(player, target) && safelyInsideTarget &&
+                MathF.Abs(player.Velocity.X) <= 2f && input.Current.MoveAxis == 0f
                 ? stableLandingFrames + 1
                 : 0;
+            if (stableLandingFrames == StableLandingFrames)
+                ObserveShieldBoundary("stable-target-landing", frame);
         }
+        // Defer only these three scalar observations until the existing input loop ends.
+        // No extra waits, enemy/player writes or shield-policy changes are introduced.
+        foreach (string row in shieldBoundaryRows) GD.Print(row);
         SendAction(InputActions.Jump, false);
         SendAction(InputActions.MoveRight, false);
         TestAssert.True(sawLaneOverlap && shieldHeldThroughoutOverlap && departed &&
@@ -5840,7 +6661,54 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             $"{monitor.RecoveryRequested} recovery_completions={recoveryCompletionsBefore}->" +
             $"{monitor.RecoveryCompleted} jumps={jumpsBefore}->{motor.AcceptedJumpCount} " +
             $"dashes={dashesBefore}->{motor.AcceptedDashCount}");
-        await PrologueCanyonTraversalTests.Task4WalkTo(tree, player, 3800f, 270);
+        var underArc = basin.GetNode<CanyonArcGear>("Gameplay/Mechanisms/UpperGalleryUnderArcGear");
+        float arcWalkStartX = player.GlobalPosition.X;
+        int arcWalkStartHp = health.CurrentHealth, arcWalkHits = 0, arcCrossings = 0;
+        double arcWalkStartPhase = underArc.CurrentMotion.Phase01, arcCrossPrevious = -1, arcCrossCurrent = -1;
+        double arcPreviousPhase = arcWalkStartPhase;
+        ulong arcPreviousPhysics = Engine.GetPhysicsFrames(), arcCrossPreviousPhysics = 0, arcCrossCurrentPhysics = 0;
+        float arcPreviousX = player.GlobalPosition.X;
+        string arcObserverFailure = null;
+        void ObserveArcPassage()
+        {
+            try
+            {
+                ulong physics = Engine.GetPhysicsFrames();
+                if (physics == arcPreviousPhysics) return;
+                float x = player.GlobalPosition.X;
+                if (arcPreviousX < 3400 && x >= 3400)
+                {
+                    arcCrossings++; arcCrossPreviousPhysics = arcPreviousPhysics; arcCrossCurrentPhysics = physics;
+                    arcCrossPrevious = arcPreviousPhase;
+                    arcCrossCurrent = underArc.CurrentMotion.Phase01;
+                }
+                arcPreviousPhase = underArc.CurrentMotion.Phase01;
+                arcPreviousPhysics = physics; arcPreviousX = x;
+            }
+            catch (Exception error) { arcObserverFailure = error.ToString(); }
+        }
+        void ObserveArcDamage(int _, Vector2 __)
+        {
+            try
+            {
+                var field = typeof(HealthComponent).GetField("_processedAttackOrder", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                var identity = ((Queue<DamageAttackIdentity>)field.GetValue(health)).Last();
+                if (identity.SourceRuntimeId == underArc.GetInstanceId()) arcWalkHits++;
+            }
+            catch (Exception error) { arcObserverFailure = error.ToString(); }
+        }
+        TestAssert.True(valve.IsActivated && pairedJet.DisabledForRun && underArc.IsDangerTelegraphActive,
+            "normal Explore retains real W+K valve closure and the actual saved arc before walking");
+        tree.ProcessFrame += ObserveArcPassage; health.Damaged += ObserveArcDamage;
+        try { await PrologueCanyonTraversalTests.Task4WalkTo(tree, player, 3800f, 270); }
+        finally { tree.ProcessFrame -= ObserveArcPassage; health.Damaged -= ObserveArcDamage; }
+        TestAssert.True(arcObserverFailure == null && arcCrossings >= 1 && underArc.IsDangerTelegraphActive &&
+            valve.IsActivated && pairedJet.DisabledForRun,
+            "normal Explore must actually pass the new arc after the real valve, without a test-only route or mechanism isolation: " + arcObserverFailure);
+        GD.Print($"TASK10_ARC_GEAR_NATURAL_PASSAGE x={arcWalkStartX:R}->{player.GlobalPosition.X:R} hp={arcWalkStartHp}->{health.CurrentHealth} " +
+            $"start_phase={arcWalkStartPhase:R} observed_crossings={arcCrossings} crossing_phase_interval={arcCrossPrevious:R}->{arcCrossCurrent:R} " +
+            $"crossing_physics_interval={arcCrossPreviousPhysics}->{arcCrossCurrentPhysics} end_phase={underArc.CurrentMotion.Phase01:R} " +
+            $"arc={underArc.GetInstanceId()} arc_accepted_hits={arcWalkHits} original_valve_closed=true combat_isolated=false input_strategy_changed=false actual_saved_arc=true human=false");
         await PrologueCanyonTraversalTests.Task4ReachSupport(tree, player,
             body(PrologueSectorId.CanyonBasin, "ShortcutStep4116"), clawRequired: false);
         await DriveTask10SteamTrenchDrop(tree, player, basin, monitor);
@@ -6106,6 +6974,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         PlayerInputReader input = player.GetNode<PlayerInputReader>("Input");
         PlayerActionModeController modes = player.GetNode<PlayerActionModeController>("ActionModes");
         MechanicalClawController claw = player.GetNode<MechanicalClawController>("MechanicalClaw");
+        PlayerShieldController shield = player.GetNode<PlayerShieldController>("Shield");
         KeyboardRouteInputDriver keyboardDriver = KeyboardRouteInputDriver.Current;
         bool keyboardRoute = keyboardDriver != null;
         int keyboardClawsBefore = keyboardDriver?.ClawEdges ?? 0;
@@ -6253,7 +7122,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             phaseFrame++;
             CheckSafety();
         }
-        async Task Walk(float target)
+        async Task Walk(float target, bool guardRearApproach = false)
         {
             phase = $"walk-{target:0}";
             phaseTarget = target;
@@ -6302,6 +7171,107 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     Mathf.IsZeroApprox(input.CurrentFrame.MoveAxis) &&
                     Mathf.Abs(player.Velocity.X) <= .5f &&
                     Mathf.Abs(player.Velocity.Y) <= .5f);
+            }
+            if (guardRearApproach)
+            {
+                // The completed control is followed by a real resident Rush from
+                // below-left. S aims down without moving left; D+L or D+S+L
+                // faces away from that observed source. Use only the original
+                // twelve preparation ticks, not a second wait/budget.
+                Hurtbox playerHurtbox = player.GetNode<Hurtbox>("Hurtbox");
+                var sources = world.FindChildren("*", "", true, false).OfType<CanyonSkitter>()
+                    .Where(actor => Task10IsSavedResident(actor) && actor.IsInsideTree() &&
+                        !actor.IsQueuedForDeletion() && actor.GetWorld2D() == player.GetWorld2D() &&
+                        actor.GetNode<HealthComponent>("Health").CurrentHealth > 0)
+                    .Select(actor => (Actor: actor, Hitbox: actor.GetNode<Hitbox>("RushHitbox"))).ToArray();
+                var listeners = new List<(Hitbox Source, Hitbox.ConnectedEventHandler Handler)>();
+                ulong requestedAt = input.CurrentFrameSequence;
+                ulong guardTransition = 0, consumedTransition = 0, guardPhysics = 0;
+                ulong connectedActor = 0, connectedHitbox = 0;
+                int guardedContacts = 0, observerFaults = 0;
+                bool DownGuardSample() => input.CurrentFrameSequence > requestedAt &&
+                    KeyboardSource() && input.CurrentFrame.ShieldHeld && shield.IsActive &&
+                    shield.GuardDirection.Dot(Vector2.Down) > .99f &&
+                    Input.IsPhysicalKeyPressed(Key.S) && Input.IsPhysicalKeyPressed(Key.L) &&
+                    !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D) &&
+                    !Input.IsPhysicalKeyPressed(Key.W) && !Input.IsPhysicalKeyPressed(Key.K) &&
+                    Mathf.IsZeroApprox(input.CurrentFrame.MoveAxis);
+                void GuardObserved(PlayerShieldResult result, ulong transition)
+                {
+                    try
+                    {
+                        if (!result.Guarded || result.DamageAmount != 0 || result.BrokeGuard ||
+                            result.SpendHeavyEnergy || !DownGuardSample()) return;
+                        guardTransition = transition;
+                        guardPhysics = Engine.GetPhysicsFrames();
+                    }
+                    catch { observerFaults++; }
+                }
+                try
+                {
+                    Check("prepares rear counter only after actual stationary control completion",
+                        keyboardRoute && claw.CurrentFrame.State == MechanicalClawState.Idle &&
+                        !observingOperation && sources.Length > 0);
+                    shield.ShieldResolved += GuardObserved;
+                    foreach (var source in sources)
+                    {
+                        Hitbox.ConnectedEventHandler connected = hurtbox =>
+                        {
+                            try
+                            {
+                                // Hitbox emits Connected synchronously AFTER Receive;
+                                // consume the fresh normal guard result once, never
+                                // authorize from an unrelated historical guard event.
+                                if (hurtbox != playerHurtbox || guardTransition <= consumedTransition ||
+                                    guardPhysics != Engine.GetPhysicsFrames() || !DownGuardSample() ||
+                                    source.Hitbox.GuardClass != DamageGuardClass.Normal ||
+                                    !GodotObject.IsInstanceValid(source.Actor) ||
+                                    !source.Actor.IsInsideTree() || source.Actor.IsQueuedForDeletion() ||
+                                    source.Actor.GetWorld2D() != player.GetWorld2D() ||
+                                    source.Actor.GetNode<HealthComponent>("Health").CurrentHealth <= 0 ||
+                                    health.CurrentHealth != initialHealth) return;
+                                consumedTransition = guardTransition;
+                                connectedActor = source.Actor.GetInstanceId();
+                                connectedHitbox = source.Hitbox.GetInstanceId();
+                                guardedContacts++;
+                            }
+                            catch { observerFaults++; }
+                        };
+                        listeners.Add((source.Hitbox, connected));
+                        source.Hitbox.Connected += connected;
+                    }
+                    SendAction(InputActions.MoveLeft, false);
+                    SendAction(InputActions.MoveRight, false);
+                    SendAction(InputActions.MoveUp, false);
+                    SendAction(InputActions.Claw, false);
+                    SendAction(InputActions.MoveDown, true);
+                    SendAction(InputActions.KeyboardShield, true);
+                    for (int preparation = 0; preparation < 11 && guardedContacts == 0; preparation++)
+                        await WalkTick();
+                    Check($"receives actual fresh normal Charger guard/contact inside original12 (faults={observerFaults})",
+                        guardedContacts > 0 && connectedActor != 0 && connectedHitbox != 0 &&
+                        observerFaults == 0 && DownGuardSample());
+                }
+                finally
+                {
+                    SendAction(InputActions.KeyboardShield, false);
+                    SendAction(InputActions.MoveDown, false);
+                    if (GodotObject.IsInstanceValid(shield)) shield.ShieldResolved -= GuardObserved;
+                    foreach (var listener in listeners)
+                        if (GodotObject.IsInstanceValid(listener.Source))
+                            listener.Source.Connected -= listener.Handler;
+                }
+                ulong releasedAt = input.CurrentFrameSequence;
+                await WalkTick();
+                Check("samples released S/L before resuming original right walk",
+                    input.CurrentFrameSequence > releasedAt && KeyboardSource() &&
+                    !input.CurrentFrame.ShieldHeld && !shield.IsActive &&
+                    !Input.IsPhysicalKeyPressed(Key.S) && !Input.IsPhysicalKeyPressed(Key.L) &&
+                    Mathf.IsZeroApprox(input.CurrentFrame.MoveAxis));
+                GD.Print($"TASK10_STEAM_EXIT_REAR_GUARD_OK {Snapshot()} " +
+                    $"actor={connectedActor} hitbox={connectedHitbox} contacts={guardedContacts} " +
+                    $"transition={consumedTransition} guard_physics={guardPhysics} faults={observerFaults} " +
+                    $"original_preparation_cap=12 no_extra_wait_pool=true");
             }
             Move(true);
             try
@@ -6563,7 +7533,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 operationMaxDisplacement <= 2f && Supported());
             observingOperation = false;
             GD.Print($"TASK10_STEAM_EXIT_HANDOFF_OK {Snapshot()}");
-            await Walk(4170f);
+            await Walk(4170f, guardRearApproach: keyboardRoute);
             phase = "staircase-staging";
             Check("stages an ordinary jump on unchanged trench floor beyond dormant Right",
                 player.GlobalPosition.X >= 4170f && player.GlobalPosition.X <= 4178f &&
@@ -6582,6 +7552,8 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             {
                 SendAction(InputActions.Claw, false);
                 SendAction(InputActions.MoveUp, false);
+                SendAction(InputActions.MoveDown, false);
+                SendAction(InputActions.KeyboardShield, false);
             }
             SendMouse(MouseButton.Left, false, player,
                 GodotObject.IsInstanceValid(player) ? player.GlobalPosition : Vector2.Zero);
@@ -7402,6 +8374,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             "Gameplay/Mechanisms/UpperBasinShortcutWinch");
         GrappleSurface2D control = ascent.GetNode<GrappleSurface2D>(
             "Gameplay/GrappleSurfaces/UpperBasinShortcutControl");
+        await ReturnTask10SplitGalleryFromBarrier(tree, player, monitor, ascent, observe);
         await StageTask10Grip9ControlApproach(tree, level, player, monitor, ascent,
             control, observe, swapApproachGuard);
         using (var diagnostic = new Task10PostSplitControlDiagnostic(tree, player, monitor,
@@ -7701,7 +8674,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             MechanicalClawTargetResolution resolution = keyboardRoute
                 ? resolver.ResolveKeyboard(player, keyboardDirection) : resolver.Resolve(player, aim);
             lastClearResolution = resolution;
-            Check(aim.DistanceTo(new Vector2(4232f, 3826f)) < .01f &&
+            Check(aim.DistanceTo(new Vector2(4232f, 3734f)) < .01f &&
                 Mathf.Abs(ControlTop() - 4048f) < .01f &&
                 (keyboardRoute ? KeyboardRaySafe(resolution) : player.GlobalPosition.Y <= SafeY()) &&
                 player.GetViewportRect().HasPoint(player.GetCanvasTransform() * aim) &&
@@ -7711,7 +8684,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 (!keyboardRoute || PlayerKeyboardAimModel.ResolveDirection(aim - player.GlobalPosition, 1)
                     .Dot(keyboardDirection) > .999f && resolution.Snapshot.Material == grip.Material) &&
                 player.GlobalPosition.DistanceTo(resolution.Snapshot.WorldAnchor) <= 620f,
-                "uses the exact original logical onscreen aim, <=620 range and clear original-grip resolver (real NE for keyboard)");
+                "uses the exact authored logical onscreen aim, <=620 range and clear original-grip resolver (real NE for keyboard)");
         }
         void Log(string boundary) => GD.Print($"TASK10_SHORTCUT_FIRST_ASCENT_{boundary} " +
             $"phase={phase} physics={Engine.GetPhysicsFrames()} jump_waits={jumpWaits}/16 post_clear_waits={postClearWaits}/300 " +
@@ -8116,7 +9089,25 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 observe(); // Existing combined observer exactly once, including this scoped Guard.
                 if (keyboardRoute && launched && player.Velocity.Y < 0f)
                 {
-                    lastClearResolution = resolver.ResolveKeyboard(player, keyboardDirection);
+                    ulong focusSurface = grip.GetInstanceId();
+                    var queryTrace = new MechanicalClawKeyboardTrace(128, focusSurface);
+                    lastClearResolution = resolver.ResolveKeyboard(player, keyboardDirection, queryTrace);
+                    // Only completed synchronous value records are read here. This
+                    // adds no query/input/wait and never grants the original ready gate.
+                    GD.Print($"TASK10_ASCENT_QUERY_BEGIN physics={Engine.GetPhysicsFrames()} jump={jumpWaits}/16 " +
+                        $"focus={focusSurface} selected={lastClearResolution.Snapshot.RuntimeId} " +
+                        $"rows={queryTrace.Count} total={queryTrace.Total} dropped={queryTrace.Dropped} faults={queryTrace.Faults} " +
+                        $"cone_calls={queryTrace.ConeQueries} los_calls={queryTrace.LosQueries} passive=true");
+                    for (int index=0; index<queryTrace.Count; index++)
+                    {
+                        var row=queryTrace.Read(index);
+                        GD.Print($"TASK10_ASCENT_QUERY_ROW physics={Engine.GetPhysicsFrames()} jump={jumpWaits}/16 " +
+                            $"index={index} focus={focusSurface} stage={row.Stage} reason={row.Reason} ray={row.Ray} " +
+                            $"surface={row.Surface} collider={row.Collider} point={row.Point} normal={row.Normal} end={row.RayEnd} " +
+                            $"angle={row.Angle:R} distance={row.Distance:R} los_evaluated={row.LosEvaluated} los={row.Los} " +
+                            $"promotable={row.Promotable} baseline={row.Baseline} baseline_angle={row.BaselineAngle:R} " +
+                            $"baseline_distance={row.BaselineDistance:R} path={row.Path}");
+                    }
                     keyboardRiseReady = KeyboardRaySafe(lastClearResolution);
                     Log("KEYBOARD_RISE_PREFLIGHT"); // At most the original16 jump waits; never an accepted K receipt.
                 }
@@ -8323,6 +9314,12 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         Vector2 operationStart = Vector2.Zero;
         float maxOperationDisplacement = 0f;
         Action previousGuard = null;
+        BottomMissileObservation missileObservation = null;
+        var bottomShield = player.GetNode<PlayerShieldController>("Shield");
+        var flightGuardLeaves = new List<AttackTelegraphVisual>(8);
+        bool flightGuardRequested = false;
+        Vector2 flightGuardDirection = Vector2.Zero;
+        int flightGuardRows = 0;
 
         bool Supported(StaticBody2D body) => Live(body) &&
             TryTask10CapsuleCorridor(player, body == step ? stepShape : walkwayShape,
@@ -8443,6 +9440,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         }
         async Task Tick()
         {
+            missileObservation?.Sample(); // Passive; never grants L/launch or changes the original waits.
             Safety();
             await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
             phaseFrames++;
@@ -8454,16 +9452,19 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             SendAction(InputActions.MoveUp, false); SendAction(InputActions.MoveDown, false);
             SendAction(InputActions.Jump, false);
         }
-        void Steer(float target)
+        void Steer(float target, StaticBody2D landingSupport = null)
         {
-            if (keyboardRoute && !flight)
+            if (keyboardRoute && (!flight || landingSupport != null && Supported(landingSupport)))
             {
-                Check(player.IsOnFloor() && Supported(requiredSupport),
+                Check(player.IsOnFloor() && Supported(flight ? landingSupport : requiredSupport),
                     "keyboard ground stance prediction starts from original full named support");
-                // Only this Walk's original90 plus its original12 settle are available.
+                // Ground contact does not guarantee target stance. Spend only the
+                // remaining original Leg120/Walk90 and original12 settle allowance.
+                int movementBudget = flight ? 120 : 90;
                 var stop = FreeMotionForecast.Neutral(player.Velocity.X, true, motor.MotionSettings,
-                    motor.ThrusterState.Module, 1d / Engine.PhysicsTicksPerSecond, 90 - phaseFrames + 12, 2f);
-                Check(stop.SpeedThresholdReached, "ground neutral endpoint fits original Walk/settle allowance");
+                    motor.ThrusterState.Module, 1d / Engine.PhysicsTicksPerSecond,
+                    movementBudget - phaseFrames + 12, 2f);
+                Check(stop.SpeedThresholdReached, "ground neutral endpoint fits original movement/settle allowance");
                 float stopError = target - (player.GlobalPosition.X + stop.NetDistance);
                 SendAction(InputActions.MoveLeft, stopError < -1.5f);
                 SendAction(InputActions.MoveRight, stopError > 1.5f);
@@ -8522,10 +9523,77 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         async Task Walk(float target, string stance)
         {
             phase = stance + "-walk"; phaseFrames = 0;
-            while (phaseFrames < 90 && (Mathf.Abs(player.GlobalPosition.X - target) > 3f || !Stationary()))
-            { Steer(target); await Tick(); }
+            bool prepareControl = keyboardRoute && stance == "return-control";
+            bool preparationQuiet = !prepareControl;
+            ulong walkPhysics = Engine.GetPhysicsFrames();
+            int preparationRows = 0;
+            Vector2 requestedDirection = Vector2.Zero;
+            bool AtStance() => Mathf.Abs(player.GlobalPosition.X - target) <= 3f && Stationary() &&
+                Supported(requiredSupport);
+            bool ReadPreparationQuiet(out Task10EncounterDanger danger)
+            {
+                Node actors = basin.GetNodeOrNull<Node>("Gameplay/Actors");
+                Task10GuardCapsule? capsule = Task10CurrentGuardCapsule(player);
+                bool valid = Task10BottomControlActorRootReadable(actors, tree) &&
+                    basin.GetWorld2D() == player.GetWorld2D() && capsule.HasValue;
+                try
+                {
+                    danger = valid ? Task10ObserveEncounterDanger(actors,
+                        "canyon.v2.encounter.steam-valves", null, false, flightGuardLeaves,
+                        guardCapsule: capsule) : default;
+                    return Task10BottomControlPreparationQuiet(valid, danger);
+                }
+                finally { flightGuardLeaves.Clear(); }
+            }
+            if (prepareControl)
+                GD.Print($"BOTTOM_CONTROL_PREP_BEGIN physics={walkPhysics} target={target:R} " +
+                    "movement_and_defense_budget=90 settle_budget=12 no_new_wait_pool=true");
+            while (phaseFrames < 90)
+            {
+                if (AtStance())
+                {
+                    if (!prepareControl || (preparationQuiet = ReadPreparationQuiet(out _))) break;
+                    // No horizontal Steer while W/S+L consumes the same Walk90.
+                    ReleaseMovement();
+                    Vector2 guardDirection = ReadTask10BottomFlightGuard(basin.GetNode<Node>("Gameplay/Actors"),
+                        player, bottomShield, flightGuardLeaves, out ulong owner, out ulong attack, out ulong projectile);
+                    SendMouse(MouseButton.Right, guardDirection != Vector2.Zero, player,
+                        guardDirection != Vector2.Zero ? player.GlobalPosition + guardDirection * 128f : Vector2.Zero);
+                    if (guardDirection != requestedDirection && preparationRows < 20)
+                    {
+                        preparationRows++;
+                        GD.Print($"BOTTOM_CONTROL_PREP_GUARD row={preparationRows}/20 physics={Engine.GetPhysicsFrames()} " +
+                            $"frames={phaseFrames}/90 direction={guardDirection} owner={owner} attack={attack} projectile={projectile} " +
+                            "zero_intent_is_not_quiet=true");
+                    }
+                    requestedDirection = guardDirection;
+                }
+                else
+                {
+                    if (prepareControl) SendMouse(MouseButton.Right, false, player, Vector2.Zero);
+                    requestedDirection = Vector2.Zero;
+                    Steer(target);
+                }
+                if (prepareControl) Check(Engine.GetPhysicsFrames() - walkPhysics < 90UL,
+                    "control preparation admits each wait inside original Walk90 actual physics");
+                await Tick();
+            }
+            if (prepareControl)
+            {
+                // The exact90 boundary may be read, never waited beyond.
+                preparationQuiet = AtStance() && ReadPreparationQuiet(out _);
+                Check(preparationQuiet && Engine.GetPhysicsFrames() - walkPhysics <= 90UL,
+                    "control preparation ends at full stopped stance with fresh all-source quiet inside original90");
+                GD.Print($"BOTTOM_CONTROL_PREP_QUIET physics={Engine.GetPhysicsFrames()} frames={phaseFrames}/90 " +
+                    $"hp={health.CurrentHealth} recovery={monitor.RecoveryRequested}/{monitor.RecoveryCompleted} " +
+                    "fresh_full_source=true future_safety_proved=false");
+                SendMouse(MouseButton.Right, false, player, Vector2.Zero);
+            }
             Log("WALK_END");
             await Settle(target, stance);
+            if (prepareControl)
+                GD.Print($"BOTTOM_CONTROL_PREP_READY physics={Engine.GetPhysicsFrames()} settle_frames={phaseFrames}/12 " +
+                    $"fresh_neutral_right={NeutralRight()} full_support={Supported(step)} hp={health.CurrentHealth}");
             Check(claw.CurrentFrame.State == MechanicalClawState.Idle && claw.CurrentTarget == null &&
                 claw.ResidencyTarget == null, "walk stance has actual target-free Idle");
         }
@@ -8536,13 +9604,41 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             phaseFrames = 0;
             Check(previousLaunchSupport && Neutral() && Stationary(), "launches from full stopped sampled support");
             flight = true;
+            bool firstContact = false;
             SendAction(InputActions.MoveLeft, axis < 0); SendAction(InputActions.MoveRight, axis > 0);
             SendAction(InputActions.Jump, true);
             do
             {
                 await Tick();
-                if (groundedLaunch) Steer(target);
-            } while (phaseFrames < 120 && (!groundedLaunch || !Supported(to)));
+                if (groundedLaunch)
+                {
+                    if (!firstContact && Supported(to))
+                    { firstContact = true; Log("FIRST_CONTACT"); }
+                    Steer(target, to);
+                    if (keyboardRoute)
+                    {
+                        Vector2 guardDirection = ReadTask10BottomFlightGuard(basin.GetNode<Node>("Gameplay/Actors"),
+                            player,bottomShield,flightGuardLeaves,out ulong guardOwner,out ulong guardAttack,out ulong guardProjectile);
+                        bool requestGuard = guardDirection != Vector2.Zero;
+                        bool changed = requestGuard != flightGuardRequested || guardDirection != flightGuardDirection;
+                        SendMouse(MouseButton.Right,requestGuard,player,
+                            requestGuard ? player.GlobalPosition + guardDirection * 128f : Vector2.Zero);
+                        flightGuardRequested = requestGuard; flightGuardDirection = guardDirection;
+                        if (changed && flightGuardRows < 24)
+                        {
+                            flightGuardRows++;
+                            GD.Print($"BOTTOM_FLIGHT_GUARD_INTENT row={flightGuardRows}/24 physics={Engine.GetPhysicsFrames()} " +
+                                $"phase={phase} frames={phaseFrames}/120 requested={requestGuard} direction={guardDirection} " +
+                                $"owner={guardOwner} attack={guardAttack} projectile={guardProjectile} " +
+                                $"grounded_launch={groundedLaunch} player={player.GlobalPosition} velocity={player.Velocity} " +
+                                "original_contracts_retained=true no_extra_wait=true");
+                        }
+                    }
+                }
+            } while (phaseFrames < 120 && (!groundedLaunch || !Supported(to) ||
+                keyboardRoute && (!Stationary() || Mathf.Abs(player.GlobalPosition.X - target) > 3f)));
+            if (keyboardRoute) SendMouse(MouseButton.Right,false,player,Vector2.Zero);
+            flightGuardRequested = false; flightGuardDirection = Vector2.Zero;
             Check(groundedLaunch && Supported(to) && motor.AcceptedJumpCount == jumps + completedLegs + 1,
                 "lands through one accepted ordinary jump on actual upward contact/full capsule within 120 flight frames");
             completedLegs++; flight = false; requiredSupport = to;
@@ -8698,6 +9794,8 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         claw.ClawFrameChanged += ObserveCast;
         try
         {
+            if (keyboardRoute) missileObservation = new BottomMissileObservation(monitor.World,
+                basin.GetNode<Node>("Gameplay/Actors"), player, step, walkway, () => phase);
             Check(Live(left.Collision) && Live(right.Collision) && hurtShape.Shape is CapsuleShape2D &&
                 left.Collision.Shape is RectangleShape2D &&
                 right.Collision.Shape is RectangleShape2D && float.IsFinite(motor.Tuning.AirAcceleration) &&
@@ -8743,6 +9841,9 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         {
             if (GodotObject.IsInstanceValid(claw)) claw.ClawFrameChanged -= ObserveCast;
             swapApproachGuard(previousGuard);
+            if (keyboardRoute) SendMouse(MouseButton.Right,false,player,Vector2.Zero);
+            flightGuardLeaves.Clear();
+            missileObservation?.Dispose();
             ReleaseMovement();
             if (keyboardRoute) SendAction(InputActions.Claw, false);
             else
@@ -8754,10 +9855,11 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         }
     }
 
-    private static async Task<bool> DefeatTask10GearSafeEncounter(SceneTree tree,
+    private static async Task<Task10GearHandoff> DefeatTask10GearSafeEncounter(SceneTree tree,
         PrologueLevelController level, SeamlessPrologueWorld world, CharacterBody2D player,
         RouteMonitor monitor, StaticBody2D gearEntry, StaticBody2D pistonOne,
-        StaticBody2D pistonTwo, CanyonShieldLaneHazard shieldLane)
+        StaticBody2D pistonTwo, CanyonShieldLaneHazard shieldLane, bool finishOnGallery = false,
+        bool useResidentCounter = false)
     {
         const string encounterId = "canyon.v2.encounter.gear-pistons";
         CanyonEncounterGroup group = world.FindChildren("*", "", true, false)
@@ -8858,14 +9960,694 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             SendMouse(MouseButton.Right, false, player, player.GlobalPosition + Vector2.Right * 240f);
             SendAction(InputActions.MoveLeft, false);
             SendAction(InputActions.MoveRight, false);
+            bool residentCombat = KeyboardRouteInputDriver.Current != null &&
+                ReferenceEquals(support, pistonOne) && stage == "initial cool";
+            bool residentCounter = residentCombat && useResidentCounter;
+            int residentClawEdgesAtStart = KeyboardRouteInputDriver.Current?.ClawEdges ?? 0;
+            int residentAttackEdges = 0;
+            int attackReleaseFrame = -1, nextResidentAttackFrame = 0;
+            bool residentAttackHeld = false;
+            var residentThreatLeaves = new List<AttackTelegraphVisual>(8);
+            int coolFrames = 0, guardCommands = 0, sampledShieldFrames = 0;
+            int energyEvents = 0, sustainedEnergyEvents = 0;
+            float observedEnergy = energy.EnergyRatio * energy.Tuning.MaxEnergy;
+            float coolEntryEnergy = observedEnergy, positiveEnergy = 0f, negativeEnergy = 0f;
+            float? lastRegenDelay = null;
+            ulong coolDangerActor = 0;
+            string coolDangerPhase = "None", firstNegative = null, lastNegative = null;
+            string coolEnergyFault = null;
+            var coolGeometryRows = new List<string>(64);
+            var coolTelegraphs = new HashSet<(ulong, ulong)>();
+            int coolGeometryOmitted = 0;
+            string coolGeometryFault = null;
+            const int coolTraceFrames=6, coolTraceCandidates=32;
+            var coolTraceStamps=new ulong[coolTraceFrames];
+            var coolTraceCounts=new int[coolTraceFrames];
+            var coolTraceRows=new object[coolTraceFrames,coolTraceCandidates];
+            var coolTraceDecisions=new object[coolTraceFrames];
+            bool coolTraceFrozen=false;
+            object coolTraceDamage=null;
+            int coolTraceOmitted=0,coolTraceFaults=0;
+            int CoolTraceSlot()
+            {
+                ulong physics=Engine.GetPhysicsFrames();
+                int slot=(int)(physics%coolTraceFrames);
+                if(coolTraceStamps[slot]!=physics)
+                {
+                    coolTraceStamps[slot]=physics;coolTraceCounts[slot]=0;coolTraceDecisions[slot]=null;
+                    for(int i=0;i<coolTraceCandidates;i++)coolTraceRows[slot,i]=null;
+                }
+                return slot;
+            }
+            void ObserveCoolDamage(int remaining,Vector2 impulse)
+            {
+                if(!residentCombat || coolTraceFrozen)return;
+                coolTraceFrozen=true;
+                try
+                {
+                    coolTraceDamage=new
+                    {
+                        Physics=Engine.GetPhysicsFrames(),Reader=input.CurrentFrameSequence,
+                        Remaining=remaining,ImpulseX=impulse.X,ImpulseY=impulse.Y,
+                        X=player.GlobalPosition.X,Y=player.GlobalPosition.Y,
+                        GuardX=shield.GuardDirection.X,GuardY=shield.GuardDirection.Y,
+                        ShieldActive=shield.IsActive,SampledL=input.CurrentFrame.ShieldHeld,
+                        Energy=energy.EnergyRatio,Heat=energy.HeatRatio,Overheated=energy.IsOverheated,
+                        RequestNotObserved=true,ExtraQueries=0,ExtraFrames=0
+                    };
+                }
+                catch { coolTraceFaults++; }
+            }
+            MechanicalClawController coolClaw = residentCombat
+                ? player.GetNode<MechanicalClawController>("MechanicalClaw") : null;
+            int residentAcceptedAttacks = 0, counterSamples = 0, counterApplications = 0, counterPreviewLines = 0,
+                counterLifecycleLines = 0;
+            var residentMoths = new List<GraveLampMoth>(4);
+            GraveLampMoth counterMoth = null;
+            ThreadTarget2D counterTarget = null;
+            LegacyThreadInteractionAdapter counterAdapter = null;
+            ulong counterAimSequence = 0, counterIssueSequence = 0, counterLastSequence = 0,
+                counterCast = 0, counterTargetId = 0;
+            Vector2 counterDirection = Vector2.Zero;
+            bool counterPreparing = false, counterIssued = false, counterKeyReleased = false,
+                counterLatched = false, counterReleased = false, counterStunned = false,
+                counterInvalid = false, counterAborted = false, counterFreshPull = false;
+            string counterFault = null;
+            string counterLifecycleKey = null;
+            bool counterFootControls = false;
+            int counterFootSamples = 0, counterFootQueries = 0;
+            var counterPrepareRows = new List<string>(24);
+            string counterPrepareKey = null, counterPrepareFault = null;
+            int counterPrepareOmitted = 0;
+            void ObserveCoolAttackStarted(ulong _, int __) => residentAcceptedAttacks++;
+            void ReleaseCounterDirections()
+            {
+                SendAction(InputActions.MoveLeft, false);
+                SendAction(InputActions.MoveRight, false);
+                SendAction(InputActions.MoveUp, false);
+                SendAction(InputActions.MoveDown, false);
+            }
+            bool CounterSupportForecast(Vector2 direction, int remainingFrames)
+            {
+                if (remainingFrames < 2 || !HasFloorContact(player, support) ||
+                    !TryTask10CapsuleCorridor(player, support.GetNode<CollisionShape2D>("Collision"),
+                        out float bodyLeft, out float bodyRight, out float floorLeft, out float floorRight)) return false;
+                // Bound initial aim plus the directional K-consumption sample;
+                // neutral begins only after the real key release is observable.
+                var stop = FreeMotionForecast.HeldThenNeutral(player.Velocity.X, MathF.Sign(direction.X), true,
+                    motor.MotionSettings, motor.ThrusterState.Module, 1d / Engine.PhysicsTicksPerSecond,
+                    2, remainingFrames, .001f);
+                float initialSign = player.Velocity.X == 0f ? MathF.Sign(direction.X) : MathF.Sign(player.Velocity.X);
+                float peakOffset = initialSign * stop.ForwardDistance;
+                float minOffset = MathF.Min(0f, MathF.Min(peakOffset, stop.NetDistance));
+                float maxOffset = MathF.Max(0f, MathF.Max(peakOffset, stop.NetDistance));
+                return stop.SpeedThresholdReached &&
+                    bodyLeft + minOffset >= floorLeft + player.SafeMargin &&
+                    bodyRight + maxOffset <= floorRight - player.SafeMargin;
+            }
+            bool CounterFootBoundary(bool onFloor, bool full, float bottom, float top, float margin, bool exactHit) =>
+                onFloor && full && exactHit && float.IsFinite(bottom) && float.IsFinite(top) &&
+                float.IsFinite(margin) && margin > 0f && MathF.Abs(top - bottom) <= margin;
+            (bool OnFloor, bool Full, float Bottom, float Top, float Margin, bool Hit) ReadCounterFootSupport()
+            {
+                bool onFloor = player.IsOnFloor();
+                bool full = TryTask10CapsuleCorridor(player, support.GetNode<CollisionShape2D>("Collision"),
+                    out _, out _, out _, out _);
+                float margin = player.SafeMargin;
+                if (!onFloor || !full || !float.IsFinite(margin) || margin <= 0f)
+                    return (onFloor, full, float.NaN, float.NaN, margin, false);
+                var body = player.GetNode<CollisionShape2D>("BodyCollider");
+                var capsule = (CapsuleShape2D)body.Shape;
+                var floor = support.GetNode<CollisionShape2D>("Collision");
+                var rectangle = (RectangleShape2D)floor.Shape;
+                float bottom = body.GlobalPosition.Y + capsule.Height * MathF.Abs(body.GlobalTransform.Y.Y) * .5f;
+                float top = floor.GlobalPosition.Y - rectangle.Size.Y * MathF.Abs(floor.GlobalTransform.Y.Y) * .5f;
+                if (!float.IsFinite(bottom) || !float.IsFinite(top) || MathF.Abs(top - bottom) > margin)
+                    return (onFloor, full, bottom, top, margin, false);
+                using var foot = new RectangleShape2D { Size = new Vector2(margin * 2f, margin * 2f) };
+                using var query = new PhysicsShapeQueryParameters2D
+                {
+                    Shape = foot, Transform = new Transform2D(0f, new Vector2(body.GlobalPosition.X, bottom + margin)),
+                    CollisionMask = CombatCollisionLayers.World, CollideWithBodies = true, CollideWithAreas = false
+                };
+                counterFootQueries++;
+                var hits = player.GetWorld2D().DirectSpaceState.IntersectShape(query, 8);
+                using var hitsOwner = (Godot.Collections.Array)hits;
+                bool exactHit = false;
+                foreach (Godot.Collections.Dictionary hit in hits)
+                {
+                    using (hit)
+                        if (hit.ContainsKey("collider") && hit["collider"].AsGodotObject() == support) exactHit = true;
+                }
+                return (onFloor, full, bottom, top, margin, exactHit);
+            }
+            void ObserveCoolClaw(MechanicalClawFrame frame, GrappleSurface2D actualTarget)
+            {
+                if (!counterIssued) return;
+                try
+                {
+                    string key = $"{frame.State}/{frame.Failure}/{frame.CastId}/{frame.LockedTargetRuntimeId}";
+                    if (counterLifecycleLines < 16 && key != counterLifecycleKey)
+                    {
+                        counterLifecycleKey = key;
+                        counterLifecycleLines++;
+                        GD.Print($"TASK10_GEAR_COUNTER boundary=claw record={counterLifecycleLines}/16 " +
+                            $"physics={Engine.GetPhysicsFrames()} sample={input.CurrentFrameSequence} state={frame.State} " +
+                            $"failure={frame.Failure} cast={frame.CastId}/{counterCast} target={frame.LockedTargetRuntimeId}/{counterTargetId} " +
+                            $"actual_target={actualTarget?.GetPath()} player={player.GlobalPosition} velocity={player.Velocity} " +
+                            $"applications={counterApplications}->{counterAdapter.ApplicationCount} " +
+                            $"sample_JKL={input.CurrentFrame.AttackPressed}/{input.CurrentFrame.ClawPressed}/{input.CurrentFrame.ShieldHeld}");
+                    }
+                    counterInvalid |= frame.Failure != MechanicalClawFailure.None;
+                    if (frame.State is not (MechanicalClawState.Latched or MechanicalClawState.Released)) return;
+                    bool exactCast = frame.CastId == counterCast && frame.NextCastId == counterCast + 1 &&
+                        frame.LockedTargetRuntimeId == counterTargetId;
+                    bool applied = counterAdapter.ApplicationCount == counterApplications + 1;
+                    bool cleanSample = input.CurrentFrameSequence > counterIssueSequence &&
+                        input.CurrentFrame.KeyboardActions && !input.CurrentFrame.AttackPressed &&
+                        !input.CurrentFrame.ShieldHeld && !input.CurrentFrame.JumpPressed &&
+                        !input.CurrentFrame.JumpHeld && !input.CurrentFrame.DashPressed && !input.CurrentFrame.PrimaryPressed;
+                    if (frame.State == MechanicalClawState.Latched)
+                    {
+                        counterFreshPull = GodotObject.IsInstanceValid(counterMoth) && counterMoth.Velocity.IsFinite() &&
+                            counterMoth.Velocity.Dot(counterMoth.GlobalPosition.DirectionTo(player.GlobalPosition)) > 0f;
+                        counterLatched = exactCast && applied && cleanSample && actualTarget == counterTarget && counterFreshPull;
+                        counterInvalid |= !counterLatched;
+                    }
+                    else
+                    {
+                        counterReleased = counterLatched && exactCast && applied && cleanSample && actualTarget == null;
+                        counterInvalid |= !counterReleased;
+                    }
+                }
+                catch (Exception error) { counterFault ??= error.ToString(); }
+            }
+            void ObserveCoolGeometry(Task10DangerCandidate candidate)
+            {
+                if(residentCombat && !coolTraceFrozen)
+                {
+                    try
+                    {
+                        int slot=CoolTraceSlot(),index=coolTraceCounts[slot];
+                        if(index==coolTraceCandidates)coolTraceOmitted++;
+                        else
+                        {
+                            coolTraceRows[slot,index]=new
+                            {
+                                Physics=Engine.GetPhysicsFrames(),Reader=input.CurrentFrameSequence,Loop=coolFrames,
+                                candidate.Ordinal,candidate.ActorOrder,candidate.SourceActorId,
+                                candidate.LeafId,candidate.ProjectileId,candidate.SourceKind,
+                                candidate.Timeline.AttackId,Phase=candidate.Timeline.Phase.ToString(),
+                                Remaining=float.IsFinite(candidate.Timeline.PhaseRemainingSeconds)
+                                    ? (float?)candidate.Timeline.PhaseRemainingSeconds : null,
+                                GuardX=candidate.GuardSource.X,GuardY=candidate.GuardSource.Y,
+                                Urgency=float.IsFinite(candidate.Urgency)?(float?)candidate.Urgency:null,
+                                candidate.ReplacedWinner,candidate.FromActiveGap,candidate.OrientationConsumed,
+                                PolicyClearance=float.IsFinite(candidate.GuardClearance)?(float?)candidate.GuardClearance:null,
+                                HasPolicyClearance=float.IsFinite(candidate.GuardClearance),
+                                ObservationOnly=true,ExtraQueries=0
+                            };
+                            coolTraceCounts[slot]++;
+                        }
+                    }
+                    catch { coolTraceFaults++; }
+                }
+                if (candidate.SourceKind != "melee") return;
+                bool activeCircle = candidate.Timeline.Phase == AttackPhase.Active &&
+                    candidate.HasShape && candidate.Shape.Kind == AttackShapeKind.Circle;
+                bool firstWarning = candidate.Timeline.Phase == AttackPhase.Telegraph &&
+                    coolTelegraphs.Add((candidate.SourceActorId, candidate.Timeline.AttackId));
+                if (!activeCircle && !firstWarning) return;
+                try
+                {
+                    if (coolGeometryRows.Count == 64) { coolGeometryOmitted++; return; }
+                    Task10GuardCapsule? capsule = Task10CurrentGuardCapsule(player);
+                    float clearance = activeCircle && capsule.HasValue
+                        ? Task10GuardCircleClearance(candidate.Shape, capsule.Value) : float.PositiveInfinity;
+                    coolGeometryRows.Add(System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        physics = Engine.GetPhysicsFrames(), sample = input.CurrentFrameSequence,
+                        candidate.SourceActorId, candidate.Timeline.AttackId,
+                        phase = candidate.Timeline.Phase.ToString(), candidate.Timeline.PhaseRemainingSeconds,
+                        firstWarning, activeCircle, candidate.HasShape,
+                        guardX = candidate.GuardSource.X, guardY = candidate.GuardSource.Y,
+                        circleX = activeCircle ? candidate.Shape.Origin.X : (float?)null,
+                        circleY = activeCircle ? candidate.Shape.Origin.Y : (float?)null,
+                        radius = activeCircle ? candidate.Shape.Extent.X : (float?)null,
+                        clearance = float.IsFinite(clearance) ? clearance : (float?)null,
+                        playerX = player.GlobalPosition.X, playerY = player.GlobalPosition.Y,
+                        vx = player.Velocity.X, vy = player.Velocity.Y,
+                        capsuleX = capsule?.Transform.Origin.X, capsuleY = capsule?.Transform.Origin.Y,
+                        capsuleRadius = capsule?.Radius, capsuleHeight = capsule?.Height,
+                        floor = player.IsOnFloor(), aimX = input.KeyboardAimDirection.X,
+                        aimY = input.KeyboardAimDirection.Y,
+                        previewId = coolClaw.KeyboardPreview.Snapshot.RuntimeId,
+                        previewX = coolClaw.KeyboardPreview.Snapshot.WorldAnchor.X,
+                        previewY = coolClaw.KeyboardPreview.Snapshot.WorldAnchor.Y,
+                        previewLos = coolClaw.KeyboardPreview.Snapshot.HasLineOfSight,
+                        observationOnly = true, extraPhysicsQueries = 0
+                    }));
+                }
+                catch (Exception error) { coolGeometryFault ??= error.ToString(); }
+            }
+            void CoolEnergyChanged(PlayerEnergyFrame energyFrame)
+            {
+                try
+                {
+                    energyEvents++;
+                    if (energyFrame.ShieldSustained) sustainedEnergyEvents++;
+                    float delta = energyFrame.State.Energy - observedEnergy;
+                    observedEnergy = energyFrame.State.Energy;
+                    positiveEnergy += MathF.Max(0f, delta);
+                    negativeEnergy += MathF.Max(0f, -delta);
+                    lastRegenDelay = energyFrame.State.RegenDelayRemaining;
+                    if (delta >= -.0001f) return;
+                    lastNegative = System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        physics = Engine.GetPhysicsFrames(), sample = input.CurrentFrameSequence,
+                        delta, energyFrame.State.Energy, energyFrame.State.Heat,
+                        energyFrame.State.RegenDelayRemaining, energyFrame.State.HeatCoolDelayRemaining,
+                        energyFrame.ShieldSustained, rawL = Input.IsPhysicalKeyPressed(Key.L),
+                        rawFrameShield = input.RawFrame.ShieldHeld, sampledShield = input.CurrentFrame.ShieldHeld,
+                        active = shield.IsActive, dangerActor = coolDangerActor, dangerPhase = coolDangerPhase
+                    });
+                    firstNegative ??= lastNegative;
+                }
+                catch (Exception error) { coolEnergyFault ??= error.ToString(); }
+            }
+            if (residentCombat)
+            {
+                energy.EnergyFrameChanged += CoolEnergyChanged;
+                health.Damaged += ObserveCoolDamage;
+            }
+            if (residentCounter)
+            {
+                combat.AttackStarted += ObserveCoolAttackStarted;
+                coolClaw.ClawFrameChanged += ObserveCoolClaw;
+            }
+            try
+            {
             for (int frame = 0; frame < 210 &&
                  (energy.HeatRatio > .02f || energy.EnergyRatio < .95f ||
-                  energy.IsOverheated); frame++)
+                  energy.IsOverheated || counterPreparing &&
+                  !(counterLatched && counterReleased && counterStunned && counterKeyReleased)); frame++)
             {
+                if (residentCombat)
+                {
+                    // The old wave still owns its Rust/Bell ordering. Only an
+                    // actual nearby resident is fought during this same 210-tick
+                    // window; no actor/HP/pose/energy or timing budget is changed.
+                    if (residentAttackHeld && frame >= attackReleaseFrame)
+                    {
+                        SendAction(InputActions.Attack, false);
+                        residentAttackHeld = false;
+                    }
+                    if (counterIssued && input.CurrentFrameSequence > counterLastSequence)
+                    {
+                        counterLastSequence = input.CurrentFrameSequence;
+                        if (input.CurrentFrame.ClawPressed)
+                        {
+                            counterSamples++;
+                            SendAction(InputActions.Claw, false);
+                            ReleaseCounterDirections();
+                            counterKeyReleased = true;
+                        }
+                    }
+                    if (counterIssued && GodotObject.IsInstanceValid(counterMoth) &&
+                        counterMoth.CurrentState == GraveLampMothState.ThreadStunned) counterStunned = true;
+                    if (!counterPreparing || counterKeyReleased || counterAborted)
+                    {
+                        SendAction(InputActions.MoveLeft, false);
+                        SendAction(InputActions.MoveRight, false);
+                    }
+                    Node2D target = null;
+                    residentMoths.Clear();
+                    for (int index = 0; index < actorRoot.GetChildCount(); index++)
+                    {
+                        if (actorRoot.GetChild(index) is not Node2D candidate ||
+                            !candidate.IsInsideTree() || candidate.IsQueuedForDeletion() ||
+                            candidate.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is not > 0 ||
+                            !Task10IsSavedResident(candidate)) continue;
+                        if (residentCounter && candidate is GraveLampMoth moth) residentMoths.Add(moth);
+                        if (candidate is not RangedWeaponEnemy) continue;
+                        Vector2 delta = candidate.GlobalPosition - player.GlobalPosition;
+                        if (MathF.Abs(delta.X) > 78f || MathF.Abs(delta.Y) > 28f) continue;
+                        Hitbox playerHitbox = combat.GetNode<Hitbox>("AttackHitbox");
+                        var attackCollider = playerHitbox.GetNode<CollisionShape2D>("AttackCollider");
+                        var victimCollider = candidate.GetNodeOrNull<CollisionShape2D>("Hurtbox/HurtboxCollider");
+                        if (victimCollider?.Shape == null || victimCollider.Disabled) continue;
+                        Transform2D proposedHitbox = playerHitbox.Transform;
+                        proposedHitbox.Origin = new Vector2(delta.X < 0f ? -42f : 42f, 0f);
+                        Transform2D proposedAttack = combat.GlobalTransform * proposedHitbox * attackCollider.Transform;
+                        if (!attackCollider.Shape.Collide(proposedAttack,
+                            victimCollider.Shape, victimCollider.GlobalTransform)) continue;
+                        if (target == null || delta.LengthSquared() <
+                            target.GlobalPosition.DistanceSquaredTo(player.GlobalPosition)) target = candidate;
+                    }
+                    var danger = Task10ObserveEncounterDanger(actorRoot, encounterId,
+                        target, false, residentThreatLeaves, candidateObserver: ObserveCoolGeometry);
+                    bool defend = !combat.IsAttacking && Task10MixedDefendWindow(shield, danger);
+                    if(!coolTraceFrozen)
+                    {
+                        try
+                        {
+                            int slot=CoolTraceSlot();
+                            coolTraceDecisions[slot]=new
+                            {
+                                Boundary="before_original_guard_command",Physics=Engine.GetPhysicsFrames(),
+                                Reader=input.CurrentFrameSequence,Loop=coolFrames,
+                                Winner=danger.SourceActorId,danger.AttackId,Phase=danger.Phase.ToString(),
+                                GuardX=danger.GuardSource.X,GuardY=danger.GuardSource.Y,Defend=defend,
+                                CurrentGuardX=shield.GuardDirection.X,CurrentGuardY=shield.GuardDirection.Y,
+                                ShieldActive=shield.IsActive,SampledL=input.CurrentFrame.ShieldHeld,
+                                Selected=target?.GetInstanceId()??0,PolicyCapsuleSupplied=false,
+                                ObservationOnly=true,ExtraQueries=0,ExtraFrames=0
+                            };
+                        }
+                        catch { coolTraceFaults++; }
+                    }
+                    if (defend) guardCommands++;
+                    coolDangerActor = danger.SourceActorId;
+                    coolDangerPhase = danger.Phase.ToString();
+                    SendMouse(MouseButton.Right, defend, player, danger.GuardSource);
+                    monitor.CombatDecisionObserved?.Invoke(target?.GetInstanceId() ?? 0, danger, defend);
+                    int prepareEvaluated = 0, preparePassed = 0;
+                    bool PrepareGate(int bit, bool value)
+                    {
+                        prepareEvaluated |= bit;
+                        if (value) preparePassed |= bit;
+                        return value;
+                    }
+                    ulong prepareMothId = 0;
+                    float prepareLead = float.NaN, prepareMothRemaining = float.NaN;
+                    bool mayPrepare = PrepareGate(1,residentCounter) && PrepareGate(2,!counterPreparing) &&
+                        PrepareGate(16,!residentAttackHeld) && PrepareGate(32,!combat.IsAttacking) &&
+                        PrepareGate(64,!defend) && PrepareGate(128,modes.CanBeginGrapple) &&
+                        PrepareGate(256,!input.CurrentFrame.AttackPressed) && PrepareGate(512,!input.CurrentFrame.ShieldHeld) &&
+                        PrepareGate(1024,!Input.IsPhysicalKeyPressed(Key.J)) &&
+                        PrepareGate(2048,coolClaw.CurrentFrame.State == MechanicalClawState.Idle);
+                    if (mayPrepare)
+                    {
+                        // Control an eligible nearby Align/Hover before the two
+                        // strikes can displace it below the shelf. Existing
+                        // Telegraph counters remain valid; never reuse old stun.
+                        GraveLampMoth threatenedMoth = residentMoths.Where(moth =>
+                            moth.GlobalPosition.DistanceTo(player.GlobalPosition) <= MechanicalClawSettings.Default.MaxRange &&
+                            moth.GetNode<ThreadTarget2D>("ThreadTarget").IsAvailable &&
+                            Task10GearMothCastWindow(moth.CurrentState,moth.CurrentFrame.AttackTimeline.Phase,
+                                moth.CurrentFrame.AttackTimeline.PhaseRemainingSeconds,danger.SafeCounterSeconds,
+                                moth.GlobalPosition.DistanceTo(player.GlobalPosition)/MechanicalClawSettings.Default.ShuttleSpeed +
+                                    14f/Engine.PhysicsTicksPerSecond))
+                            .OrderBy(moth => moth.GetInstanceId() == danger.SourceActorId ? 0 : 1)
+                            .ThenBy(moth => moth.GlobalPosition.DistanceSquaredTo(player.GlobalPosition))
+                            .ThenBy(moth => moth.GetInstanceId()).FirstOrDefault();
+                        if (PrepareGate(4096,threatenedMoth != null))
+                        {
+                            // Same production shuttle lead as the existing Moth policy;
+                            // no full-J window is substituted for this one K flight.
+                            float lead = player.GlobalPosition.DistanceTo(threatenedMoth.GlobalPosition) /
+                                MechanicalClawSettings.Default.ShuttleSpeed + 14f / Engine.PhysicsTicksPerSecond;
+                            prepareMothId = threatenedMoth.GetInstanceId(); prepareLead = lead;
+                            prepareMothRemaining = threatenedMoth.CurrentFrame.AttackTimeline.PhaseRemainingSeconds;
+                            if (PrepareGate(8192,Task10GearMothCastWindow(threatenedMoth.CurrentState,
+                                threatenedMoth.CurrentFrame.AttackTimeline.Phase,prepareMothRemaining,danger.SafeCounterSeconds,lead)))
+                            {
+                                counterMoth = threatenedMoth;
+                                counterTarget = counterMoth.GetNode<ThreadTarget2D>("ThreadTarget");
+                                counterAdapter = counterTarget.GetNode<LegacyThreadInteractionAdapter>("LegacyThreadInteractionAdapter");
+                                counterTargetId = counterTarget.GetInstanceId();
+                                counterDirection = PlayerKeyboardAimModel.ResolveDirection(
+                                    counterTarget.WorldAnchor - player.GlobalPosition, 1);
+                                counterAimSequence = input.CurrentFrameSequence;
+                                counterPreparing = true;
+                                counterAborted = !CounterSupportForecast(counterDirection, 210 - frame);
+                                if (!counterAborted)
+                                {
+                                    SendAction(InputActions.MoveLeft, counterDirection.X < -.5f);
+                                    SendAction(InputActions.MoveRight, counterDirection.X > .5f);
+                                    SendAction(InputActions.MoveUp, counterDirection.Y < -.5f);
+                                    SendAction(InputActions.MoveDown, counterDirection.Y > .5f);
+                                }
+                                GD.Print($"TASK10_GEAR_COUNTER boundary=aim physics={Engine.GetPhysicsFrames()} loop={frame}/210 " +
+                                    $"sample={counterAimSequence} actor={danger.SourceActorId} target={counterTargetId} " +
+                                    $"direction={counterDirection} remaining={danger.SafeCounterSeconds:R} lead={lead:R} accepted_J={residentAcceptedAttacks}");
+                            }
+                        }
+                    }
+                    else if (counterPreparing && !counterIssued && !counterAborted &&
+                             input.CurrentFrameSequence > counterAimSequence)
+                    {
+                        MechanicalClawTargetResolution preview = coolClaw.KeyboardPreview;
+                        float lead = player.GlobalPosition.DistanceTo(counterMoth.GlobalPosition) /
+                            MechanicalClawSettings.Default.ShuttleSpeed + 14f / Engine.PhysicsTicksPerSecond;
+                        // The preview was published before the enemy's latest
+                        // motion. Keep the actual K admission inside the SAME
+                        // octant for the input/Aim handoff; never widen that cone.
+                        Vector2 castOffset=counterTarget.WorldAnchor-player.GlobalPosition;
+                        Vector2 castRelativeVelocity=counterMoth.Velocity-player.Velocity;
+                        Vector2 castNextOffset=castOffset+castRelativeVelocity*(2f/Engine.PhysicsTicksPerSecond);
+                        float castAngle=Mathf.Abs(counterDirection.AngleTo(castOffset));
+                        float castNextAngle=Mathf.Abs(counterDirection.AngleTo(castNextOffset));
+                        bool castAimStable=float.IsFinite(castAngle) && float.IsFinite(castNextAngle) &&
+                            castOffset.LengthSquared()>.0001f && castNextOffset.LengthSquared()>.0001f &&
+                            castAngle<=Mathf.Pi/8f+.0001f && castNextAngle<=Mathf.Pi/8f+.0001f;
+                        bool admitted = !defend && !combat.IsAttacking && !residentAttackHeld && modes.CanBeginGrapple &&
+                            coolClaw.CurrentFrame.State == MechanicalClawState.Idle &&
+                            input.CurrentFrame.KeyboardActions && !input.CurrentFrame.AttackPressed && !input.CurrentFrame.ShieldHeld &&
+                            input.KeyboardAimDirection.Dot(counterDirection) > .999f &&
+                            preview.Surface == counterTarget && preview.Snapshot.Exists &&
+                            preview.Snapshot.RuntimeId == counterTargetId && preview.Snapshot.HasLineOfSight &&
+                            preview.Snapshot.IsLegacyInteraction && castAimStable &&
+                            Task10GearMothCastWindow(counterMoth.CurrentState,counterMoth.CurrentFrame.AttackTimeline.Phase,
+                                counterMoth.CurrentFrame.AttackTimeline.PhaseRemainingSeconds,danger.SafeCounterSeconds,lead) &&
+                            CounterSupportForecast(counterDirection, 210 - frame);
+                        if (admitted)
+                        {
+                            counterApplications = counterAdapter.ApplicationCount;
+                            counterCast = coolClaw.CurrentFrame.NextCastId;
+                            counterIssueSequence = counterLastSequence = input.CurrentFrameSequence;
+                            counterIssued = true;
+                            SendAction(InputActions.Claw, true);
+                        }
+                        else
+                        {
+                            // The first real horizontal preview can legitimately prefer
+                            // terrain. Approach with real keys and refresh the octant;
+                            // only a later production preview may authorize the one K.
+                            Vector2 nextDirection = PlayerKeyboardAimModel.ResolveDirection(
+                                counterTarget.WorldAnchor - player.GlobalPosition, 1);
+                            bool canApproach = !defend && !combat.IsAttacking && !residentAttackHeld &&
+                                modes.CanBeginGrapple && coolClaw.CurrentFrame.State == MechanicalClawState.Idle &&
+                                !input.CurrentFrame.AttackPressed && !input.CurrentFrame.ShieldHeld &&
+                                Task10GearMothCastWindow(counterMoth.CurrentState,counterMoth.CurrentFrame.AttackTimeline.Phase,
+                                    counterMoth.CurrentFrame.AttackTimeline.PhaseRemainingSeconds,danger.SafeCounterSeconds,lead) &&
+                                CounterSupportForecast(nextDirection, 210 - frame);
+                            if (canApproach)
+                            {
+                                counterDirection = nextDirection;
+                                counterAimSequence = input.CurrentFrameSequence;
+                                SendAction(InputActions.MoveLeft, counterDirection.X < -.5f);
+                                SendAction(InputActions.MoveRight, counterDirection.X > .5f);
+                                SendAction(InputActions.MoveUp, counterDirection.Y < -.5f);
+                                SendAction(InputActions.MoveDown, counterDirection.Y > .5f);
+                            }
+                            else
+                            {
+                                counterAborted = true;
+                                ReleaseCounterDirections();
+                            }
+                        }
+                        if (counterPreviewLines++ < 12 || admitted || counterAborted)
+                        GD.Print($"TASK10_GEAR_COUNTER boundary=preview physics={Engine.GetPhysicsFrames()} loop={frame}/210 " +
+                            $"sample={input.CurrentFrameSequence} admitted={admitted} preview={preview.Snapshot.RuntimeId} " +
+                            $"target={counterTargetId} los={preview.Snapshot.HasLineOfSight} aim={input.KeyboardAimDirection} " +
+                            $"defend={defend} remaining={danger.SafeCounterSeconds:R} lead={lead:R} aborted={counterAborted} " +
+                            $"aim_stable={castAimStable} angle_deg={Mathf.RadToDeg(castAngle):R} " +
+                            $"next_angle_deg={Mathf.RadToDeg(castNextAngle):R} relative_velocity={castRelativeVelocity} " +
+                            $"player={player.GlobalPosition} target_anchor={counterTarget.WorldAnchor} " +
+                            $"preview_anchor={preview.Snapshot.WorldAnchor} preview_path={preview.Surface?.GetPath()}");
+                    }
+                    if (residentCounter)
+                    {
+                        // Snapshot ONLY the original short-circuit decisions. Never
+                        // repeat danger/resolver/LOS/support queries to explain them.
+                        try
+                        {
+                            string key = $"{prepareEvaluated}/{preparePassed}/{residentMoths.Count}/" +
+                                $"{danger.SourceActorId}/{danger.Phase}/{mayPrepare}";
+                            if (key != counterPrepareKey)
+                            {
+                                counterPrepareKey = key;
+                                if (counterPrepareRows.Count < 24)
+                                {
+                                    string moths = string.Join(";",residentMoths.Take(4).Select(moth =>
+                                        $"{moth.GetInstanceId()}/{moth.CurrentState}/{moth.CurrentFrame.AttackTimeline.Phase}/" +
+                                        $"{moth.CurrentFrame.AttackTimeline.PhaseRemainingSeconds:R}/position={moth.GlobalPosition}/" +
+                                        $"distance={moth.GlobalPosition.DistanceTo(player.GlobalPosition):R}"));
+                                    counterPrepareRows.Add($"TASK10_GEAR_COUNTER_PREPARE physics={Engine.GetPhysicsFrames()} " +
+                                        $"loop={frame}/210 sample={input.CurrentFrameSequence} evaluated={prepareEvaluated} " +
+                                        $"passed={preparePassed} accepted_J={residentAcceptedAttacks} target={target?.GetInstanceId() ?? 0} " +
+                                        $"moths_count={residentMoths.Count} moths=[{moths}] chosen_moth={prepareMothId} " +
+                                        $"danger={danger.SourceActorId}/{danger.Phase} safe={danger.SafeCounterSeconds:R} " +
+                                        $"lead={prepareLead:R} moth_remaining={prepareMothRemaining:R} " +
+                                        "observer_only=true extra_queries=0 extra_frames=0");
+                                }
+                                else counterPrepareOmitted++;
+                            }
+                        }
+                        catch (Exception error) { counterPrepareFault ??= error.GetType().Name; }
+                    }
+                    if (target != null && !defend && !combat.IsAttacking &&
+                        (!counterPreparing || counterKeyReleased && counterLatched && counterReleased && counterStunned && counterFreshPull) &&
+                        !residentAttackHeld && frame >= nextResidentAttackFrame &&
+                        (!danger.Threat || Task10MixedCounterWindow(combat, energy, danger)))
+                    {
+                        float side = MathF.Sign(target.GlobalPosition.X - player.GlobalPosition.X);
+                        Vector2 direction = side < 0f ? Vector2.Left : Vector2.Right;
+                        if (input.KeyboardAimDirection.Dot(direction) < .99f)
+                        {
+                            SendAction(InputActions.MoveLeft, side < 0f);
+                            SendAction(InputActions.MoveRight, side >= 0f);
+                        }
+                        else if (modes.CanBeginAttack)
+                        {
+                            SendAction(InputActions.Attack, true);
+                            residentAttackEdges++;
+                            residentAttackHeld = true;
+                            attackReleaseFrame = frame + 2;
+                            // A real sampled release separates successive J edges.
+                            nextResidentAttackFrame = frame + 4;
+                        }
+                    }
+                }
                 await PhysicsFrames(tree, monitor, 1);
+                coolFrames++;
+                if (input.CurrentFrame.ShieldHeld) sampledShieldFrames++;
                 CheckLive(stage);
-                TestAssert.True(HasFloorContact(player, support),
+                bool nativeSupport = HasFloorContact(player, support);
+                bool fullCounterSupport = !residentCombat || !counterPreparing ||
+                    TryTask10CapsuleCorridor(player, support.GetNode<CollisionShape2D>("Collision"), out _, out _, out _, out _);
+                bool namedFootSupport = false;
+                if (residentCombat && counterPreparing && !nativeSupport && fullCounterSupport)
+                {
+                    var foot = ReadCounterFootSupport();
+                    namedFootSupport = CounterFootBoundary(foot.OnFloor, foot.Full, foot.Bottom, foot.Top, foot.Margin, foot.Hit);
+                    if (namedFootSupport && !counterFootControls)
+                    {
+                        TestAssert.True(
+                            !CounterFootBoundary(false, foot.Full, foot.Bottom, foot.Top, foot.Margin, foot.Hit) &&
+                            !CounterFootBoundary(foot.OnFloor, false, foot.Bottom, foot.Top, foot.Margin, foot.Hit) &&
+                            !CounterFootBoundary(foot.OnFloor, foot.Full, foot.Bottom, foot.Bottom + foot.Margin * 2f, foot.Margin, foot.Hit) &&
+                            !CounterFootBoundary(foot.OnFloor, foot.Full, foot.Bottom, foot.Bottom - foot.Margin * 2f, foot.Margin, foot.Hit) &&
+                            !CounterFootBoundary(foot.OnFloor, foot.Full, foot.Bottom, foot.Top, 0f, foot.Hit) &&
+                            !CounterFootBoundary(foot.OnFloor, foot.Full, foot.Bottom, foot.Top, float.NaN, foot.Hit) &&
+                            !CounterFootBoundary(foot.OnFloor, foot.Full, foot.Bottom, foot.Top, foot.Margin, false),
+                            "exact native foot support rejects airborne, partial, gaps, penetration, invalid margin and wrong collider evidence");
+                        counterFootControls = true;
+                        GD.Print("TASK10_GEAR_COUNTER_FOOT_BOUNDARIES_OK cases=8 actual_named_floor=true negatives=7 pose_writes=0");
+                    }
+                    if (counterFootSamples++ < 8 || !namedFootSupport)
+                        GD.Print($"TASK10_GEAR_COUNTER_FOOT_PROBE observation_only=false extra_queries=1 " +
+                            $"bottom={foot.Bottom:R} top={foot.Top:R} gap={foot.Top - foot.Bottom:R} safe_margin={foot.Margin:R} " +
+                            $"exact_support={foot.Hit} original_native_guard={nativeSupport} full={foot.Full} accepted={namedFootSupport}");
+                }
+                if (residentCombat && (!(nativeSupport || namedFootSupport) || !fullCounterSupport))
+                {
+                    GD.Print($"TASK10_GEAR_COUNTER boundary=support-failure physics={Engine.GetPhysicsFrames()} loop={frame}/210 " +
+                        $"sample={input.CurrentFrameSequence} native={nativeSupport} full={fullCounterSupport} " +
+                        $"on_floor={player.IsOnFloor()} slides={player.GetSlideCollisionCount()} " +
+                        $"player={player.GlobalPosition} velocity={player.Velocity} state={coolClaw.CurrentFrame.State} " +
+                        $"cast={coolClaw.CurrentFrame.CastId}/{counterCast} locked={coolClaw.CurrentFrame.LockedTargetRuntimeId}/{counterTargetId} " +
+                        $"latched={counterLatched} released={counterReleased} stunned={counterStunned} samples={counterSamples} " +
+                        $"raw_JKSpace={Input.IsPhysicalKeyPressed(Key.J)}/{Input.IsPhysicalKeyPressed(Key.K)}/{Input.IsPhysicalKeyPressed(Key.Space)}");
+                    for (int index = 0; index < player.GetSlideCollisionCount(); index++)
+                    {
+                        using KinematicCollision2D contact = player.GetSlideCollision(index);
+                        GodotObject collider = contact.GetCollider();
+                        GD.Print($"TASK10_GEAR_COUNTER_CONTACT index={index} normal={contact.GetNormal()} " +
+                            $"collider={(collider is Node node ? node.GetPath().ToString() : collider?.GetType().Name)}");
+                    }
+                }
+                TestAssert.True((nativeSupport || namedFootSupport) && fullCounterSupport,
                     $"Task10 gear {stage} remains on {support.Name}; player={player.GlobalPosition}");
+            }
+            }
+            finally
+            {
+            if (residentCounter)
+            {
+                combat.AttackStarted -= ObserveCoolAttackStarted;
+                coolClaw.ClawFrameChanged -= ObserveCoolClaw;
+                SendAction(InputActions.Claw, false);
+                ReleaseCounterDirections();
+                foreach (string row in counterPrepareRows) GD.Print(row);
+                GD.Print($"TASK10_GEAR_COUNTER_PREPARE_END rows={counterPrepareRows.Count}/24 omitted={counterPrepareOmitted} " +
+                    $"fault={counterPrepareFault ?? "none"} policy=control_before_strikes extra_queries=0 extra_frames=0");
+                GD.Print($"TASK10_GEAR_COUNTER boundary=cleanup frames={coolFrames}/210 issued={counterIssued} " +
+                    $"samples={counterSamples} latched={counterLatched} released={counterReleased} stunned={counterStunned} " +
+                    $"invalid={counterInvalid} aborted={counterAborted} fault={counterFault ?? "none"}");
+            }
+            if (residentCombat)
+            {
+                energy.EnergyFrameChanged -= CoolEnergyChanged;
+                health.Damaged -= ObserveCoolDamage;
+                try
+                {
+                    GD.Print("TASK10_GEAR_COOL_DAMAGE_WINDOW "+System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        FrozenOnFirstDamage=coolTraceFrozen,Damage=coolTraceDamage,
+                        FrameCapacity=coolTraceFrames,CandidateCapacityPerFrame=coolTraceCandidates,
+                        Omitted=coolTraceOmitted,Faults=coolTraceFaults,ExtraQueries=0,ExtraFrames=0
+                    }));
+                    foreach(int slot in Enumerable.Range(0,coolTraceFrames).Where(i=>coolTraceStamps[i]!=0)
+                        .OrderBy(i=>coolTraceStamps[i]))
+                    {
+                        for(int index=0;index<coolTraceCounts[slot];index++)
+                            GD.Print("TASK10_GEAR_COOL_DAMAGE_CANDIDATE "+System.Text.Json.JsonSerializer.Serialize(coolTraceRows[slot,index]));
+                        GD.Print("TASK10_GEAR_COOL_DAMAGE_DECISION "+System.Text.Json.JsonSerializer.Serialize(coolTraceDecisions[slot]));
+                    }
+                }
+                catch { coolTraceFaults++; }
+                SendAction(InputActions.Attack, false);
+                SendAction(InputActions.MoveLeft, false);
+                SendAction(InputActions.MoveRight, false);
+                SendMouse(MouseButton.Right, false, player, Vector2.Zero);
+            }
+            }
+            if (residentCombat)
+            {
+                GD.Print("TASK10_GEAR_COOL_ENERGY " + System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    stage, frames = coolFrames, cap = 210, coolEntryEnergy,
+                    finalEnergy = observedEnergy, positiveEnergy, negativeEnergy,
+                    energyEvents, sustainedEnergyEvents, guardCommands, sampledShieldFrames,
+                    lastRegenDelay, firstNegative, lastNegative, fault = coolEnergyFault,
+                    geometryRows = coolGeometryRows.ToArray(), geometryOmitted = coolGeometryOmitted,
+                    geometryFault = coolGeometryFault,
+                    cleanupRawL = Input.IsPhysicalKeyPressed(Key.L),
+                    cleanupSampledShield = input.CurrentFrame.ShieldHeld,
+                    cleanupRawFrameShield = input.RawFrame.ShieldHeld,
+                    observationOnly = !residentCounter, extraFrames = 0, extraQueries = counterFootQueries
+                }));
+                GD.Print($"TASK10_GEAR_COOL_RESIDENT_INPUT edges={residentAttackEdges} " +
+                    $"player={player.GlobalPosition} hp={health.CurrentHealth} energy={energy.EnergyRatio:R} " +
+                    $"heat={energy.HeatRatio:R} overheated={energy.IsOverheated} original_budget=210");
+                if (residentCounter)
+                {
+                TestAssert.True(KeyboardRouteInputDriver.Current.ClawEdges == residentClawEdgesAtStart + 1,
+                    "Task10 keyboard Gear resident counter uses exactly one real K within the original cool window; " +
+                    $"edges={residentClawEdgesAtStart}->{KeyboardRouteInputDriver.Current.ClawEdges} frames={coolFrames}/210");
+                GD.Print($"TASK10_GEAR_COUNTER boundary=complete frames={coolFrames}/210 accepted_J={residentAcceptedAttacks} " +
+                    $"issued={counterIssued} samples={counterSamples}/1 cast={counterCast} latched={counterLatched} " +
+                    $"released={counterReleased} stunned={counterStunned} fresh_pull={counterFreshPull} invalid={counterInvalid} aborted={counterAborted} " +
+                    $"applications={counterApplications}->{counterAdapter?.ApplicationCount} fault={counterFault ?? "none"}");
+                TestAssert.True(residentAcceptedAttacks == 2 && counterIssued && counterSamples == 1 &&
+                    counterKeyReleased && counterLatched && counterReleased && counterStunned && counterFreshPull && !counterInvalid &&
+                    !counterAborted && counterFault == null && counterAdapter.ApplicationCount == counterApplications + 1 &&
+                    !combat.IsAttacking && !input.CurrentFrame.AttackPressed && !input.CurrentFrame.ClawPressed &&
+                    !Input.IsPhysicalKeyPressed(Key.J) && !Input.IsPhysicalKeyPressed(Key.K),
+                    "Task10 Gear counter completes two real J attacks and one same-target/cast/application K, releases and stuns within original210");
+                }
             }
             TestAssert.True(energy.HeatRatio <= .02f && energy.EnergyRatio >= .95f &&
                             !energy.IsOverheated && !input.Current.ShieldHeld &&
@@ -9216,7 +10998,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                                 liveBell.GetParent()==actorRoot && liveBellHealth.CurrentHealth==bellHp,
                                 $"BasinActualBellRetention: passenger route must keep the same living Bell through every frame; player={player.GlobalPosition} active={group.IsActive} batch={group.CurrentBatch}");
                         }
-                    });
+                    },verifyRideDefense:useResidentCounter);
                 GD.Print($"TASK10_BASIN_LIVE_BELL_RETAINED actor={liveBellId} health={bellHp} batch={group.CurrentBatch}");
             }
             else await PrologueCanyonTraversalTests.Task4ReachSupport(tree, player,
@@ -9239,15 +11021,23 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             {
                 supportStage = "lower-Bell-round-trip";
                 await DefeatTask10LowerBellAndReturn(tree, level, world, player, monitor,
-                    returnBasin, group, supportBell, gearEntry, pistonOne, pistonTwo, shieldLane);
+                    returnBasin, group, supportBell, gearEntry, pistonOne, pistonTwo, shieldLane, finishOnGallery);
                 lowerBellRoundTrip = true;
             }
-            else await DefeatTask10Encounter(tree, level, world, player, monitor, encounterId);
+            // The initial resident counter and the later Bell's safe footing
+            // are independent. Main can also retain a Bell on the carriage;
+            // keep the real player on PistonTwo and use the existing AI lure.
+            else await DefeatTask10Encounter(tree, level, world, player, monitor, encounterId,
+                gearLureBell: supportBell);
             TestAssert.True(group.IsComplete &&
                             monitor.RecoveryCompleted == startingRecoveries &&
                             monitor.RecoveryRequested == startingRequests,
                 "Task10 gear completes only after real Rust and Bell defeats without recovery");
-            return lowerBellRoundTrip;
+            return lowerBellRoundTrip
+                ? finishOnGallery ? Task10GearHandoff.Gallery : Task10GearHandoff.PistonTwo
+                : HasFloorContact(player,pistonTwo) &&
+                    TryTask10CapsuleCorridor(player,pistonTwo.GetNode<CollisionShape2D>("Collision"),out _,out _,out _,out _)
+                    ? Task10GearHandoff.PistonTwo : Task10GearHandoff.None;
         }
         finally
         {
@@ -9293,7 +11083,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         PrologueLevelController level, SeamlessPrologueWorld world, CharacterBody2D player,
         RouteMonitor monitor, PrologueSector basin, CanyonEncounterGroup group, BellBackLaborer bell,
         StaticBody2D gearEntry, StaticBody2D pistonOne, StaticBody2D pistonTwo,
-        CanyonShieldLaneHazard shieldLane)
+        CanyonShieldLaneHazard shieldLane, bool finishOnGallery = false)
     {
         var driver = KeyboardRouteInputDriver.Current;
         var walkway = basin.GetNode<StaticBody2D>("Gameplay/Collision/ShortcutBasinWalkway");
@@ -9311,17 +11101,30 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         int dashes = motor.AcceptedDashCount, defeats = 0, damage = 0, healing = 0;
         int approachJumps = motor.AcceptedJumpCount;
         int guardedPulses = 0, pulseStart = 0, returnJumpFrames = 0;
-        int runupJumps = 0;
+        int runupJumps = 0, lowerCombatGuardRows = 0;
         bool combatStarted = false, checkPulses = false, shieldRunup = false;
+        bool runupFailureLogged = false, runupObservedFullFloor = false;
+        float runupRequiredSpeed = float.NaN;
+        var previousRunup = (Physics: 0UL, Reader: 0UL, Position: Vector2.Zero, Velocity: Vector2.Zero,
+            FullFloor: false, Scale: 0f, Axis: 0f, Aim: Vector2.Zero, HandoffReady: false);
         string stage = "lower-approach";
         Exception observedFailure = null;
         HealthComponent.DamagedEventHandler onDamage = (_, _) => damage++;
         HealthComponent.HealedEventHandler onHeal = (_, _) => healing++;
         Action onDefeat = () => defeats++;
-        Action<PlayerShieldResult, ulong> onGuard = (result, _) =>
+        Action<PlayerShieldResult, ulong> onGuard = (result, transition) =>
         {
             if (result.Guarded && result.DamageAmount == 0 &&
                 shield.GuardDirection.Dot(Vector2.Right) > .99f) guardedPulses++;
+            if(stage=="original-900-frame-combat"&&lowerCombatGuardRows<4)
+            {
+                lowerCombatGuardRows++;
+                GD.Print($"TASK10_GEAR_LOWER_GUARD record={lowerCombatGuardRows}/4 physics={Engine.GetPhysicsFrames()} " +
+                    $"sample={input.CurrentFrameSequence} player={playerId} hp={health.CurrentHealth} " +
+                    $"transition={transition} result={result} energy={energy.EnergyRatio:R} heat={energy.HeatRatio:R} " +
+                    $"shield={input.Current.ShieldHeld}/{shield.IsActive}/{shield.CanBeginGuard} " +
+                    $"direction={shield.GuardDirection} selected_bell={bellId} not_source_identity=true observation_only=true");
+            }
         };
         bool FullFloor(StaticBody2D support) => HasFloorContact(player, support) &&
             Mathf.Abs(player.GlobalPosition.X - support.GlobalPosition.X) <=
@@ -9350,11 +11153,33 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             TestAssert.True(stage != "lower-combat-stance" || FullFloor(walkway) &&
                 HasFloorContact(bell, walkway) && motor.AcceptedJumpCount == approachJumps,
                 "lower Bell stance retreat keeps both real walkway supports and uses no jump");
-            TestAssert.True(!shieldRunup || FullFloor(gearEntry) && player.GlobalPosition.X <= 2354f &&
-                motor.AcceptedJumpCount == runupJumps && !input.Current.JumpHeld &&
-                input.Current.ShieldHeld && shield.IsActive && shield.GuardDirection.Dot(Vector2.Right) > .99f,
-                $"lower Bell right-shield run-up retains full GearEntry support, released Space and launch window; " +
-                $"player={player.GlobalPosition} velocity={player.Velocity}");
+            if (shieldRunup)
+            {
+                bool floorContact = HasFloorContact(player, gearEntry);
+                bool fullWidth = Mathf.Abs(player.GlobalPosition.X - gearEntry.GlobalPosition.X) <=
+                    ((RectangleShape2D)gearEntry.GetNode<CollisionShape2D>("Collision").Shape).Size.X / 2f - 20f + .1f;
+                runupObservedFullFloor = floorContact && fullWidth;
+                bool runupContract = runupObservedFullFloor && player.GlobalPosition.X <= 2354f &&
+                    motor.AcceptedJumpCount == runupJumps && !input.Current.JumpHeld &&
+                    input.Current.ShieldHeld && shield.IsActive && shield.GuardDirection.Dot(Vector2.Right) > .99f;
+                if (!runupContract && !runupFailureLogged)
+                {
+                    runupFailureLogged = true;
+                    try
+                    {
+                        GD.Print($"TASK10_GEAR_RUNUP_FIRST_FAILURE physics={Engine.GetPhysicsFrames()} reader={input.CurrentFrameSequence} " +
+                            $"player={player.GlobalPosition} velocity={player.Velocity} floor_contact={floorContact} full_width={fullWidth} " +
+                            $"jumps={motor.AcceptedJumpCount}/{runupJumps} jump_held={input.Current.JumpHeld} " +
+                            $"scale={motor.EffectiveMovementScale:R} axis={input.Current.MoveAxis:R} aim={input.KeyboardAimDirection} " +
+                            $"shield={input.Current.ShieldHeld}/{shield.IsActive}/{shield.GuardDirection} required_speed={runupRequiredSpeed:R} " +
+                            $"previous_completed_physics={previousRunup} observation_only=true original_window=true original_budget=true");
+                    }
+                    catch (Exception) { /* Preserve the original assertion if diagnostic output fails. */ }
+                }
+                TestAssert.True(runupContract,
+                    $"lower Bell right-shield run-up retains full GearEntry support, released Space and launch window; " +
+                    $"player={player.GlobalPosition} velocity={player.Velocity}");
+            }
         }
         async Task Step(int count = 1)
         {
@@ -9389,7 +11214,21 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         TestAssert.True(driver != null && FullFloor(pistonTwo) && HasFloorContact(bell, walkway),
             "lower Bell branch requires actual PistonTwo player support and original Bell walkway support");
         var observer = new BasinBoardingTickObserver { ProcessPhysicsPriority = 100 };
-        observer.Sample = _ => { try { Check(); } catch (Exception error) { observedFailure ??= error; } };
+        observer.Sample = _ =>
+        {
+            try
+            {
+                Check();
+                if (shieldRunup && previousRunup.Physics != Engine.GetPhysicsFrames())
+                    previousRunup = (Engine.GetPhysicsFrames(), input.CurrentFrameSequence, player.GlobalPosition, player.Velocity,
+                        runupObservedFullFloor, motor.EffectiveMovementScale, input.Current.MoveAxis, input.KeyboardAimDirection,
+                        player.GlobalPosition.X is >= 2350f and <= 2354f &&
+                        Mathf.Abs(player.Velocity.X - runupRequiredSpeed) <= .1f &&
+                        Mathf.Abs(motor.EffectiveMovementScale - PlayerShieldSettings.Approved.MovementScale) <= .001f &&
+                        input.Current.MoveAxis >= .999f && input.KeyboardAimDirection.Dot(Vector2.Right) > .999f);
+            }
+            catch (Exception error) { observedFailure ??= error; }
+        };
         try
         {
             health.Damaged += onDamage; health.Healed += onHeal;
@@ -9406,27 +11245,40 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             // Start in the original melee band's outer portion. Near-overlap L/K
             // uses diagonal WASD aim, which can move the player through Bell's cone.
             stage = "lower-combat-stance";
-            TestAssert.True(float.IsFinite(motor.Tuning.GroundDeceleration) && motor.Tuning.GroundDeceleration > 0f,
-                "lower Bell stance uses the actual finite ground braking setting");
             GD.Print($"TASK10_GEAR_LOWER_STANCE_BEGIN actor={bellId} gap={bell.GlobalPosition.X-player.GlobalPosition.X:0.000} " +
                 $"velocity={player.Velocity} bell_state={bell.CurrentState} remaining={bell.CurrentFrame.AttackTimeline.PhaseRemainingSeconds:0.000} hp={hp}");
-            SendAction(InputActions.MoveLeft, true);
-            await Until(() => player.GlobalPosition.X - (bell.GlobalPosition.X - 60f) <=
-                Mathf.Pow(Mathf.Max(0f, -player.Velocity.X), 2f) / (2f * motor.Tuning.GroundDeceleration),
-                45, "real A retreats toward the same Bell's 60px melee stance");
-            SendAction(InputActions.MoveLeft, false);
-            await Until(() => Mathf.Abs(player.Velocity.X) <= 2f && Mathf.Abs(input.Current.MoveAxis) <= .001f,
-                12, "A release is sampled and the supported player actually stops");
+            bool stanceStopped=false;float predictedGap=float.NaN;int stanceFrames=0;
+            for(;stanceFrames<45+12;stanceFrames++)
+            {
+                var stop=FreeMotionForecast.Neutral(player.Velocity.X,true,motor.MotionSettings,
+                    motor.ThrusterState.Module,1d/Engine.PhysicsTicksPerSecond,12,2f);
+                TestAssert.True(stop.SpeedThresholdReached && HasFloorContact(player,walkway),
+                    "lower Bell neutral forecast uses actual supported Motor/module and original12 stop budget");
+                float gap=bell.GlobalPosition.X-player.GlobalPosition.X;
+                predictedGap=gap-stop.NetDistance;
+                if(gap is >=56f and <=64f && Mathf.Abs(player.Velocity.X)<=2f &&
+                    Mathf.Abs(input.Current.MoveAxis)<=.001f && Mathf.Abs(input.RawFrame.MoveAxis)<=.001f &&
+                    !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D))
+                {stanceStopped=true;break;}
+                int axis=predictedGap<56f?-1:predictedGap>64f?1:0;
+                TestAssert.True(stanceFrames<45 || axis==0,"lower Bell movement stays within original45 approach plus12 neutral stop");
+                SendAction(InputActions.MoveLeft,axis<0);SendAction(InputActions.MoveRight,axis>0);
+                await Step();
+            }
+            SendAction(InputActions.MoveLeft,false);SendAction(InputActions.MoveRight,false);
+            TestAssert.True(stanceStopped,"lower Bell physically stops in the unchanged strike band within original57");
             float handoffGap = bell.GlobalPosition.X - player.GlobalPosition.X;
             TestAssert.True(handoffGap is >= 56f and <= 64f &&
                 Mathf.Abs(player.GlobalPosition.Y - bell.GlobalPosition.Y) <= 46f,
                 $"lower Bell handoff retains the original horizontal strike band; gap={handoffGap} player={player.GlobalPosition}");
             GD.Print($"TASK10_GEAR_LOWER_STANCE actor={bellId} gap={handoffGap:0.000} " +
                 $"velocity={player.Velocity} bell_state={bell.CurrentState} remaining={bell.CurrentFrame.AttackTimeline.PhaseRemainingSeconds:0.000} " +
-                $"player={player.GlobalPosition} hp={hp}");
+                $"player={player.GlobalPosition} hp={hp} forecast_gap={predictedGap:0.000} frames={stanceFrames}/57 " +
+                $"axis={input.Current.MoveAxis} raw_axis={input.RawFrame.MoveAxis} actual_module=true");
             GD.Print($"TASK10_GEAR_LOWER_HANDOFF actor={bellId} bell={bell.GlobalPosition} player={player.GlobalPosition} hp={hp}");
             stage = "original-900-frame-combat"; combatStarted = true;
-            await DefeatTask10Encounter(tree, level, world, player, monitor, group.EncounterId.ToString());
+            await DefeatTask10Encounter(tree, level, world, player, monitor, group.EncounterId.ToString(),
+                observeLowerBellCandidates: true);
             if (observedFailure != null) throw observedFailure;
             Check(); TestAssert.True(defeats == 1, "original lower Bell is defeated by the unchanged combat driver");
 
@@ -9480,16 +11332,48 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             await Step(2); SendAction(InputActions.Jump, false);
             await Until(() => HasFloorContact(player, returnStep), 100, "single short jump lands on 40px return step");
             SendAction(InputActions.MoveLeft, false); await Step(4);
-            TestAssert.True(float.IsFinite(motor.Tuning.GroundDeceleration) && motor.Tuning.GroundDeceleration > 0f,
-                "return staging uses the actual finite ground braking setting");
+            TestAssert.True(Engine.PhysicsTicksPerSecond > 0 &&
+                float.IsFinite(motor.ThrusterState.Module.GroundFriction) && motor.ThrusterState.Module.GroundFriction > 0f,
+                "return staging uses the actual finite module ground friction and physics tick");
             SendAction(InputActions.MoveLeft, true);
-            await Until(() => FullFloor(returnStep) && player.GlobalPosition.X - 2402f <=
-                Mathf.Pow(Mathf.Max(0f, -player.Velocity.X), 2f) / (2f * motor.Tuning.GroundDeceleration),
+            await Until(() =>
+            {
+                var stop = FreeMotionForecast.Neutral(player.Velocity.X, player.IsOnFloor(),
+                    motor.MotionSettings, motor.ThrusterState.Module, 1d / Engine.PhysicsTicksPerSecond, 12, 2f);
+                return stop.SpeedThresholdReached && FullFloor(returnStep) &&
+                    player.GlobalPosition.X + stop.NetDistance <= 2402f;
+            },
                 30, "actual stance braking targets x2402 below ShieldLane and clears PistonOne's low ceiling");
+            Vector2 returnBrakeReleasePosition = player.GlobalPosition;
+            Vector2 returnBrakeReleaseVelocity = player.Velocity;
+            bool returnBrakeReleaseFloor = HasFloorContact(player, returnStep);
+            var returnBrakeReleaseModule = motor.ThrusterState.Module;
             SendAction(InputActions.MoveLeft, false);
             await Until(() => Mathf.Abs(player.Velocity.X) <= 2f, 12, "settles on original step");
-            TestAssert.True(FullFloor(returnStep) && player.GlobalPosition.X is >= 2399.75f and <= 2406f,
+            bool returnFullySupported = FullFloor(returnStep);
+            bool returnLaunchX = player.GlobalPosition.X is >= 2399.75f and <= 2406f;
+            if (!returnFullySupported || !returnLaunchX)
+            {
+                Vector2 returnStepSize = ((RectangleShape2D)returnStep.GetNode<CollisionShape2D>("Collision").Shape).Size;
+                bool returnFloorContact = HasFloorContact(player, returnStep);
+                bool returnFullWidth = Mathf.Abs(player.GlobalPosition.X - returnStep.GlobalPosition.X) <=
+                    returnStepSize.X / 2f - 20f + .1f;
+                GD.Print($"TASK10_GEAR_RETURN_STANCE_FAILURE physics={Engine.GetPhysicsFrames()} " +
+                    $"floor_contact={returnFloorContact} full_width={returnFullWidth} x_range={returnLaunchX} " +
+                    $"player={player.GlobalPosition} velocity={player.Velocity} step={returnStep.GlobalTransform} size={returnStepSize} " +
+                    $"release_player={returnBrakeReleasePosition} release_velocity={returnBrakeReleaseVelocity} " +
+                    $"release_floor={returnBrakeReleaseFloor} module={returnBrakeReleaseModule.ModuleId} " +
+                    $"ground_friction={returnBrakeReleaseModule.GroundFriction:R} reverse_brake={returnBrakeReleaseModule.GroundReverseBrake:R} " +
+                    $"tuning_deceleration={motor.Tuning.GroundDeceleration:R} motion_deceleration={motor.MotionSettings.GroundDeceleration:R} " +
+                    $"sample={input.CurrentFrameSequence} current_axis={input.Current.MoveAxis:R} raw_axis={input.RawFrame.MoveAxis:R} " +
+                    "observation_only=true original_budgets=true");
+            }
+            TestAssert.True(returnFullySupported && returnLaunchX,
                 "80px return jump starts fully supported below the lane, without repositioning");
+            GD.Print($"TASK10_GEAR_RETURN_STANCE_OK physics={Engine.GetPhysicsFrames()} player={player.GlobalPosition} " +
+                $"velocity={player.Velocity} hp={health.CurrentHealth} release_player={returnBrakeReleasePosition} " +
+                $"release_velocity={returnBrakeReleaseVelocity} module={returnBrakeReleaseModule.ModuleId} " +
+                "full_support=true original_budgets=true no_reposition=true");
 
             // Pre-arm below the lane; the first real pulse must be guarded before any left-aim interval.
             stage = "guarded-return-jump"; pulseStart = shieldLane.PulseCount;
@@ -9519,9 +11403,31 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             // The proven original jump starts at rightward shield speed, not while
             // braking from the leftward landing. Keep D down through its new Space edge.
             float fullShieldSpeed = motor.Tuning.MaxRunSpeed * PlayerShieldSettings.Approved.MovementScale;
+            runupRequiredSpeed = fullShieldSpeed;
             int runupCap = 140 - returnJumpFrames;
             TestAssert.True(float.IsFinite(fullShieldSpeed) && fullShieldSpeed > 0f && runupCap > 0,
                 "right-shield run-up uses current tuning and only the existing 140-frame stage remainder");
+            // The real lower return can arrive with leftward momentum. Neutral
+            // friction must settle it before accelerating into the narrow original
+            // rightward launch window; all observations consume the same140 cap.
+            Vector2 brakeStart = player.GlobalPosition;
+            Vector2 brakeVelocity = player.Velocity;
+            ulong brakePhysics = Engine.GetPhysicsFrames();
+            int brakeJumps = motor.AcceptedJumpCount;
+            SendAction(InputActions.MoveLeft, false);
+            SendAction(InputActions.MoveRight, false);
+            await Until(() => Mathf.Abs(player.Velocity.X) <= 2f &&
+                Mathf.Abs(input.Current.MoveAxis) <= .001f && Mathf.Abs(input.RawFrame.MoveAxis) <= .001f,
+                runupCap, "natural neutral braking settles the leftward arrival before the original right-shield run-up");
+            TestAssert.True(FullFloor(gearEntry) && player.GlobalPosition.X <= 2354f &&
+                motor.AcceptedJumpCount == brakeJumps && !input.Current.JumpHeld,
+                "neutral run-up preparation retains actual full GearEntry support and no additional jump");
+            GD.Print($"TASK10_GEAR_RUNUP_NEUTRAL_BRAKE physics={Engine.GetPhysicsFrames()} start={brakeStart} " +
+                $"start_velocity={brakeVelocity} player={player.GlobalPosition} velocity={player.Velocity} " +
+                $"elapsed_physics={Engine.GetPhysicsFrames()-brakePhysics} stage_frames={returnJumpFrames}/140 " +
+                $"hp={health.CurrentHealth} full_support=true original_window=true no_reposition=true");
+            runupCap = 140 - returnJumpFrames;
+            TestAssert.True(runupCap > 0, "neutral braking never extends the original140-frame return stage");
             Vector2 runupStart = player.GlobalPosition;
             float runupStartVx = player.Velocity.X;
             ulong runupPhysics = Engine.GetPhysicsFrames();
@@ -9555,11 +11461,33 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             Check(); checkPulses = false;
             SendMouse(MouseButton.Right, false, player, player.GlobalPosition + Vector2.Right * 240f);
             stage = "original-lift-gallery-return";
-            await BasinCounterweightRuntimeTests.TraverseForFullRoute(player, basin, count => Step(count));
-            Check(); TestAssert.True(FullFloor(pistonTwo) && motor.AcceptedJumpCount == returnJumps + 3,
-                "lower Bell round trip returns to full PistonTwo support via three original jumps and original lift/gallery");
+            int shelfReturnJumps=await BasinCounterweightRuntimeTests.TraverseForFullRoute(player, basin,
+                count => Step(count), finishOnGallery: finishOnGallery);
+            Check();
+            if (finishOnGallery)
+            {
+                var gallery = basin.GetNode<StaticBody2D>("Gameplay/Collision/UpperGearGalleryOne");
+                TestAssert.True(shelfReturnJumps == 0 && FullFloor(gallery) &&
+                    player.GlobalPosition.X is >= 3060f and <= 3260f && player.Velocity.Length() <= 2f &&
+                    motor.AcceptedJumpCount == returnJumps + 3 && !input.Current.JumpHeld &&
+                    input.Current.MoveAxis == 0f && !Input.IsPhysicalKeyPressed(Key.Space) &&
+                    !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D),
+                    $"POST_BELL_GALLERY_HANDOFF_RED: completed lower Bell continues on actual Gallery " +
+                    $"without the old return hop or another lift loop; player={player.GlobalPosition} " +
+                    $"velocity={player.Velocity} return_jumps={motor.AcceptedJumpCount-returnJumps} " +
+                    $"shelf_return_hops={shelfReturnJumps} hp={hp}->{health.CurrentHealth}");
+                GD.Print($"TASK10_GEAR_LOWER_GALLERY_HANDOFF_OK actor={bellId} defeats={defeats} hp={hp} " +
+                    $"player={player.GlobalPosition} return_jumps={motor.AcceptedJumpCount-returnJumps} " +
+                    "current_gallery=true extra_return_hop=false another_lift_loop=false");
+            }
+            else
+            {
+            TestAssert.True(shelfReturnJumps is 0 or 1 && FullFloor(pistonTwo) &&
+                motor.AcceptedJumpCount == returnJumps + 3 + shelfReturnJumps,
+                "lower Bell round trip keeps three original jumps plus the explicitly verified raised-shelf return hop only");
             GD.Print($"TASK10_GEAR_LOWER_ROUNDTRIP_OK actor={bellId} defeats={defeats} hp={hp} " +
                 $"player={player.GlobalPosition} return_jumps={motor.AcceptedJumpCount-returnJumps}");
+            }
         }
         finally
         {
@@ -9705,6 +11633,9 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             group.IsActive && group.CurrentBatch == 0 && !group.IsComplete &&
             group.Definition.ArenaBounds.HasPoint(player.GlobalPosition) &&
             InTree(moth) && moth.GetInstanceId() == mothId &&
+            group.OwnsLiveActor(moth) &&
+            moth.SceneFilePath == CanyonEncounterCatalog.MothScene &&
+            moth.GetNodeOrNull<ResidentSceneBinding>("ResidentBinding") == null &&
             moth.GetNode<HealthComponent>("Health").CurrentHealth > 0 &&
             actorRoot.GetChildren().Contains(moth);
 
@@ -9816,8 +11747,23 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     if (group.IsActive && moth == null)
                     {
                         moth = actorRoot.GetChildren().OfType<GraveLampMoth>()
-                            .SingleOrDefault(actor => GodotObject.IsInstanceValid(actor));
-                        if (moth != null) mothId = moth.GetInstanceId();
+                            .SingleOrDefault(actor => group.OwnsLiveActor(actor));
+                        if (moth != null)
+                        {
+                            mothId = moth.GetInstanceId();
+                            Check("activation selects the original owned batch-zero Moth",
+                                group.CurrentBatch == 0 && group.LiveActorCount == 1 &&
+                                moth.SceneFilePath == CanyonEncounterCatalog.MothScene &&
+                                moth.GetNodeOrNull<ResidentSceneBinding>("ResidentBinding") == null &&
+                                ReferenceEquals(moth.GetParent(), actorRoot));
+                            foreach (GraveLampMoth candidate in actorRoot.GetChildren()
+                                         .OfType<GraveLampMoth>().Where(InTree))
+                                GD.Print($"TASK10_LIFT_MOTH_CANDIDATE id={candidate.GetInstanceId()} " +
+                                    $"name={candidate.Name} scene={candidate.SceneFilePath} " +
+                                    $"hp={candidate.GetNode<HealthComponent>("Health").CurrentHealth} " +
+                                    $"resident={candidate.GetNodeOrNull<ResidentSceneBinding>("ResidentBinding") != null} " +
+                                    $"owned={group.OwnsLiveActor(candidate)} selected={ReferenceEquals(candidate, moth)}");
+                        }
                     }
                     if (moth != null) Check("activation retains first live Moth", Live());
                 }
@@ -10220,6 +12166,12 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         List<AttackTelegraphVisual> leaves)
     {
         leaves.Clear();
+        if (actor is BellBoltSentry sentry)
+        {
+            if (!Task10SentryAvailable(sentry)) return skitterThreat;
+            return sentry.CurrentFrame.AttackTimeline.Phase is AttackPhase.Telegraph or AttackPhase.Active ||
+                Task10SentryLiveBolt(sentry) != null || skitterThreat;
+        }
         if (actor is RangedWeaponEnemy ranged)
         {
             if (!GodotObject.IsInstanceValid(ranged) || ranged.IsQueuedForDeletion() ||
@@ -10241,9 +12193,30 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             RustShellSquire rust => rust.CurrentState is RustShellState.Telegraph or RustShellState.Attack,
             BellBackLaborer bell => bell.CurrentState is BellBackLaborerState.Telegraph or BellBackLaborerState.Attack,
             GraveLampMoth moth => moth.CurrentState is GraveLampMothState.Telegraph or GraveLampMothState.Dive,
+            CanyonSkitter skitter => skitter.CurrentFrame.State is CanyonSkitterState.Telegraph or CanyonSkitterState.Rush,
             _ => false
         };
         return threat || skitterThreat;
+    }
+
+    private static bool Task10SentryAvailable(BellBoltSentry sentry)
+    {
+        if (!GodotObject.IsInstanceValid(sentry) || !sentry.IsInsideTree() || sentry.GetTree().Paused ||
+            sentry.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is not > 0) return false;
+        for (Node node = sentry; node != null; node = node.GetParent())
+            if (node.IsQueuedForDeletion()) return false;
+        return true;
+    }
+
+    private static BellBoltProjectile Task10SentryLiveBolt(BellBoltSentry sentry)
+    {
+        // Borrow only for this policy sample. No child-array/resource wrapper or
+        // projectile reference is retained by the route between samples.
+        for (int index = 0; index < sentry.GetChildCount(); index++)
+            if (sentry.GetChild(index) is BellBoltProjectile bolt &&
+                GodotObject.IsInstanceValid(bolt) && bolt.IsInsideTree() &&
+                !bolt.IsQueuedForDeletion() && !bolt.IsRetired) return bolt;
+        return null;
     }
 
     internal static bool Task10GeneralDefendWindow(PlayerCombat combat, PlayerEnergyController energy,
@@ -10322,6 +12295,142 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         finally { leaves.Clear(); } // Borrowed actor leaves never outlive this policy sample.
     }
 
+    internal static bool Task10MixedBurstEnrollmentAccepted(bool liveEnrollment, bool available,
+        bool owned, bool sameRoot, bool authoredPrefix, bool exactScene, int health) =>
+        available && owned && sameRoot && authoredPrefix && exactScene && health > 0 &&
+        (liveEnrollment || health == 1);
+
+    internal static bool Task10MixedPreviewPreparationBudgetAccepted(int elapsed, bool ready) =>
+        elapsed is >= 0 and <= 8 && (ready || elapsed < 8);
+
+    internal static bool Task10MixedReturnLeftGuard(CharacterBody2D player, bool leaseGranted)
+    {
+        var driver = KeyboardRouteInputDriver.Current;
+        if (!leaseGranted || driver == null || !CourtyardRearClawControl.Live(player) ||
+            player.GetTree().Paused || !player.CanProcess()) return false;
+        var input = player.GetNode<PlayerInputReader>("Input");
+        var shield = player.GetNode<PlayerShieldController>("Shield");
+        if (!input.CanProcess() || !input.IsPhysicsProcessing() || !input.Current.KeyboardActions ||
+            !input.Current.ShieldHeld || !shield.IsActive || !Input.IsPhysicalKeyPressed(Key.L) ||
+            input.Current.AttackPressed || input.Current.PrimaryPressed || input.Current.ClawPressed ||
+            input.Current.JumpPressed || input.Current.JumpHeld || input.Current.DashPressed ||
+            input.RawFrame.AttackPressed || input.RawFrame.PrimaryHeld || input.RawFrame.ClawPressed ||
+            Input.IsPhysicalKeyPressed(Key.J) || Input.IsPhysicalKeyPressed(Key.K) ||
+            Input.IsPhysicalKeyPressed(Key.Space) || Input.IsPhysicalKeyPressed(Key.Shift) ||
+            player.GetNode<PlayerCombat>("Combat").IsAttacking || player.GetNode<PlayerMotor>("Motor").IsDashing ||
+            player.GetNode<MechanicalClawController>("MechanicalClaw").CurrentFrame.State != MechanicalClawState.Idle)
+            return false;
+        // Ownership check precedes any key write. Facing and braking must then
+        // come from real reader/motor samples, not a pose or direction assignment.
+        driver.AimAt(player, player.GlobalPosition + Vector2.Left * 100f);
+        foreach (StringName action in new[] { InputActions.MoveLeft, InputActions.MoveRight,
+            InputActions.MoveUp, InputActions.MoveDown }) driver.Command(action, false);
+        driver.PointerButton(MouseButton.Right, true, player,
+            player.GlobalPosition + Vector2.Left * 100f, stopForGuard: true);
+        return true;
+    }
+
+    internal static bool Task10MixedReleaseGuardToNeutral(CharacterBody2D player, bool ownsPreparation)
+    {
+        var driver = KeyboardRouteInputDriver.Current;
+        if (!ownsPreparation || driver == null || !CourtyardRearClawControl.Live(player) ||
+            player.GetTree().Paused || !player.CanProcess()) return false;
+        var input = player.GetNodeOrNull<PlayerInputReader>("Input");
+        if (!CourtyardRearClawControl.Live(input) || !input.CanProcess() || !input.IsPhysicsProcessing() ||
+            !input.Current.KeyboardActions || input.KeyboardAimDirection.Dot(Vector2.Left) <= .999f ||
+            input.Current.MoveAxis != 0 || input.RawFrame.MoveAxis != 0 ||
+            input.Current.AttackPressed || input.Current.ClawPressed || input.Current.PrimaryPressed ||
+            input.Current.PrimaryHeld || input.Current.JumpPressed || input.Current.JumpHeld || input.Current.DashPressed ||
+            input.RawFrame.AttackPressed || input.RawFrame.ClawPressed || input.RawFrame.PrimaryHeld ||
+            Input.IsPhysicalKeyPressed(Key.A) || Input.IsPhysicalKeyPressed(Key.D) ||
+            Input.IsPhysicalKeyPressed(Key.J) || Input.IsPhysicalKeyPressed(Key.K) ||
+            Input.IsPhysicalKeyPressed(Key.Space) || Input.IsPhysicalKeyPressed(Key.Shift) ||
+            Input.IsPhysicalKeyPressed(Key.W) || Input.IsPhysicalKeyPressed(Key.S)) return false;
+        // AimAt checks this driver owns the same player before any key write.
+        // It does not synthesize a sampled facing or a resolver result.
+        driver.AimAt(player, player.GlobalPosition + Vector2.Left);
+        driver.Command(InputActions.MoveRight, false);
+        driver.Command(InputActions.MoveLeft, false);
+        driver.Command(InputActions.MoveUp, false);
+        driver.Command(InputActions.MoveDown, false);
+        driver.PointerButton(MouseButton.Right, false, player, player.GlobalPosition, stopForGuard: true);
+        return true;
+    }
+
+    internal static bool Task10MixedClawTerminalAccepted(bool opportunity, bool completed, bool handedOff,
+        int samples, int issuedEdges, bool aborted) => !opportunity ||
+        completed && handedOff && samples == 1 && issuedEdges == 1 && !aborted;
+
+    internal static bool Task10MixedLateObservationEnabled(bool counterweight, bool postShot,
+        bool finishIntent, bool frozenFirst) => counterweight &&
+            (finishIntent || postShot && frozenFirst);
+
+    internal static int Task10MixedClawTerminalEdges(bool postShotSchedule, int frozenEnd,
+        int currentEdges, int firstStart) => postShotSchedule && frozenEnd >= 0
+            ? frozenEnd - firstStart : currentEdges - firstStart;
+
+    internal readonly record struct MixedLaterClawReceipt(int EdgeStart, int EdgeEnd, int Samples,
+        ulong CastId, ulong PlayerId, ulong ActorId, ulong ParentId, ulong EndParentId, ulong TargetId,
+        ulong PressSequence, ulong HandoffSequence, int ApplicationDelta, bool Latched,
+        bool EffectPublished, bool Idle, bool Aborted, bool Failed, int HpBefore, int HpAfter);
+
+    internal static bool Task10PostHopReceiptRetained(int receiptIndex, MixedLaterClawReceipt accepted,
+        IReadOnlyList<MixedLaterClawReceipt> receipts) => receipts != null && receiptIndex >= 0 &&
+            receiptIndex < receipts.Count && accepted.CastId != 0 && accepted.TargetId != 0 &&
+            receipts[receiptIndex] == accepted;
+
+    internal static bool Task10MixedLaterClawLedgerAccepted(int firstEdgeEnd, int finalEdges,
+        ulong firstCast, ulong firstHandoff, ulong playerId, ulong parentId,
+        IReadOnlyList<MixedLaterClawReceipt> receipts, bool pending, int faults)
+    {
+        if (pending || faults != 0 || firstEdgeEnd < 1 || firstCast == 0 || firstHandoff == 0 ||
+            playerId == 0 || parentId == 0 || receipts == null) return false;
+        int expectedEdge = firstEdgeEnd;
+        ulong priorCast = firstCast, priorHandoff = firstHandoff;
+        foreach (var receipt in receipts)
+        {
+            if (receipt.EdgeStart != expectedEdge || receipt.EdgeEnd != expectedEdge + 1 ||
+                receipt.Samples != 1 || receipt.CastId <= priorCast || receipt.PlayerId != playerId ||
+                receipt.ActorId == 0 || receipt.ParentId != parentId || receipt.EndParentId != parentId ||
+                receipt.TargetId == 0 || receipt.PressSequence <= priorHandoff ||
+                receipt.HandoffSequence < receipt.PressSequence || receipt.ApplicationDelta != 1 ||
+                !receipt.Latched || !receipt.EffectPublished || !receipt.Idle || receipt.Aborted ||
+                receipt.Failed || receipt.HpBefore <= 0 || receipt.HpAfter != receipt.HpBefore) return false;
+            expectedEdge = receipt.EdgeEnd;
+            priorCast = receipt.CastId; priorHandoff = receipt.HandoffSequence;
+        }
+        return finalEdges == expectedEdge;
+    }
+
+    internal static void Task10MixedLaterClawAttackIntentHandoff()
+    {
+        // Planner intent does not follow the production claw's Idle state.
+        // Restore it outside the isolated publication callback, only after the
+        // actual receipt passed. This does not change production Q/E or mode.
+        SendAction(InputActions.PrimaryAction, false);
+        SendAction(InputActions.SelectAttackMode, true);
+        SendAction(InputActions.SelectAttackMode, false);
+    }
+
+    internal static bool Task10MixedPostShotOpportunityAccepted(bool opportunity, bool shotSeen,
+        bool windowStarted, bool completed, bool shortWindow, bool aborted) =>
+        !aborted && (!windowStarted || opportunity && shotSeen) &&
+        (!completed || windowStarted && shotSeen) && (!windowStarted || completed || shortWindow);
+
+    internal static bool Task10MixedPostShotLethalAllowed(bool captured, bool shotSeen,
+        bool clawOwed, bool completed, bool handedOff) =>
+        !captured || shotSeen && (!clawOwed || completed && handedOff);
+
+    internal static (bool Completed, bool OpportunityAccepted) Task10MixedClawCompletionBoundary(
+        bool opportunity, bool completed, bool shotSeen, bool shortWindow,
+        int applicationDelta, bool stunned, bool sameCastLatched, int samples, int issuedEdges, bool aborted)
+    {
+        completed |= applicationDelta == 1 && stunned && sameCastLatched && samples == 1 &&
+            issuedEdges == 1 && !aborted;
+        bool accepted = !opportunity || completed || !shotSeen && shortWindow;
+        return (completed, accepted);
+    }
+
     internal static bool Task10MixedDefendWindow(PlayerShieldController shield, Task10EncounterDanger danger) =>
         // This is guard demand, not the complete-counter window. Active
         // includes authorized inter-shot gaps/live tails; their lifetime is NOT ETA.
@@ -10329,6 +12438,52 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         (danger.Phase == AttackPhase.Active ||
          danger.Phase == AttackPhase.Telegraph &&
          danger.RemainingSeconds <= 8f / Engine.PhysicsTicksPerSecond);
+
+    internal static bool Task10SentryGuardDirectionAccepted(Vector2 guard, Vector2 source) =>
+        source.LengthSquared() > 1f && new PlayerShieldModel(PlayerShieldSettings.Approved).Resolve(
+            new PlayerShieldInput(true, guard, source, DamageGuardClass.Normal, true)).Guarded;
+
+    internal static SteamSentryAmbientDanger Task10SteamSentryAmbient(ulong sentryId,
+        PlayerCombat combat, PlayerShieldController shield, Task10EncounterDanger danger, float foreignSafe) =>
+        new(true, danger.SourceActorId != 0 && danger.SourceActorId != sentryId &&
+            !combat.IsAttacking && Task10MixedDefendWindow(shield, danger),
+            danger.GuardSource, foreignSafe);
+
+    internal static (Task10EncounterDanger Danger, SteamSentryAmbientDanger Ambient) Task10ObserveSteamSentryAmbient(
+        Node actorRoot, string encounterId, ulong sentryId, PlayerCombat combat,
+        PlayerShieldController shield, List<AttackTelegraphVisual> leaves,
+        Action<CanyonSkitter> passiveRearmObserved = null)
+    {
+        // Keep the original winner/global scalar unchanged. The owned Sentry
+        // has a more precise receipt-backed clock inside its recovery driver;
+        // only FOREIGN allowances constrain that driver's per-J/K admission.
+        float foreignSafe = float.PositiveInfinity;
+        ulong minimumActor = 0;
+        string minimumState = null, minimumReason = null;
+        AttackPhase minimumPhase = AttackPhase.None;
+        float minimumRemaining = 0f;
+        int counterObservations = 0;
+        Task10EncounterDanger danger = Task10ObserveEncounterDanger(actorRoot, encounterId, null, false, leaves,
+            counterObserver: (id, state, phase, remaining, allowance, reason) =>
+            {
+                if (id == sentryId) return;
+                counterObservations++;
+                float before = foreignSafe;
+                foreignSafe = MathF.Min(foreignSafe, allowance); // Original fold, unchanged.
+                if (minimumActor == 0 || !before.Equals(foreignSafe))
+                {
+                    minimumActor = id; minimumState = state; minimumPhase = phase;
+                    minimumRemaining = remaining; minimumReason = reason;
+                }
+            },
+            passiveRearmObserved: passiveRearmObserved);
+        return (danger, Task10SteamSentryAmbient(sentryId, combat, shield, danger, foreignSafe) with
+        {
+            ForeignMinimumActor = minimumActor, ForeignMinimumState = minimumState,
+            ForeignMinimumPhase = minimumPhase, ForeignMinimumRemaining = minimumRemaining,
+            ForeignMinimumReason = minimumReason, ForeignCounterObservations = counterObservations
+        });
+    }
 
     internal static bool Task10MixedCounterWindow(PlayerCombat combat, PlayerEnergyController energy,
         Task10EncounterDanger danger)
@@ -10355,10 +12510,665 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         public float RemainingSeconds { get; init; }
         public bool FromActiveGap { get; init; }
         public float SafeCounterSeconds { get; init; }
+        public int CounterSources { get; init; }
+        public int CandidateObserverFaults { get; init; }
+        public int MissingGuardSourceCount { get; init; }
+        public bool NearContactGuard { get; init; }
+        public bool NearContactUnknownActive { get; init; }
+        public bool NearContactOverlappingActive { get; init; }
+        public bool IncomingGuardVeto { get; init; }
+        public int IncomingGuardUnknown { get; init; }
+        public int IncomingGuardPredicted { get; init; }
+    }
+
+    // Test-driver scalar proof for one unchanged original danger scan. No native
+    // resource is retained, and no result can authorize a later physics step.
+    internal static bool Task10PostHopRechargeRoute(bool earlyPositioning, bool normalPlan, bool explicitProbe) =>
+        earlyPositioning && (normalPlan || explicitProbe);
+
+    internal static bool Task10LiftGhostGuardRoute(bool keyboard, bool normalPlan, bool explicitProbe) =>
+        keyboard && (normalPlan || explicitProbe);
+
+    // Test-driver selection only; the unchanged foreignUp consumer owns safety.
+    internal static bool Task10GalleryForeignGuardRoute(bool keyboard, bool gallery, bool normalPlan, bool explicitProbe) =>
+        keyboard && gallery && (normalPlan || explicitProbe);
+
+    internal static bool Task10GalleryEarlyCounterRoute(bool keyboard, bool gallery, bool normalPlan,
+        bool explicitProbe, bool owned, bool skitter, bool recoveryScope) =>
+        keyboard && gallery && (explicitProbe || normalPlan && owned && skitter && recoveryScope);
+
+    internal static bool Task10Grip8GhostClearanceRoute(bool keyboard, bool main, bool exploration, int gripIndex) =>
+        keyboard && gripIndex == 8 && (main || exploration);
+
+    internal static bool Task10CaptureGalleryHp2Decision(List<string> rows, bool enabled, bool eligible,
+        int health, string completedRow)
+    {
+        if (!enabled || !eligible || health != 2 || rows.Count >= 24 || string.IsNullOrEmpty(completedRow)) return false;
+        rows.Add(completedRow);
+        return true;
+    }
+
+    internal static bool Task10GalleryForeignCounterBudget(bool reserveRequired, float energyUnits,
+        float attackCost, float shieldDrain, float rushSeconds, int physicsHz)
+    {
+        if (!reserveRequired) return true;
+        if (!float.IsFinite(energyUnits) || energyUnits < 0f ||
+            !float.IsFinite(attackCost) || attackCost < 0f ||
+            !float.IsFinite(shieldDrain) || shieldDrain < 0f ||
+            !float.IsFinite(rushSeconds) || rushSeconds < 0f || physicsHz <= 0) return false;
+        float requiredTotal = attackCost + shieldDrain * (.20f + rushSeconds + 3f / physicsHz);
+        return float.IsFinite(requiredTotal) && energyUnits >= requiredTotal;
+    }
+
+    internal sealed class Task10RechargeSourceCoverage
+    {
+        private readonly ulong _physics, _sequence;
+        private readonly HashSet<ulong> _ids = new();
+        private bool _clear = true;
+        public int Count { get; private set; }
+        public int Faults { get; private set; }
+        internal Task10RechargeSourceCoverage(ulong physics, ulong sequence)
+        { _physics = physics; _sequence = sequence; }
+        internal void Observe(ulong id, AttackPhase phase, float allowance,
+            bool actorFrameCurrent, bool activeBurst, bool emissionClear)
+        {
+            Count++;
+            if (Count > 32 || id == 0 || !_ids.Add(id)) { _clear = false; return; }
+            _clear &= actorFrameCurrent && (phase == AttackPhase.Active
+                ? activeBurst && emissionClear
+                : phase is AttackPhase.None or AttackPhase.Telegraph or AttackPhase.Recovery &&
+                    float.IsFinite(allowance) && allowance > 3f / 60f);
+        }
+        internal void Fault() { Faults++; _clear = false; }
+        internal bool Admits(int expectedSources, ulong physics, ulong sequence) =>
+            _clear && Faults == 0 && Count > 0 && Count == expectedSources &&
+            _physics != 0 && _sequence != 0 && physics == _physics && sequence == _sequence;
+    }
+
+    internal static bool Task10ObserveGuardSource(AttackPhase phase, Vector2 source,
+        ref int missingSources, ref bool unknownActive)
+    {
+        if (source.IsFinite()) return true;
+        missingSources++;
+        if (phase == AttackPhase.Active) unknownActive = true;
+        return false;
+    }
+
+    internal static bool Task10PostHopBrakeReleaseAllowed(bool sameRust, int stage,
+        int startedBase, int connectedBase, int startedNow, int connectedNow) =>
+        sameRust && stage == 4 && startedBase >= 0 && connectedBase >= 0 &&
+        startedNow > startedBase && connectedNow > connectedBase;
+
+    internal static bool Task10PostHopHoldNeutral(bool sameRust, int stage, bool fullSupport,
+        bool connectedJAfterBrake, float signedGap) => sameRust && stage == 4 && fullSupport &&
+        !connectedJAfterBrake && float.IsFinite(signedGap) && signedGap < 8f;
+
+    internal static bool Task10OrdinaryBackoffSupportRequired(bool cooldownRetreat,
+        bool verticalStrike, float signedGap) => cooldownRetreat ||
+            !verticalStrike && float.IsFinite(signedGap) && signedGap<8f;
+
+    internal static bool Task10PostHopBackoffSupported(float vx, float axis, float scale,
+        PlayerMotionSettings motion, MobilityModuleSettings module, double delta, int budget,
+        float bodyLeft, float bodyRight, float floorLeft, float floorRight)
+    {
+        if (!float.IsFinite(vx) || axis is not (-1f or 1f) || !float.IsFinite(scale) || scale <= 0f || scale > 1f ||
+            motion == null || !double.IsFinite(delta) || delta <= 0d || budget < 2 ||
+            !float.IsFinite(bodyLeft) || !float.IsFinite(bodyRight) || !float.IsFinite(floorLeft) || !float.IsFinite(floorRight) ||
+            bodyLeft >= bodyRight || floorLeft >= floorRight || bodyLeft < floorLeft || bodyRight > floorRight)
+            return false;
+        try
+        {
+            var stop = FreeMotionForecast.HeldThenNeutral(vx, axis * scale, true, motion, module,
+                delta, 2, budget, 0f);
+            if (!stop.SpeedThresholdReached || !float.IsFinite(stop.NetDistance) || !float.IsFinite(stop.ForwardDistance))
+                return false;
+            float sign = vx == 0f ? MathF.Sign(axis) : MathF.Sign(vx);
+            float peak = sign * stop.ForwardDistance;
+            float minimum = MathF.Min(0f, MathF.Min(peak, stop.NetDistance));
+            float maximum = MathF.Max(0f, MathF.Max(peak, stop.NetDistance));
+            return (double)bodyLeft + minimum >= floorLeft && (double)bodyRight + maximum <= floorRight;
+        }
+        catch (ArgumentException) { return false; } // Pure-model invalid input, never a native/error waiver.
+    }
+
+    internal readonly record struct Task10PostHopGeometry(ulong BodyCollider, ulong Capsule,
+        Vector2 FloorSize, Vector2 CapsuleSize, Transform2D BodyLocal, Vector2 PlayerBasisX, Vector2 PlayerBasisY);
+
+    internal static bool Task10PostHopGeometryRetained(Task10PostHopGeometry original,
+        Task10PostHopGeometry current)
+    {
+        static bool Basis(Vector2 x,Vector2 y) => x.IsFinite() && y.IsFinite() &&
+            float.IsFinite(x.X*y.Y-x.Y*y.X) && x.X*y.Y-x.Y*y.X!=0;
+        static bool Valid(Task10PostHopGeometry value) => value.BodyCollider!=0 && value.Capsule!=0 &&
+            value.FloorSize.IsFinite() && value.FloorSize.X>0 && value.FloorSize.Y>0 &&
+            value.CapsuleSize.IsFinite() && value.CapsuleSize.X>0 && value.CapsuleSize.Y>=2*value.CapsuleSize.X &&
+            value.BodyLocal.Origin.IsFinite() && Basis(value.BodyLocal.X,value.BodyLocal.Y) &&
+            Basis(value.PlayerBasisX,value.PlayerBasisY);
+        return Valid(original) && Valid(current) && original==current;
+    }
+
+    private static bool TryTask10PostHopGeometry(CharacterBody2D player,CollisionShape2D floor,
+        out Task10PostHopGeometry geometry)
+    {
+        geometry=default;
+        if (!GodotObject.IsInstanceValid(player) || !player.IsInsideTree() || player.IsQueuedForDeletion() ||
+            !GodotObject.IsInstanceValid(floor) || !floor.IsInsideTree() || floor.IsQueuedForDeletion() || floor.Disabled ||
+            floor.Shape is not RectangleShape2D rectangle || !GodotObject.IsInstanceValid(rectangle)) return false;
+        var body=player.GetNodeOrNull<CollisionShape2D>("BodyCollider");
+        if (!GodotObject.IsInstanceValid(body) || !body.IsInsideTree() || body.IsQueuedForDeletion() || body.Disabled ||
+            body.Shape is not CapsuleShape2D capsule || !GodotObject.IsInstanceValid(capsule)) return false;
+        geometry=new(body.GetInstanceId(),capsule.GetInstanceId(),rectangle.Size,
+            new(capsule.Radius,capsule.Height),body.Transform,player.GlobalTransform.X,player.GlobalTransform.Y);
+        return Task10PostHopGeometryRetained(geometry,geometry);
+    }
+
+    internal enum Task10IncomingStatus { Unknown, Clear, Incoming }
+    internal readonly record struct Task10IncomingGuardContext(Task10IncomingGuardHistory History,
+        ulong Physics, ulong Sequence, float Delta, Vector2 PlayerVelocity);
+    internal sealed class Task10IncomingGuardHistory
+    {
+        private readonly record struct Sample(ulong Physics, ulong Sequence, float Delta, Vector2 Center, float Radius);
+        private readonly Dictionary<(ulong Actor, ulong Projectile, ulong Leaf, ulong Attack), Sample> _last = new();
+        public Task10IncomingStatus Observe(ulong actor, ulong projectile, ulong leaf, ulong attack,
+            ulong physics, ulong sequence, float delta, AttackShapeFrame circle,
+            Task10GuardCapsule capsule, Vector2 playerVelocity)
+        {
+            var key = (actor, projectile, leaf, attack);
+            if (actor == 0 || projectile == 0 || leaf == 0 || attack == 0 || physics == 0 || sequence == 0 ||
+                !float.IsFinite(delta) || delta <= 0 || circle.Kind != AttackShapeKind.Circle ||
+                !circle.Origin.IsFinite() || !circle.Extent.IsFinite() || circle.Extent.X <= 0 || circle.Extent.X != circle.Extent.Y)
+            { _last.Remove(key); return Task10IncomingStatus.Unknown; }
+            bool found = _last.TryGetValue(key, out Sample before);
+            if (found && (physics <= before.Physics || sequence <= before.Sequence ||
+                delta != before.Delta || circle.Extent.X != before.Radius))
+            { _last.Remove(key); return Task10IncomingStatus.Unknown; }
+            _last[key] = new(physics, sequence, delta, circle.Origin, circle.Extent.X);
+            if (!found || physics - before.Physics != 1) return Task10IncomingStatus.Unknown;
+            return Task10IncomingCircleStep(circle, capsule, circle.Origin - before.Center, playerVelocity, delta);
+        }
+    }
+    internal static Task10IncomingStatus Task10IncomingCircleStep(AttackShapeFrame circle,
+        Task10GuardCapsule capsule, Vector2 displacement, Vector2 playerVelocity, float delta)
+    {
+        if (!float.IsFinite(delta) || delta <= 0 || !displacement.IsFinite() || !playerVelocity.IsFinite() ||
+            !float.IsFinite(Task10GuardCircleClearance(circle, capsule))) return Task10IncomingStatus.Unknown;
+        // Translate first, promote original scalars before constructing endpoints.
+        // A world-space float addition can turn an inclusive tangent into Clear.
+        double ax = (double)circle.Origin.X - capsule.Transform.Origin.X;
+        double ay = (double)circle.Origin.Y - capsule.Transform.Origin.Y;
+        double bx = ax + displacement.X - (double)playerVelocity.X * delta;
+        double by = ay + displacement.Y - (double)playerVelocity.Y * delta;
+        double half = (double)capsule.Height * .5 - capsule.Radius;
+        double px = -half * capsule.Transform.Y.X, py = -half * capsule.Transform.Y.Y;
+        double qx = -px, qy = -py;
+        double xx = capsule.Transform.X.X, xy = capsule.Transform.X.Y;
+        double radius = capsule.Radius * Math.Sqrt(xx * xx + xy * xy) + circle.Extent.X;
+        if (!double.IsFinite(bx) || !double.IsFinite(by) || !double.IsFinite(px) ||
+            !double.IsFinite(py) || !double.IsFinite(radius)) return Task10IncomingStatus.Unknown;
+        static double Cross(double ux, double uy, double vx, double vy) => ux * vy - uy * vx;
+        static double PointSegment(double pointX, double pointY, double fromX, double fromY, double toX, double toY)
+        {
+            double x = toX - fromX, y = toY - fromY;
+            double px = pointX - fromX, py = pointY - fromY;
+            double square = x * x + y * y;
+            double t = square > 0 ? Math.Clamp((px * x + py * y) / square, 0, 1) : 0;
+            double dx = px - t * x, dy = py - t * y;
+            return dx * dx + dy * dy;
+        }
+        double ux = bx - ax, uy = by - ay, vx = qx - px, vy = qy - py, wx = px - ax, wy = py - ay;
+        double cross = Cross(ux, uy, vx, vy);
+        if (cross != 0)
+        {
+            double t = Cross(wx, wy, vx, vy) / cross, s = Cross(wx, wy, ux, uy) / cross;
+            if (t >= 0 && t <= 1 && s >= 0 && s <= 1) return Task10IncomingStatus.Incoming;
+        }
+        double minimum = Math.Min(Math.Min(PointSegment(ax, ay, px, py, qx, qy), PointSegment(bx, by, px, py, qx, qy)),
+            Math.Min(PointSegment(px, py, ax, ay, bx, by), PointSegment(qx, qy, ax, ay, bx, by)));
+        return minimum <= radius * radius ? Task10IncomingStatus.Incoming : Task10IncomingStatus.Clear;
+    }
+
+    internal sealed class Task10PinnedGuardWindow
+    {
+        private readonly Queue<string> _before = new(3);
+        private readonly List<string> _rows = new(8);
+        private int _following;
+        public bool Triggered { get; private set; }
+        public bool Complete => Triggered && _following == 0;
+        public IReadOnlyList<string> Rows => _rows;
+        public void Observe(string row, bool trigger)
+        {
+            if (Complete) return;
+            if (Triggered)
+            {
+                _rows.Add(row);
+                _following--;
+            }
+            else if (trigger)
+            {
+                _rows.AddRange(_before);
+                _before.Clear();
+                _rows.Add(row);
+                Triggered = true;
+                _following = 4;
+            }
+            else
+            {
+                if (_before.Count == 3) _before.Dequeue();
+                _before.Enqueue(row);
+            }
+        }
+    }
+
+    internal readonly record struct Task10DangerCandidate(int Ordinal, int ActorOrder,
+        ulong SourceActorId, ulong LeafId, ulong ProjectileId, string SourceKind,
+        AttackTimelineFrame Timeline, Vector2 GuardSource, float Urgency, bool ReplacedWinner,
+        bool FromActiveGap, bool HasShape, AttackShapeFrame Shape, float GuardClearance)
+    {
+        public bool OrientationConsumed { get; init; }
+        public bool DepartureExcluded { get; init; }
+        public bool NominalStepEmissionClear { get; init; }
+    }
+
+    internal readonly record struct Task10GuardCapsule(float Radius, float Height, Transform2D Transform);
+
+    internal readonly record struct Task10RustGuardEpoch(ulong AttackId, AttackPhase Phase,
+        ulong Epoch, ulong Physics, bool ContinuousActive);
+    internal readonly record struct Task10RustGuardReceipt(ulong Actor, ulong Hitbox, ulong Hurtbox,
+        ulong Attack, ulong Epoch, ulong Physics, ulong Sequence, ulong Transition, int Health);
+    internal readonly record struct Task10RustGuardPolicy(ulong Actor, ulong Hitbox, ulong Attack,
+        bool Spent, bool NearContact);
+
+    internal static Task10RustGuardEpoch Task10AdvanceRustGuardEpoch(Task10RustGuardEpoch before,
+        AttackTimelineFrame timeline, ulong physics)
+    {
+        bool continuous = before.Physics > 0 && physics >= before.Physics && physics - before.Physics <= 1;
+        bool entering = timeline.Phase == AttackPhase.Active &&
+            (before.Phase != AttackPhase.Active || before.AttackId != timeline.AttackId);
+        ulong epoch = entering ? before.Epoch == ulong.MaxValue ? 0 : before.Epoch + 1 : before.Epoch;
+        bool observed = timeline.AttackId != 0 && epoch > 0 && continuous &&
+            (entering ? before.Phase == AttackPhase.Telegraph && before.AttackId == timeline.AttackId
+                : before.ContinuousActive && before.AttackId == timeline.AttackId);
+        return new(timeline.AttackId, timeline.Phase, epoch, physics,
+            timeline.Phase == AttackPhase.Active && observed);
+    }
+
+    internal static bool Task10RustGuardReceiptCurrent(Task10RustGuardReceipt receipt,
+        ulong actor, ulong hitbox, ulong hurtbox, Task10RustGuardEpoch epoch,
+        ulong physics, int health, bool retained) => retained && actor != 0 && hitbox != 0 && hurtbox != 0 &&
+        receipt.Actor == actor && receipt.Hitbox == hitbox && receipt.Hurtbox == hurtbox &&
+        receipt.Attack != 0 && receipt.Attack == epoch.AttackId && receipt.Epoch > 0 &&
+        receipt.Epoch == epoch.Epoch && epoch.Phase == AttackPhase.Active && epoch.ContinuousActive &&
+        epoch.Physics > 0 && epoch.Physics <= physics && physics - epoch.Physics <= 1 &&
+        receipt.Physics > 0 && receipt.Physics <= physics &&
+        (receipt.Physics <= epoch.Physics || receipt.Physics - epoch.Physics <= 1) &&
+        receipt.Sequence > 0 && receipt.Transition > 0 && receipt.Health > 0 && receipt.Health == health;
+
+    internal static bool Task10RustReturnLeaseGranted(Task10RustGuardReceipt receipt, bool currentReceipt,
+        ulong sequence, ulong consumed, bool enabled, bool supported, bool competing) =>
+        enabled && currentReceipt && supported && !competing && receipt.Sequence > 0 && receipt.Transition > 0 &&
+        sequence >= receipt.Sequence && consumed == receipt.Transition;
+
+    internal static bool Task10RustReturnSampleAccepted(Task10RustGuardReceipt receipt, bool currentReceipt,
+        ulong sequence, ulong consumed, ulong returned) =>
+        Task10RustReturnLeaseGranted(receipt, currentReceipt, sequence, consumed, true, true, false) &&
+        sequence > receipt.Sequence && returned != receipt.Transition;
+
+    internal static bool Task10MixedRecoveryHopTrigger(Task10RustGuardReceipt receipt, bool currentReceipt,
+        ulong sequence, ulong consumed, ulong returned, bool sampledLeft, bool ready, bool issued) =>
+        ready && !issued && currentReceipt && sampledLeft && receipt.Sequence > 0 && receipt.Transition > 0 &&
+        sequence > receipt.Sequence && consumed == receipt.Transition && returned == receipt.Transition;
+
+    internal readonly record struct Task10CompletedRustReturn(Task10RustGuardReceipt Contact,
+        ulong Physics, ulong Sequence, ulong Consumed, ulong Returned, bool PairedAtCapture, bool LeftSampled);
+    internal readonly record struct Task10WarningHopCue(ulong Source, ulong Cycle, ulong Projectile,
+        ulong Ordinal, ulong Physics, ulong Sequence, Vector2 Origin, Vector2 ObservedVelocity,
+        float Radius, double Delta, Transform2D PlayerPose);
+
+    internal static bool Task10HopCycleAdmission(int stage, ulong cycle, RangedWeaponFrame frame,
+        bool completedReturn, bool retained, int shots, int acknowledged) =>
+        stage == 1 && cycle == 0 && completedReturn && retained && shots == 0 && acknowledged == 0 &&
+        frame.State == RangedWeaponState.Telegraph && frame.FirstEmissionIndex == -1 && frame.EmissionsDue == 0 &&
+        frame.AttackTimeline.Kind == EnemyAttackKind.BeltBurstShot && frame.AttackTimeline.Phase == AttackPhase.Telegraph &&
+        frame.AttackTimeline.AttackId > 0 && frame.AttackTimeline.HasLockedTarget &&
+        frame.AttackTimeline.LockedWorldTarget.IsFinite() && frame.AimDirection.IsFinite() &&
+        frame.AimDirection.LengthSquared() is > .5f and < 1.5f;
+
+    internal static bool Task10CompletedRustReturnValid(Task10CompletedRustReturn completed,
+        ulong actor, ulong hitbox, ulong hurtbox, ulong physics, ulong sequence, int health, bool retained)
+    {
+        var contact = completed.Contact;
+        return retained && completed.PairedAtCapture && completed.LeftSampled &&
+            actor > 0 && hitbox > 0 && hurtbox > 0 && contact.Actor == actor && contact.Hitbox == hitbox &&
+            contact.Hurtbox == hurtbox && contact.Attack > 0 && contact.Epoch > 0 &&
+            contact.Health > 0 && contact.Health == health && contact.Physics > 0 && contact.Sequence > 0 &&
+            contact.Transition > 0 && completed.Consumed == contact.Transition && completed.Returned == contact.Transition &&
+            completed.Physics >= contact.Physics && completed.Physics <= physics &&
+            completed.Sequence > contact.Sequence && completed.Sequence <= sequence;
+    }
+
+    internal static bool Task10IncomingHopCueAccepted(Task10WarningHopCue cue, Task10GuardCapsule capsule,
+        Vector2 aim, ulong source, ulong cycle, ulong projectile, ulong ordinal,
+        ulong physics, ulong sequence, bool firstOnly)
+    {
+        if (!firstOnly || source == 0 || cycle == 0 || projectile == 0 || ordinal == 0 ||
+            cue.Source != source || cue.Cycle != cycle || cue.Projectile != projectile || cue.Ordinal != ordinal ||
+            cue.Physics == 0 || cue.Physics > physics || physics - cue.Physics > 1 ||
+            cue.Sequence == 0 || cue.Sequence != sequence || !cue.Origin.IsFinite() ||
+            !cue.ObservedVelocity.IsFinite() || !float.IsFinite(cue.Radius) || cue.Radius <= 0 ||
+            !double.IsFinite(cue.Delta) || cue.Delta <= 0 || cue.Delta > .1 ||
+            !aim.IsFinite() || aim.LengthSquared() is < .5f or > 1.5f ||
+            !cue.PlayerPose.X.IsFinite() || !cue.PlayerPose.Y.IsFinite() || !cue.PlayerPose.Origin.IsFinite() ||
+            !cue.PlayerPose.IsEqualApprox(capsule.Transform) ||
+            !float.IsFinite(capsule.Radius) || !float.IsFinite(capsule.Height) ||
+            capsule.Radius <= 0 || capsule.Height < capsule.Radius * 2) return false;
+        float scale = capsule.Transform.Y.Length();
+        if (!float.IsFinite(scale) || scale <= 0 ||
+            MathF.Abs(capsule.Transform.X.Length() - scale) > .001f ||
+            MathF.Abs(capsule.Transform.X.Dot(capsule.Transform.Y)) > .001f) return false;
+        Vector2 forward = aim.Normalized();
+        float closingSpeed = cue.ObservedVelocity.Dot(forward);
+        if (!float.IsFinite(closingSpeed) || closingSpeed <= 0 ||
+            cue.ObservedVelocity.Normalized().Dot(forward) < .999f) return false;
+        float support = scale * (capsule.Radius + MathF.Max(0, capsule.Height * .5f - capsule.Radius) *
+            MathF.Abs(capsule.Transform.Y.Normalized().Dot(forward)));
+        double gap = -(cue.Origin - capsule.Transform.Origin).Dot(forward) - support - cue.Radius;
+        double lead = gap / closingSpeed;
+        // A tactical window from actual incoming motion, not a collision/safety
+        // prediction or absolute frame delay. The real HP/three-shot proof follows.
+        return double.IsFinite(lead) && lead >= 2 * cue.Delta && lead <= 4 * cue.Delta;
+    }
+
+    internal static bool Task10MixedWarningHopTrigger(bool completedReturn, bool cue, bool ready, bool issued) =>
+        completedReturn && cue && ready && !issued;
+
+    internal readonly record struct Task10DepartedBurst(ulong Source, ulong Projectile, ulong Leaf,
+        ulong Ordinal, Vector2 Aim, float Radius, bool Passed);
+    internal readonly record struct Task10HopDeparturePolicy(bool Completed, bool Retained,
+        IReadOnlyList<Task10DepartedBurst> Shots);
+
+    internal static bool Task10BurstDepartureAccepted(Task10DepartedBurst proof,
+        ulong source, ulong projectile, ulong leaf, AttackTimelineFrame timeline,
+        AttackShapeFrame circle, Vector2 position, Task10GuardCapsule capsule)
+    {
+        Transform2D pose = capsule.Transform;
+        if (!proof.Passed || source == 0 || projectile == 0 || leaf == 0 ||
+            proof.Source != source || proof.Projectile != projectile || proof.Leaf != leaf ||
+            proof.Ordinal == 0 || proof.Ordinal != timeline.AttackId ||
+            timeline.Kind != EnemyAttackKind.BeltBurstShot || timeline.Phase != AttackPhase.Active ||
+            !proof.Aim.IsFinite() || MathF.Abs(proof.Aim.LengthSquared() - 1f) > .001f ||
+            !float.IsFinite(proof.Radius) || proof.Radius <= 0 ||
+            circle.Kind != AttackShapeKind.Circle || !circle.Origin.IsFinite() || circle.Origin != position ||
+            !circle.Extent.IsFinite() || circle.Extent.X != proof.Radius || circle.Extent.Y != proof.Radius ||
+            !float.IsFinite(capsule.Radius) || !float.IsFinite(capsule.Height) ||
+            capsule.Radius <= 0 || capsule.Height < 2 * capsule.Radius ||
+            !pose.X.IsFinite() || !pose.Y.IsFinite() || !pose.Origin.IsFinite()) return false;
+        float scale = pose.Y.Length();
+        if (!float.IsFinite(scale) || scale <= 0 || MathF.Abs(pose.X.Length() - scale) > scale * .00001f ||
+            MathF.Abs(pose.X.Dot(pose.Y)) > scale * scale * .00001f) return false;
+        float support = scale * (capsule.Radius + MathF.Max(0, capsule.Height * .5f - capsule.Radius) *
+            MathF.Abs(pose.Y.Normalized().Dot(proof.Aim)));
+        float relative = (circle.Origin - pose.Origin).Dot(proof.Aim);
+        return float.IsFinite(relative) && float.IsFinite(support) && relative > support + proof.Radius;
+    }
+
+    internal static bool Task10RecoveryHopShotResolved(bool passed, bool retiredUnpassed,
+        bool retainedEndpoint, bool ownerIdle, bool idlePublished) => passed != retiredUnpassed &&
+        (passed || retainedEndpoint && ownerIdle && idlePublished);
+
+    internal readonly record struct Task10PostHopPreview(ulong Physics, ulong Sequence, ulong Authority,
+        Transform2D PlayerPose, Vector2 Aim, bool Keyboard, bool UpHeld, bool ShieldHeld,
+        bool Idle, bool OtherAction);
+
+    internal static bool Task10PostHopPreviewFresh(Task10PostHopPreview preview, ulong physics,
+        ulong sequence, ulong commandSequence, ulong authority, Transform2D playerPose) =>
+        preview.Physics > 0 && preview.Physics <= physics && physics - preview.Physics <= 1 &&
+        preview.Sequence == sequence && sequence > commandSequence &&
+        preview.Authority > 0 && preview.Authority == authority &&
+        preview.PlayerPose.X.IsFinite() && preview.PlayerPose.Y.IsFinite() && preview.PlayerPose.Origin.IsFinite() &&
+        preview.PlayerPose.IsEqualApprox(playerPose) && preview.Aim.IsFinite() && preview.Aim.Dot(Vector2.Up) > .99f &&
+        preview.Keyboard && preview.UpHeld && !preview.ShieldHeld && preview.Idle && !preview.OtherAction;
+
+    internal static bool Task10LowerBellControlWindow(bool enabled, RustShellState state,
+        AttackTimelineFrame timeline, float safeSeconds, float lead) => enabled &&
+        state == RustShellState.Telegraph && timeline.Kind == EnemyAttackKind.RustShellThrust &&
+        timeline.AttackId != 0 && timeline.Phase == AttackPhase.Telegraph &&
+        float.IsFinite(lead) && lead > 0f && float.IsFinite(timeline.PhaseRemainingSeconds) &&
+        timeline.PhaseRemainingSeconds > lead && !float.IsNaN(safeSeconds) && safeSeconds > lead;
+
+    internal readonly record struct Task10PostHopBackoffPlan(int ForceSamples, int StopSamples,
+        float Axis, float EndX, float MinimumX, float MaximumX);
+
+    internal static bool TryTask10PostHopSupportedPlan(float x, float velocity, float actorX,
+        float minimum, float maximum, float movementScale, double delta, int budget, float safeSeconds,
+        PlayerMotionSettings motion, MobilityModuleSettings module, bool allowCrossing, out Task10PostHopBackoffPlan plan) =>
+        TryTask10PostHopBackoffPlan(x,velocity,actorX,minimum,maximum,movementScale,delta,budget,safeSeconds,motion,module,out plan) ||
+        allowCrossing && TryTask10PostHopBackoffPlan(x,velocity,actorX,minimum,maximum,movementScale,delta,budget,
+            safeSeconds,motion,module,out plan,actorX>=x ? 1f : -1f);
+
+    internal static float Task10PostHopCounterSide(bool enabled,int stage,float actualDx,float oldSide) =>
+        enabled && stage==4 && float.IsFinite(actualDx) && actualDx!=0 ? MathF.Sign(actualDx) : oldSide;
+
+    internal static bool Task10PostHopJReleaseFresh(bool supportedTransfer,int releaseWaits) =>
+        !supportedTransfer || releaseWaits==0;
+
+    internal static bool TryTask10PostHopBackoffPlan(float x, float velocity, float actorX,
+        float minimum, float maximum, float movementScale, double delta, int budget, float safeSeconds,
+        PlayerMotionSettings motion, MobilityModuleSettings module, out Task10PostHopBackoffPlan plan, float forceAxis=0f)
+    {
+        plan = default;
+        if (!float.IsFinite(x) || !float.IsFinite(velocity) || MathF.Abs(velocity) > .5f ||
+            !float.IsFinite(actorX) || !float.IsFinite(minimum) || !float.IsFinite(maximum) ||
+            minimum > maximum || x < minimum || x > maximum || movementScale != 1f ||
+            !double.IsFinite(delta) || delta <= 0 || delta > float.MaxValue || budget <= 0 ||
+            !float.IsFinite(safeSeconds) || safeSeconds <= 0 || MathF.Abs(actorX-x) >= 8f ||
+            !float.IsFinite(forceAxis) || forceAxis is not (0f or 1f or -1f))
+            return false;
+        float axis = forceAxis!=0 ? forceAxis : actorX >= x ? -1f : 1f;
+        try
+        {
+            for (int force = 1; force < budget; force++)
+            {
+                float at=x, speed=velocity, low=x, high=x;
+                int steps=0, stop=0;
+                bool reverseDone=false, fits=true;
+                void Step(float inputAxis)
+                {
+                    var result=ThrusterDynamics.Step(new(new Vector2(speed,0),inputAxis,true,
+                        Vector2.Zero,0,ApplyGravity:false),module,motion,delta);
+                    speed=result.Velocity.X; at+=speed*(float)delta; steps++;
+                    low=MathF.Min(low,at); high=MathF.Max(high,at);
+                    fits &= float.IsFinite(at) && low>=minimum && high<=maximum;
+                    reverseDone |= result.BrakeReachedZero;
+                }
+                while (steps<force && fits) Step(axis);
+                reverseDone=false; // Force-phase braking is not the reverse lease's completion.
+                while (fits && steps<budget && MathF.Abs(speed)>.5f && !reverseDone)
+                { Step(-axis); stop++; }
+                // A reverse step can already have accelerated past zero. Neutral
+                // friction still consumes its real sample(s) and displacement.
+                while (fits && steps<budget && MathF.Abs(speed)>.5f)
+                { Step(0); stop++; }
+                if (!fits) break; // Longer same-direction pulses cannot regain this corridor.
+                float gap=axis*(at-actorX);
+                if (steps+8<=budget && MathF.Abs(speed)<=.5f && gap>=8f && gap<=64f &&
+                    safeSeconds>(steps+8)*delta)
+                {
+                    plan=new(force,stop,axis,at,low,high);
+                    return true;
+                }
+                if (gap>64f) break;
+            }
+        }
+        catch (ArgumentException) { return false; }
+        return false;
+    }
+
+    internal static int Task10PostHopBrakeNext(int stage, bool retained, bool threat,
+        bool forceDone, bool reverseDone, bool neutral) => stage is >=1 and <=3
+            ? !retained || threat ? 5 : stage==1 && forceDone ? 2 :
+                stage==2 && reverseDone ? 3 : stage==3 && neutral ? 4 : stage
+            : stage;
+
+    internal static int Task10PostHopBrakeOwnerStage(int stage, ulong owner, ulong selected, bool retained) =>
+        stage is >=1 and <=3 && (owner==0 || selected!=owner || !retained) ? 5 : stage;
+
+    internal readonly record struct Task10PostHopRustWindow(bool Enabled, int HopStage, bool TokenAvailable,
+        bool Retained, bool FirstReceiptRetained, bool ClawReady, bool SupportedStill, ulong ActorId,
+        float Energy, float Reserve, bool Overheated, RustShellState State, AttackTimelineFrame Timeline,
+        Task10EncounterDanger Danger, float Lead);
+
+    private static bool Task10PostHopRustPositionWindow(Task10PostHopRustWindow w) =>
+        w.Enabled && w.HopStage == 5 && w.TokenAvailable && w.Retained && w.FirstReceiptRetained &&
+        w.ClawReady && w.SupportedStill && w.ActorId != 0 && !w.Overheated &&
+        Task10LowerBellControlWindow(true,w.State,w.Timeline,w.Danger.SafeCounterSeconds,w.Lead) &&
+        float.IsFinite(w.Danger.SafeCounterSeconds) && w.Danger.Threat && w.Danger.Phase == AttackPhase.Telegraph &&
+        w.Danger.SourceActorId == w.ActorId && w.Danger.AttackId == w.Timeline.AttackId &&
+        float.IsFinite(w.Danger.RemainingSeconds) && w.Danger.RemainingSeconds > w.Lead &&
+        w.Danger.CandidateObserverFaults == 0 && w.Danger.MissingGuardSourceCount == 0 &&
+        !w.Danger.NearContactUnknownActive && !w.Danger.NearContactOverlappingActive;
+
+    internal static bool Task10PostHopRustRepeatAccepted(Task10PostHopRustWindow w) =>
+        float.IsFinite(w.Energy) && float.IsFinite(w.Reserve) && w.Reserve > 0f && w.Energy >= w.Reserve &&
+        Task10PostHopRustPositionWindow(w);
+
+    internal static bool Task10PostHopNeutralInput(PlayerInputFrame current, PlayerInputFrame raw, ulong heldMask)
+    {
+        static bool Neutral(PlayerInputFrame f) => f.KeyboardActions && float.IsFinite(f.MoveAxis) && f.MoveAxis == 0f &&
+            !f.JumpPressed && !f.JumpHeld && !f.DashPressed && !f.AttackPressed && !f.ClawPressed &&
+            !f.ShieldHeld && !f.KeyboardShieldHeld && !f.LegacyShieldHeld && !f.PrimaryPressed &&
+            !f.PrimaryHeld && !f.PrimaryReleased && !f.ThreadPressed && !f.ThreadHeld && !f.ThreadReleased &&
+            !f.InteractPressed && f.RequestedSlot == 0 && !f.AttackModePressed && !f.GrappleModePressed;
+        return heldMask == 0 && Neutral(current) && Neutral(raw);
+    }
+
+    private static ulong Task10PostHopHeldMask()
+    {
+        ulong held = 0;
+        for (int bit = 0; bit < KeyboardRouteInputDriver.TraceKeys.Length; bit++)
+            if (Input.IsPhysicalKeyPressed(KeyboardRouteInputDriver.TraceKeys[bit])) held |= 1UL << bit;
+        return held;
+    }
+
+    internal static bool Task10PostHopNeutralPreviewFresh(Task10PostHopPreview preview, ulong physics,
+        ulong sequence, ulong commandSequence, ulong authority, Transform2D playerPose, Vector2 expectedAim) =>
+        preview.Physics > 0 && preview.Physics <= physics && physics - preview.Physics <= 1 &&
+        preview.Sequence == sequence && sequence > commandSequence && preview.Authority > 0 &&
+        preview.Authority == authority && playerPose.X.IsFinite() && playerPose.Y.IsFinite() && playerPose.Origin.IsFinite() &&
+        preview.PlayerPose.X.IsFinite() && preview.PlayerPose.Y.IsFinite() && preview.PlayerPose.Origin.IsFinite() &&
+        preview.PlayerPose.IsEqualApprox(playerPose) && preview.Aim.IsFinite() && expectedAim.IsFinite() &&
+        expectedAim.LengthSquared() > .99f && expectedAim.LengthSquared() < 1.01f &&
+        preview.Aim.IsEqualApprox(expectedAim) && preview.Keyboard && !preview.UpHeld && !preview.ShieldHeld &&
+        preview.Idle && !preview.OtherAction;
+
+    internal static bool Task10NearRustGuardAccepted(bool enabled, AttackTimelineFrame timeline,
+        float clearance, bool unknownActive, bool overlappingActive) => enabled &&
+        timeline.Kind == EnemyAttackKind.RustShellThrust && timeline.AttackId != 0 &&
+        timeline.Phase == AttackPhase.Telegraph && float.IsFinite(timeline.PhaseRemainingSeconds) &&
+        timeline.PhaseRemainingSeconds >= 0f && timeline.PhaseRemainingSeconds <= 8f / Engine.PhysicsTicksPerSecond &&
+        clearance == 0f && !unknownActive && !overlappingActive;
+
+    private readonly record struct SteamNativeBoundary(ulong Physics, ulong Sequence, int Loop,
+        float X, float Y, float Vx, float Vy, int Batch, int Live, bool Active, bool Complete,
+        bool Inside, ulong LastSelected, int RawKeys, float Axis, bool ShieldHeld, bool ShieldActive, int Health);
+
+    internal static float Task10GuardCircleClearance(AttackShapeFrame circle, Task10GuardCapsule capsule)
+    {
+        Transform2D transform = capsule.Transform;
+        float scale = transform.X.Length(), yScale = transform.Y.Length();
+        if (circle.Kind != AttackShapeKind.Circle || !circle.Origin.IsFinite() ||
+            !circle.Extent.IsFinite() || circle.Extent.X <= 0 || circle.Extent.X != circle.Extent.Y ||
+            !float.IsFinite(capsule.Radius) || !float.IsFinite(capsule.Height) ||
+            capsule.Radius <= 0 || capsule.Height < 2 * capsule.Radius ||
+            !transform.Origin.IsFinite() || !transform.X.IsFinite() || !transform.Y.IsFinite() ||
+            !float.IsFinite(scale) || !float.IsFinite(yScale) || scale <= 0 ||
+            MathF.Abs(scale - yScale) > scale * .00001f ||
+            MathF.Abs(transform.X.Dot(transform.Y)) > scale * scale * .00001f)
+            return float.PositiveInfinity;
+        float halfSegment = capsule.Height * .5f - capsule.Radius;
+        Vector2 start = transform * new Vector2(0, -halfSegment);
+        Vector2 end = transform * new Vector2(0, halfSegment);
+        Vector2 segment = end - start;
+        float square = segment.LengthSquared();
+        Vector2 closest = square > 0
+            ? start + segment * Mathf.Clamp((circle.Origin - start).Dot(segment) / square, 0, 1) : start;
+        float gap = circle.Origin.DistanceTo(closest) - capsule.Radius * scale - circle.Extent.X;
+        return float.IsFinite(gap) ? MathF.Max(0, gap) : float.PositiveInfinity;
+    }
+
+    internal static float Task10GuardShapeClearance(AttackShapeFrame shape, Task10GuardCapsule capsule)
+    {
+        if (shape.Kind == AttackShapeKind.Circle) return Task10GuardCircleClearance(shape, capsule);
+        Transform2D transform = capsule.Transform;
+        float scale = transform.X.Length(), yScale = transform.Y.Length();
+        if (shape.Kind != AttackShapeKind.Rectangle || !shape.Origin.IsFinite() || !shape.Extent.IsFinite() ||
+            shape.Extent.X <= 0f || shape.Extent.Y <= 0f || !float.IsFinite(shape.RotationRadians) ||
+            !float.IsFinite(capsule.Radius) || !float.IsFinite(capsule.Height) || capsule.Radius <= 0f ||
+            capsule.Height < 2f * capsule.Radius || !transform.Origin.IsFinite() ||
+            !transform.X.IsFinite() || !transform.Y.IsFinite() || !float.IsFinite(scale) ||
+            !float.IsFinite(yScale) || scale <= 0f || MathF.Abs(scale - yScale) > scale * .00001f ||
+            MathF.Abs(transform.X.Dot(transform.Y)) > scale * scale * .00001f)
+            return float.PositiveInfinity;
+        float halfSegment = capsule.Height * .5f - capsule.Radius;
+        Vector2 start = ((transform * new Vector2(0, -halfSegment)) - shape.Origin).Rotated(-shape.RotationRadians);
+        Vector2 end = ((transform * new Vector2(0, halfSegment)) - shape.Origin).Rotated(-shape.RotationRadians);
+        Vector2 segment = end - start;
+        if (!start.IsFinite() || !end.IsFinite() || !segment.IsFinite()) return float.PositiveInfinity;
+        // Exact segment/rectangle distance in the rectangle's own frame, not
+        // the distance to its larger rotated world AABB. The capsule radius
+        // remains a world scalar because its transform is a similarity above.
+        float enter = 0f, exit = 1f;
+        bool intersects = true;
+        for (int axis = 0; axis < 2; axis++)
+        {
+            float p = axis == 0 ? start.X : start.Y;
+            float d = axis == 0 ? segment.X : segment.Y;
+            float half = axis == 0 ? shape.Extent.X : shape.Extent.Y;
+            if (d == 0f) { if (p < -half || p > half) intersects = false; }
+            else
+            {
+                float first = (-half - p) / d, last = (half - p) / d;
+                if (first > last) (first, last) = (last, first);
+                enter = MathF.Max(enter, first); exit = MathF.Min(exit, last);
+                if (enter > exit) intersects = false;
+            }
+        }
+        if (intersects) return 0f;
+        float PointGapSquared(Vector2 point) => new Vector2(
+            MathF.Max(0f, MathF.Abs(point.X) - shape.Extent.X),
+            MathF.Max(0f, MathF.Abs(point.Y) - shape.Extent.Y)).LengthSquared();
+        float minimum = MathF.Min(PointGapSquared(start), PointGapSquared(end));
+        float square = segment.LengthSquared();
+        for (int corner = 0; corner < 4; corner++)
+        {
+            Vector2 point = new((corner & 1) == 0 ? -shape.Extent.X : shape.Extent.X,
+                (corner & 2) == 0 ? -shape.Extent.Y : shape.Extent.Y);
+            Vector2 closest = square > 0f
+                ? start + segment * Mathf.Clamp((point - start).Dot(segment) / square, 0f, 1f) : start;
+            minimum = MathF.Min(minimum, point.DistanceSquaredTo(closest));
+        }
+        float gap = MathF.Sqrt(minimum) - capsule.Radius * scale;
+        return float.IsFinite(gap) ? MathF.Max(0f, gap) : float.PositiveInfinity;
+    }
+
+    internal static bool Task10PreferDanger(float urgency, float earliest, float clearance, float winningClearance)
+        => urgency < earliest || urgency == 0 && earliest == 0 &&
+            float.IsFinite(clearance) && float.IsFinite(winningClearance) &&
+            clearance >= 0 && winningClearance >= 0 && clearance < winningClearance;
+
+    internal static Task10GuardCapsule? Task10CurrentGuardCapsule(CharacterBody2D player)
+    {
+        var collider = player.GetNodeOrNull<CollisionShape2D>("Hurtbox/HurtboxCollider");
+        return GodotObject.IsInstanceValid(collider) && !collider.Disabled && collider.Shape is CapsuleShape2D capsule
+            ? new Task10GuardCapsule(capsule.Radius, capsule.Height, collider.GlobalTransform) : null;
     }
 
     internal static Task10EncounterDanger Task10ObserveEncounterDanger(Node actorRoot, string encounterId,
-        Node2D selected, bool skitterThreat, List<AttackTelegraphVisual> leaves)
+        Node2D selected, bool skitterThreat, List<AttackTelegraphVisual> leaves,
+        Action<ulong, string, AttackPhase, float, float, string> counterObserver = null,
+        Action<CanyonSkitter> passiveRearmObserved = null,
+        Action<Task10DangerCandidate> candidateObserver = null, Task10GuardCapsule? guardCapsule = null,
+        Task10RustGuardPolicy? rustGuardPolicy = null, Task10HopDeparturePolicy? departurePolicy = null,
+        Task10IncomingGuardContext? incomingGuard = null)
     {
         leaves.Clear();
         if (!GodotObject.IsInstanceValid(actorRoot) || !actorRoot.IsInsideTree() || actorRoot.GetTree().Paused)
@@ -10368,34 +13178,117 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         string prefix = encounterId.Replace('.', '_');
         bool threat = false, hasRanged = false;
         float earliest = float.PositiveInfinity;
+        float winningClearance = float.PositiveInfinity;
         Vector2 guardSource = Vector2.Zero;
         ulong winningActorId = 0, winningAttackId = 0;
         AttackPhase winningPhase = AttackPhase.None;
         float winningRemaining = 0f;
         bool winningGap = false;
+        bool unknownActive = false, overlappingActive = false, nearAccepted = false;
+        bool incomingOverrideVeto = false;
+        int incomingUnknown = 0, incomingPredicted = 0;
+        ulong nearActor = 0;
+        Vector2 nearSource = Vector2.Zero;
+        AttackTimelineFrame nearTimeline = default;
         float safeCounter = float.PositiveInfinity;
         int counterSources = 0;
-        void ConsiderCounter(AttackTimelineFrame timeline)
+        int candidateOrdinal = 0, actorOrder = -1, candidateObserverFaults = 0, missingGuardSources = 0;
+        void ObserveCounter(Node2D source, AttackTimelineFrame timeline, float allowance, string reason)
+        {
+            if (counterObserver == null) return;
+            try
+            {
+                string state = source switch
+                {
+                    CanyonSkitter skitter => $"{skitter.CurrentFrame.State}/side={skitter.CurrentFrame.Side}/" +
+                        $"damage={skitter.CurrentFrame.DamageActive}/name={skitter.Name}/pos={skitter.GlobalPosition}",
+                    GraveLampMoth moth => moth.CurrentState.ToString(),
+                    RangedWeaponEnemy ranged => $"{ranged.CurrentFrame.State}/authority={ranged.HasPresentationAuthority}",
+                    _ => source.GetType().Name
+                };
+                counterObserver(source.GetInstanceId(), state, timeline.Phase,
+                    timeline.PhaseRemainingSeconds, allowance, reason);
+            }
+            catch { /* Passive diagnostics cannot change the original danger decision. */ }
+        }
+        void ConsiderCounter(Node2D source, AttackTimelineFrame timeline)
         {
             counterSources++;
-            safeCounter = MathF.Min(safeCounter,
-                timeline.Phase is AttackPhase.Recovery or AttackPhase.Telegraph && float.IsFinite(timeline.PhaseRemainingSeconds)
-                    ? MathF.Max(0f, timeline.PhaseRemainingSeconds) : 0f);
+            float allowance =
+                timeline.Phase == AttackPhase.Recovery && source is RangedWeaponEnemy &&
+                    float.IsFinite(timeline.PhaseRemainingSeconds) && timeline.PhaseRemainingSeconds >= 0f
+                    ? Task10PassiveRearmAllowance(source)
+                    : timeline.Phase is AttackPhase.Recovery or AttackPhase.Telegraph && float.IsFinite(timeline.PhaseRemainingSeconds)
+                    ? MathF.Max(0f, timeline.PhaseRemainingSeconds)
+                    : timeline.Phase == AttackPhase.None ? Task10PassiveRearmAllowance(source) : 0f;
+            if (timeline.Phase == AttackPhase.None && allowance > 0f && source is CanyonSkitter skitter)
+                passiveRearmObserved?.Invoke(skitter);
+            safeCounter = MathF.Min(safeCounter, allowance);
+            ObserveCounter(source, timeline, allowance, "actor_timeline");
         }
-        void Consider(AttackTimelineFrame timeline, Vector2 source, ulong actorId, bool activeGap = false)
+        void Consider(AttackTimelineFrame timeline, Vector2 source, ulong actorId, bool activeGap = false,
+            AttackTelegraphVisual observedLeaf = null, Node2D observedProjectile = null, string sourceKind = "melee",
+            bool consumedOrientation = false, bool nearRust = false, bool departureExcluded = false,
+            bool linearProjectile = false)
         {
-            if (!float.IsFinite(source.X) || !float.IsFinite(source.Y)) return;
+            if (!Task10ObserveGuardSource(timeline.Phase, source, ref missingGuardSources, ref unknownActive)) return;
             // An already live attack precedes a merely warned one. A warning's
             // own remaining time, not child/selected order, resolves that priority.
             float urgency = timeline.Phase == AttackPhase.Telegraph
                 ? MathF.Max(0f, timeline.PhaseRemainingSeconds) : 0f;
-            threat = true;
-            if (urgency < earliest)
+            threat |= !departureExcluded;
+            float clearance = guardCapsule.HasValue && (timeline.Phase == AttackPhase.Active || nearRust) &&
+                GodotObject.IsInstanceValid(observedLeaf)
+                ? Task10GuardShapeClearance(observedLeaf.CurrentFrame.Shape, guardCapsule.Value) : float.PositiveInfinity;
+            if (!consumedOrientation && !departureExcluded && timeline.Phase == AttackPhase.Active)
+            {
+                unknownActive |= !float.IsFinite(clearance);
+                overlappingActive |= float.IsFinite(clearance) && clearance <= 0f;
+            }
+            if (incomingGuard is { } motion && !consumedOrientation && !departureExcluded &&
+                timeline.Phase == AttackPhase.Active && GodotObject.IsInstanceValid(observedProjectile))
+            {
+                // Driver-only directional caution, separate from the passive observer.
+                // A prediction never creates a safe counter clock or removes this leaf.
+                Task10IncomingStatus incoming = Task10IncomingStatus.Unknown;
+                if (linearProjectile && guardCapsule.HasValue && GodotObject.IsInstanceValid(observedLeaf) && motion.History != null)
+                    incoming = motion.History.Observe(actorId, observedProjectile.GetInstanceId(), observedLeaf.GetInstanceId(),
+                        timeline.AttackId, motion.Physics, motion.Sequence, motion.Delta,
+                        observedLeaf.CurrentFrame.Shape, guardCapsule.Value, motion.PlayerVelocity);
+                incomingUnknown += incoming == Task10IncomingStatus.Unknown ? 1 : 0;
+                incomingPredicted += incoming == Task10IncomingStatus.Incoming ? 1 : 0;
+                incomingOverrideVeto |= incoming != Task10IncomingStatus.Clear;
+            }
+            if (Task10NearRustGuardAccepted(nearRust, timeline, clearance, false, false))
+            { nearActor = actorId; nearSource = source; nearTimeline = timeline; }
+            bool replaced = !consumedOrientation && !departureExcluded &&
+                Task10PreferDanger(urgency, earliest, clearance, winningClearance);
+            if (replaced)
             {
                 earliest = urgency; guardSource = source;
                 winningActorId = actorId; winningAttackId = timeline.AttackId;
                 winningPhase = timeline.Phase; winningRemaining = timeline.PhaseRemainingSeconds;
                 winningGap = activeGap;
+                winningClearance = clearance;
+            }
+            if (candidateObserver != null)
+            {
+                // Snapshot construction and the callback are both passive. A failed
+                // diagnostic cannot skip later candidates or the original leaf cleanup.
+                int ordinal = candidateOrdinal++;
+                try
+                {
+                    bool hasShape = GodotObject.IsInstanceValid(observedLeaf);
+                    AttackShapeFrame shape = hasShape ? observedLeaf.CurrentFrame.Shape : default;
+                    if (shape.Points != null)
+                        shape = shape with { Points = Array.AsReadOnly(shape.Points.ToArray()) };
+                    candidateObserver(new Task10DangerCandidate(ordinal, actorOrder, actorId,
+                        hasShape ? observedLeaf.GetInstanceId() : 0,
+                        GodotObject.IsInstanceValid(observedProjectile) ? observedProjectile.GetInstanceId() : 0,
+                        sourceKind, timeline, source, urgency, replaced, activeGap, hasShape, shape, clearance)
+                        { OrientationConsumed = consumedOrientation, DepartureExcluded = departureExcluded });
+                }
+                catch (Exception) { candidateObserverFaults++; }
             }
         }
         // This newly returned array is ours; its Nodes and their resources are borrowed.
@@ -10403,18 +13296,47 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         using Godot.Collections.Array childrenBacking = (Godot.Collections.Array)children;
         foreach (Node child in children)
         {
+            actorOrder++;
             if (child is not Node2D source || !GodotObject.IsInstanceValid(source) ||
                 !source.IsInsideTree() || source.IsQueuedForDeletion() || source.GetParent() != actorRoot ||
-                !source.Name.ToString().StartsWith(prefix, StringComparison.Ordinal) ||
+                !(source.Name.ToString().StartsWith(prefix, StringComparison.Ordinal) ||
+                  Task10IsSavedResident(source)) ||
                 source.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is not > 0) continue;
+            if (source is BellBoltSentry sentry)
+            {
+                hasRanged = true;
+                AttackTimelineFrame timeline = sentry.CurrentFrame.AttackTimeline;
+                ConsiderCounter(sentry, timeline);
+                if (!Task10SentryAvailable(sentry)) continue;
+                BellBoltProjectile bolt = Task10SentryLiveBolt(sentry);
+                if (bolt != null)
+                {
+                    // The actor's Fire/Recovery clock is not the bolt's lifetime.
+                    // Zero means unknown projectile attack ID here; never lend
+                    // the actor's newer attack identity or a fabricated ETA.
+                    safeCounter = 0f;
+                    ObserveCounter(sentry, timeline, 0f, "live_bolt");
+                    Consider(new AttackTimelineFrame(0, EnemyAttackKind.BellBoltShot,
+                        AttackPhase.Active, 0f, 0f, bolt.GlobalPosition, true),
+                        bolt.GlobalPosition, sentry.GetInstanceId(), observedProjectile: bolt, sourceKind: "live_bolt");
+                }
+                else if (timeline.Phase is AttackPhase.Telegraph or AttackPhase.Active)
+                {
+                    Node2D muzzle = sentry.GetNodeOrNull<Node2D>("Muzzle");
+                    Consider(timeline, GodotObject.IsInstanceValid(muzzle) ? muzzle.GlobalPosition : sentry.GlobalPosition,
+                        sentry.GetInstanceId(), sourceKind: "sentry_warning_or_active");
+                }
+                continue;
+            }
             if (source is RangedWeaponEnemy ranged)
             {
                 hasRanged = true;
-                ConsiderCounter(ranged.HasPresentationAuthority ? ranged.CurrentFrame.AttackTimeline : default);
+                ConsiderCounter(ranged, ranged.HasPresentationAuthority ? ranged.CurrentFrame.AttackTimeline : default);
                 if (!ranged.HasPresentationAuthority) continue;
                 try
                 {
                     ranged.AppendAuthorizedAttackLeaves(leaves);
+                    int departedLeaves = 0;
                     foreach (AttackTelegraphVisual leaf in leaves)
                     {
                         if (!GodotObject.IsInstanceValid(leaf) || !leaf.IsInsideTree() || leaf.IsQueuedForDeletion() ||
@@ -10426,22 +13348,45 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                             leaf.CurrentFrame.Timeline.Phase == AttackPhase.Telegraph &&
                             ranged.CurrentFrame.AttackTimeline.Phase == AttackPhase.Telegraph &&
                             leaf.CurrentFrame.Timeline.AttackId == ranged.CurrentFrame.AttackTimeline.AttackId;
-                        if (!actorWarning) safeCounter = 0f;
                         Node2D origin = leaf.GetParent() is RangedWeaponProjectile projectile
                             ? projectile : ranged.GetNodeOrNull<Node2D>("Muzzle");
+                        bool departed = false;
+                        if (!actorWarning && ranged.Role == RangedWeaponRole.Burst && guardCapsule.HasValue &&
+                            departurePolicy is { Completed: true, Retained: true, Shots: not null } policy &&
+                            policy.Shots.Count is > 0 and <= 3 &&
+                            policy.Shots.Select(proof => proof.Projectile).Distinct().Count() == policy.Shots.Count &&
+                            policy.Shots.Select(proof => proof.Leaf).Distinct().Count() == policy.Shots.Count &&
+                            policy.Shots.Select(proof => proof.Ordinal).Distinct().Count() == policy.Shots.Count &&
+                            policy.Shots.All(proof => proof.Source == ranged.GetInstanceId()) &&
+                            origin is RangedWeaponProjectile round && GodotObject.IsInstanceValid(round) &&
+                            round.IsInsideTree() && !round.IsQueuedForDeletion() && !round.IsRetired &&
+                            round.GetParent() == ranged && round.Telegraph == leaf &&
+                            round.GetWorld2D() == ranged.GetWorld2D())
+                            departed = policy.Shots.Any(proof => Task10BurstDepartureAccepted(proof,
+                                ranged.GetInstanceId(), round.GetInstanceId(), leaf.GetInstanceId(),
+                                leaf.CurrentFrame.Timeline, leaf.CurrentFrame.Shape, round.GlobalPosition, guardCapsule.Value));
+                        if (departed) departedLeaves++;
+                        if (!actorWarning && !departed)
+                        {
+                            safeCounter = 0f;
+                            ObserveCounter(ranged, leaf.CurrentFrame.Timeline, 0f, "non_current_warning_leaf");
+                        }
                         Consider(leaf.CurrentFrame.Timeline,
                             GodotObject.IsInstanceValid(origin) ? origin.GlobalPosition : ranged.GlobalPosition,
-                            ranged.GetInstanceId());
+                            ranged.GetInstanceId(), observedLeaf: leaf,
+                            observedProjectile: origin is RangedWeaponProjectile ? origin : null,
+                            sourceKind: actorWarning ? "actor_warning" : origin is RangedWeaponProjectile ? "projectile" : "authorized_leaf",
+                            departureExcluded: departed, linearProjectile: ranged.Role == RangedWeaponRole.Burst);
                     }
                     // Retired rounds can leave no current geometric leaf while
                     // this authorized actor still owns the same Active burst.
                     // That gap is not a counter window before the next round.
-                    if (leaves.Count == 0 && ranged.CurrentFrame.AttackTimeline.Phase == AttackPhase.Active)
+                    if (leaves.Count == departedLeaves && ranged.CurrentFrame.AttackTimeline.Phase == AttackPhase.Active)
                     {
                         Node2D muzzle = ranged.GetNodeOrNull<Node2D>("Muzzle");
                         Consider(ranged.CurrentFrame.AttackTimeline,
                             GodotObject.IsInstanceValid(muzzle) ? muzzle.GlobalPosition : ranged.GlobalPosition,
-                            ranged.GetInstanceId(), activeGap: true);
+                            ranged.GetInstanceId(), activeGap: true, sourceKind: "active_gap");
                     }
                 }
                 finally { leaves.Clear(); } // Never retain owned leaf wrappers across samples.
@@ -10455,23 +13400,205 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 CanyonSkitter skitter => skitter.CurrentFrame.AttackTimeline,
                 _ => default
             };
-            ConsiderCounter(melee); // Unknown/Idle/None is not an infinite safe window.
+            ConsiderCounter(source, melee); // Known passive states owe a finite warning; unknown stays zero.
             if (!Task10EnemyThreat(source, source == selected && skitterThreat, leaves)) continue;
             Node2D hitbox = source.GetNodeOrNull<Hitbox>("AttackHitbox");
+            // Borrow the actor's actual publication, not reconstructed collision
+            // geometry. Rust publishes a Rectangle in both warning and Active;
+            // Moth's existing Active Circle contract remains unchanged.
+            bool publishedMelee = source is RustShellSquire &&
+                melee.Phase is AttackPhase.Telegraph or AttackPhase.Active ||
+                source is GraveLampMoth && melee.Phase == AttackPhase.Active;
+            AttackShapeKind expectedMeleeShape = source is RustShellSquire
+                ? AttackShapeKind.Rectangle : AttackShapeKind.Circle;
+            AttackTelegraphVisual meleeLeaf = publishedMelee
+                ? source.GetNodeOrNull<AttackTelegraphVisual>("VisualRoot/AttackTelegraph") : null;
+            if (!GodotObject.IsInstanceValid(meleeLeaf) || !meleeLeaf.IsInsideTree() ||
+                meleeLeaf.IsQueuedForDeletion() || melee.AttackId == 0 ||
+                meleeLeaf.CurrentFrame.Timeline.AttackId != melee.AttackId ||
+                meleeLeaf.CurrentFrame.Timeline.Phase != melee.Phase ||
+                meleeLeaf.CurrentFrame.Shape.Kind != expectedMeleeShape)
+                meleeLeaf = null;
+            bool matchingRustPolicy = source is RustShellSquire && rustGuardPolicy.HasValue &&
+                rustGuardPolicy.Value.Actor == source.GetInstanceId() && GodotObject.IsInstanceValid(hitbox) &&
+                rustGuardPolicy.Value.Hitbox == hitbox.GetInstanceId() &&
+                rustGuardPolicy.Value.Attack == melee.AttackId && GodotObject.IsInstanceValid(meleeLeaf);
             Consider(melee, GodotObject.IsInstanceValid(hitbox) ? hitbox.GlobalPosition : source.GlobalPosition,
-                source.GetInstanceId());
+                source.GetInstanceId(), observedLeaf: meleeLeaf,
+                consumedOrientation: matchingRustPolicy && rustGuardPolicy.Value.Spent && melee.Phase == AttackPhase.Active,
+                nearRust: matchingRustPolicy && rustGuardPolicy.Value.NearContact && melee.Phase == AttackPhase.Telegraph);
+        }
+        // Decide only after ALL original candidates, including later unknown
+        // Active sources. Never relabel this warning as Active or relax J's clock.
+        if (nearActor != 0 && !incomingOverrideVeto && Task10NearRustGuardAccepted(true, nearTimeline, 0f, unknownActive, overlappingActive))
+        {
+            guardSource = nearSource; winningActorId = nearActor; winningAttackId = nearTimeline.AttackId;
+            winningPhase = nearTimeline.Phase; winningRemaining = nearTimeline.PhaseRemainingSeconds;
+            winningGap = false; nearAccepted = true;
         }
         return new Task10EncounterDanger(threat, guardSource, hasRanged)
         {
             SourceActorId = winningActorId, AttackId = winningAttackId,
             Phase = winningPhase, RemainingSeconds = winningRemaining, FromActiveGap = winningGap,
-            SafeCounterSeconds = counterSources > 0 ? safeCounter : 0f
+            SafeCounterSeconds = counterSources > 0 ? safeCounter : 0f,
+            CounterSources = counterSources,
+            CandidateObserverFaults = candidateObserverFaults, NearContactGuard = nearAccepted,
+            MissingGuardSourceCount = missingGuardSources,
+            NearContactUnknownActive = unknownActive, NearContactOverlappingActive = overlappingActive,
+            IncomingGuardVeto = incomingOverrideVeto, IncomingGuardUnknown = incomingUnknown,
+            IncomingGuardPredicted = incomingPredicted
         };
+    }
+
+    private static float Task10PassiveRearmAllowance(Node2D source)
+    {
+        // Current model-owned settings, never authoring resources that may have
+        // been replaced after Ready. Subtract each model's inclusive-boundary
+        // tolerance. This only bounds the NEXT attack: old ranged leaves still
+        // force zero in the same observation pass, and lost authority is unknown.
+        (float seconds, float tolerance) = source switch
+        {
+            RustShellSquire rust when rust.CurrentState is RustShellState.Idle or RustShellState.Chase or RustShellState.Stunned
+                => (rust.AttackTelegraphSeconds, 0f),
+            BellBackLaborer bell when bell.CurrentState is BellBackLaborerState.Idle or BellBackLaborerState.Approach or BellBackLaborerState.Guard or BellBackLaborerState.Exposed
+                => (bell.AttackTelegraphSeconds, .000001f),
+            GraveLampMoth moth when moth.CurrentState is GraveLampMothState.Hover or GraveLampMothState.Align or GraveLampMothState.ThreadStunned
+                => (moth.AttackTelegraphSeconds, .000001f),
+            CanyonSkitter skitter when skitter.CurrentFrame.State is CanyonSkitterState.Idle or CanyonSkitterState.Stunned or CanyonSkitterState.Falling ||
+                skitter.CurrentFrame.State is CanyonSkitterState.Retreat or CanyonSkitterState.Recover && skitter.CurrentFrame.AttackTimeline.AttackId == 0
+                => (skitter.AttackTelegraphSeconds, .000001f),
+            // A living Stunned actor has synchronously revoked its own attacks.
+            // Its model must go through Idle and a new full captured Telegraph;
+            // do not invent remaining stun time or forgive other owners' leaves.
+            RangedWeaponEnemy ranged when ranged.CurrentFrame.State == RangedWeaponState.Stunned ||
+                ranged.HasPresentationAuthority &&
+                (ranged.CurrentFrame.State is RangedWeaponState.Idle or RangedWeaponState.Recovery)
+                => (ranged.AttackTelegraphSeconds, ranged.AttackTelegraphSeconds * .000001f),
+            _ => (0f, 0f)
+        };
+        if (!float.IsFinite(seconds) || !float.IsFinite(tolerance) || seconds <= tolerance) return 0f;
+        float bound = seconds - tolerance;
+        // Recovery may be cancelled, so credit no remaining recovery at all.
+        // Round down once to avoid rounding above the model's double boundary.
+        return source is RangedWeaponEnemy r && r.CurrentFrame.State == RangedWeaponState.Recovery
+            ? MathF.Max(0f, MathF.BitDecrement(bound)) : bound;
+    }
+
+    private static bool Task10IsSavedResident(Node2D source)
+    {
+        ResidentSceneBinding binding = source.GetNodeOrNull<ResidentSceneBinding>("ResidentBinding");
+        if (binding == null) return false;
+        ResidentSubtypeProfile profile = binding.Profile;
+        var types = ResidentSceneRegistry.Select(ResidentContentMode.DevelopmentV001)
+            .Where(type => profile != null && type.Id == profile.SubtypeId).ToArray();
+        TestAssert.True(types.Length == 1 && source.SceneFilePath == types[0].ScenePath &&
+            binding.PresentationState == types[0].SceneState &&
+            profile.Family == types[0].Family && profile.Archetype == types[0].Archetype &&
+            profile.Carrier == types[0].Carrier,
+            "RANGED_RESIDENT_DANGER_RED unknown or inconsistent resident cannot enter threat scope");
+        return true;
+    }
+
+    internal static bool Task10MothStrikeGeometry(Vector2 delta, out bool vertical, out bool horizontal)
+    {
+        bool finite = delta.IsFinite();
+        vertical = finite && delta.Y is >= -74f and <= -10f && MathF.Abs(delta.X) <= 36f;
+        horizontal = finite && MathF.Abs(delta.Y) <= 32f && MathF.Abs(delta.X) is >= 8f and <= 64f;
+        return vertical || horizontal;
+    }
+
+    internal static bool Task10MixedContinuationHealthAccepted(int health, bool setupAfterK) =>
+        health == 1 || setupAfterK && health == 2;
+
+    internal static bool Task10MixedForeignPreludeBlocksFatal(bool enabled, bool capturedActor,
+        int health, bool jetCompleted, bool rustKAccepted) =>
+        enabled && capturedActor && health == 1 && jetCompleted && !rustKAccepted;
+
+    internal static bool Task10MixedRustLateWindow(float remaining, float lead, float activeSpan) =>
+        float.IsFinite(remaining) && float.IsFinite(lead) && float.IsFinite(activeSpan) &&
+        lead > 0f && activeSpan > 0f && float.IsFinite(lead + activeSpan) &&
+        remaining > lead && remaining <= lead + activeSpan;
+
+    internal static Node2D Task10SelectEncounterActor(Node actorRoot, CanyonEncounterGroup group,
+        Vector2 playerPosition, bool compareAllOwned, RangedWeaponEnemy continuedOwnedBurst = null,
+        Rect2? residentPursuitBounds = null, bool restrictMothResidentPursuit = false,
+        bool continueSetupAfterK = false, bool preferLiveOwnedAfterHop = false)
+    {
+        string encounterId = group.EncounterId.ToString();
+        // CurrentBatch advances before the previous actor is actually removed.
+        // Preserve that original pending-arrival behavior until live owned actors exist.
+        compareAllOwned &= group.LiveActorCount > 0;
+        restrictMothResidentPursuit &= group.LiveActorCount > 0;
+        string ownedPrefix = encounterId.Replace('.', '_');
+        if (compareAllOwned && encounterId == "canyon.v2.encounter.counterweight-lift" &&
+            group.CurrentBatch == 1 && GodotObject.IsInstanceValid(continuedOwnedBurst) &&
+            continuedOwnedBurst.IsInsideTree() && !continuedOwnedBurst.IsQueuedForDeletion() &&
+            continuedOwnedBurst.GetParent() == actorRoot &&
+            continuedOwnedBurst.Name.ToString().StartsWith(ownedPrefix, StringComparison.Ordinal) &&
+            continuedOwnedBurst.SceneFilePath == CanyonEncounterCatalog.BurstScene &&
+            Task10MixedContinuationHealthAccepted(
+                continuedOwnedBurst.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth ?? 0, continueSetupAfterK) &&
+            (!continueSetupAfterK || CourtyardRearClawControl.Live(continuedOwnedBurst) && group.OwnsLiveActor(continuedOwnedBurst)) &&
+            playerPosition.IsFinite() && continuedOwnedBurst.GlobalPosition.IsFinite() &&
+            MathF.Abs(continuedOwnedBurst.GlobalPosition.Y - playerPosition.Y) <= 74f)
+            return continuedOwnedBurst;
+        if (preferLiveOwnedAfterHop && playerPosition.IsFinite() && group.LiveActorCount > 0)
+        {
+            Node2D nearestOwned = null;
+            for (int index = 0; index < actorRoot.GetChildCount(); index++)
+            {
+                if (actorRoot.GetChild(index) is not Node2D candidate || !GodotObject.IsInstanceValid(candidate) ||
+                    !candidate.IsInsideTree() || candidate.IsQueuedForDeletion() || candidate.GetParent() != actorRoot ||
+                    !group.OwnsLiveActor(candidate) || candidate.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is not > 0 ||
+                    !candidate.GlobalPosition.IsFinite() || MathF.Abs(candidate.GlobalPosition.Y - playerPosition.Y) > 74f) continue;
+                if (nearestOwned == null || candidate.GlobalPosition.DistanceSquaredTo(playerPosition) <
+                    nearestOwned.GlobalPosition.DistanceSquaredTo(playerPosition)) nearestOwned = candidate;
+            }
+            if (nearestOwned != null) return nearestOwned;
+        }
+        Node2D actor = compareAllOwned ? null : actorRoot.GetChildren().OfType<Node2D>()
+            .FirstOrDefault(candidate => candidate.Name.ToString().StartsWith(
+                ownedPrefix, StringComparison.Ordinal));
+        Node2D ownedActor = actor;
+        Node2D nearestResident = null;
+        for (int index = 0; index < actorRoot.GetChildCount(); index++)
+        {
+            if (actorRoot.GetChild(index) is not Node2D candidate ||
+                !candidate.IsInsideTree() || candidate.IsQueuedForDeletion() ||
+                candidate.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is not > 0 ||
+                !(compareAllOwned && candidate.Name.ToString().StartsWith(ownedPrefix, StringComparison.Ordinal) ||
+                    Task10IsSavedResident(candidate)) ||
+                MathF.Abs(candidate.GlobalPosition.Y - playerPosition.Y) > 74f) continue;
+            // This selection band cannot enter the original Moth K strategy
+            // (dy<-74). Only an optional Moth within the existing J union may
+            // displace a live required wave. This is not danger admission,
+            // actual J permission or a change to the player's claw resolver.
+            if (restrictMothResidentPursuit && candidate is GraveLampMoth &&
+                !group.OwnsLiveActor(candidate) &&
+                !Task10MothStrikeGeometry(candidate.GlobalPosition - playerPosition, out _, out _)) continue;
+            if (nearestResident == null || candidate.GlobalPosition.DistanceSquaredTo(playerPosition) <
+                nearestResident.GlobalPosition.DistanceSquaredTo(playerPosition)) nearestResident = candidate;
+        }
+        if (nearestResident != null && (!GodotObject.IsInstanceValid(actor) ||
+            nearestResident.GlobalPosition.DistanceSquaredTo(playerPosition) <
+            actor.GlobalPosition.DistanceSquaredTo(playerPosition))) actor = nearestResident;
+        // Pursuit choice is not threat admission. An optional resident outside
+        // the active encounter cannot retire its unfinished required wave by
+        // luring this route out of the arena; every source still reaches danger.
+        if (residentPursuitBounds is Rect2 pursuit && actor == nearestResident &&
+            GodotObject.IsInstanceValid(actor) && !pursuit.HasPoint(actor.GlobalPosition) &&
+            !actor.Name.ToString().StartsWith(ownedPrefix, StringComparison.Ordinal) &&
+            GodotObject.IsInstanceValid(ownedActor) && group.OwnsLiveActor(ownedActor) &&
+            ownedActor.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is > 0)
+            actor = ownedActor;
+        return actor;
     }
 
     private static async Task DefeatTask10Encounter(SceneTree tree,
         PrologueLevelController level, SeamlessPrologueWorld world, CharacterBody2D player,
-        RouteMonitor monitor, string encounterId, bool headlessNormalPlan = false)
+        RouteMonitor monitor, string encounterId, bool headlessNormalPlan = false,
+        BellBackLaborer gearLureBell = null, bool postShotClawSchedule = false,
+        bool observeLowerBellCandidates = false)
     {
         CanyonEncounterGroup group = world.FindChildren("*", "", true, false)
             .OfType<CanyonEncounterGroup>()
@@ -10484,6 +13611,25 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
 
         Node actorRoot = group.GetNode(group.ActorRootPath);
         var rangedThreatLeaves = new List<AttackTelegraphVisual>(8);
+        // A Skitter deliberately retains live model settings. Observe that very
+        // model on every post-node publication until this encounter is done;
+        // a changed warning invalidates the forecast, never freezes gameplay.
+        var rearmWatches = new Dictionary<CanyonSkitter, Action<CanyonSkitterFrame>>();
+        bool rearmSettingsChanged = false;
+        int rearmPostNodeSamples = 0;
+        void WatchSkitterRearm(CanyonSkitter skitter)
+        {
+            TestAssert.True(!rearmSettingsChanged, "MIXED_REARM_DRIFT_RED: live Skitter warning changed during the forecast interval");
+            if (rearmWatches.ContainsKey(skitter)) return;
+            float captured = skitter.AttackTelegraphSeconds;
+            Action<CanyonSkitterFrame> sample = _ =>
+            {
+                rearmPostNodeSamples++;
+                rearmSettingsChanged |= skitter.AttackTelegraphSeconds != captured;
+            };
+            rearmWatches.Add(skitter, sample);
+            skitter.FrameChanged += sample;
+        }
         int attacks = 0;
         int attacksStarted = 0;
         int attacksConnected = 0;
@@ -10520,19 +13666,887 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         PlayerEnergyController energy = player.GetNode<PlayerEnergyController>("Energy");
         HealthComponent playerHealth = player.GetNode<HealthComponent>("Health");
         int playerHealthAtStart = playerHealth.CurrentHealth;
+        bool lowerTraceEnabled = observeLowerBellCandidates && KeyboardRouteInputDriver.Current != null;
+        var lowerTraceRows = new Queue<(long Serial, string Text)>();
+        var lowerControlProofRows = new List<(long Serial, string Text)>();
+        int lowerControlProofOmitted = 0;
+        var lowerPublications = new List<(Node2D Source, Action<AttackPresentationFrame> Listener)>();
+        var lowerPostMoves = new List<(RustShellSquire Source, Action<RustShellFrame, int> Listener)>();
+        long lowerTraceSerial = 0;
+        int lowerTraceDropped = 0, lowerTraceFaults = 0, lowerCandidatePasses = 0;
+        ulong lowerTriggerPhysics = 0;
+        int lowerAfterWindowOmitted = 0;
+        MechanicalClawController lowerClaw = lowerTraceEnabled
+            ? player.GetNode<MechanicalClawController>("MechanicalClaw") : null;
+        RustShellSquire lowerControlRust = null;
+        ThreadTarget2D lowerControlTarget = null;
+        LegacyThreadInteractionAdapter lowerControlAdapter = null;
+        int lowerControlStage = 0, lowerControlApplications = 0, lowerControlEdges = 0, lowerControlTicks = 0;
+        int lowerApproachSteps = 0;
+        ulong lowerControlCast = 0, lowerControlTargetId = 0;
+        bool lowerLatched = false, lowerReleased = false, lowerStunned = false, lowerControlFault = false;
+        bool lowerKAccepted = false;
+        ulong lowerKCommandSequence = 0, lowerKAcceptedSequence = 0;
+        BasinBoardingTickObserver lowerClawInputObserver = null;
+        int lowerClawInputSamples = 0;
+        string lowerControlFaultDetail = "none";
+        void LowerControlPublication(MechanicalClawFrame frame, GrappleSurface2D publishedTarget)
+        {
+            if (lowerControlStage is not (1 or 2)) return;
+            LowerTrace("claw_publication", $"expected_cast={lowerControlCast} cast={frame.CastId} state={frame.State} " +
+                $"failure={frame.Failure} lock={frame.LockedTargetRuntimeId} " +
+                $"published_target={(GodotObject.IsInstanceValid(publishedTarget) ? publishedTarget.GetInstanceId() : 0UL)} " +
+                $"application_delta={lowerControlAdapter.ApplicationCount-lowerControlApplications} " +
+                $"edge_delta={KeyboardRouteInputDriver.Current.ClawEdges-lowerControlEdges} " +
+                $"hp={playerHealthAtStart}/{playerHealth.CurrentHealth} player={player.GlobalPosition} " +
+                $"sampled_aim={input.KeyboardAimDirection} raw_K={input.RawFrame.ClawPressed}");
+            if (lowerControlStage == 2 && frame.State == MechanicalClawState.Aim &&
+                input.CurrentFrameSequence > lowerKCommandSequence)
+            {
+                lowerKAccepted = true;
+                lowerKAcceptedSequence = input.CurrentFrameSequence;
+                ulong acceptedTarget = GodotObject.IsInstanceValid(publishedTarget) ? publishedTarget.GetInstanceId() : 0UL;
+                lowerControlFault |= acceptedTarget != lowerControlTargetId;
+                if (acceptedTarget != lowerControlTargetId)
+                    lowerControlFaultDetail = $"actual_K_sample={lowerKAcceptedSequence}/accepted_target={acceptedTarget}/expected={lowerControlTargetId}";
+                LowerTrace("control_input_accepted", $"command_sample={lowerKCommandSequence} accepted_sample={lowerKAcceptedSequence} " +
+                    $"target={acceptedTarget} expected={lowerControlTargetId} actual_aim={input.KeyboardAimDirection} " +
+                    $"raw_K={input.RawFrame.ClawPressed}");
+            }
+            if (frame.CastId != lowerControlCast || lowerControlCast == 0) return;
+            if (frame.Failure != MechanicalClawFailure.None)
+            { lowerControlFault = true; lowerControlFaultDetail = $"state={frame.State}/failure={frame.Failure}/lock={frame.LockedTargetRuntimeId}"; }
+            if (frame.State is MechanicalClawState.Latched or MechanicalClawState.Released)
+            {
+                lowerControlFault |= frame.LockedTargetRuntimeId != lowerControlTargetId;
+                if (frame.LockedTargetRuntimeId != lowerControlTargetId)
+                    lowerControlFaultDetail = $"state={frame.State}/actual_lock={frame.LockedTargetRuntimeId}/expected={lowerControlTargetId}";
+                lowerLatched |= frame.State == MechanicalClawState.Latched;
+                lowerReleased |= frame.State == MechanicalClawState.Released;
+            }
+        }
+        void LowerTrace(string kind, string facts)
+        {
+            if (!lowerTraceEnabled) return;
+            try
+            {
+                long serial = ++lowerTraceSerial;
+                ulong physics = Engine.GetPhysicsFrames();
+                bool controlProof = kind is "claw_pre_node" or "claw_publication" or "control_armed" or
+                    "control_K" or "control_input_accepted" or "control_effect" or "control_approach_key";
+                string row = $"LOWER_BELL_TRACE serial={serial} kind={kind} physics={physics} " +
+                    $"sample={input.CurrentFrameSequence} loop={currentFrame}/900 {facts}";
+                if (controlProof)
+                {
+                    if (lowerControlProofRows.Count < 64) lowerControlProofRows.Add((serial, row));
+                    else lowerControlProofOmitted++;
+                    return;
+                }
+                if (lowerTriggerPhysics != 0 && physics > lowerTriggerPhysics + 2)
+                { lowerAfterWindowOmitted++; return; }
+                if (lowerTraceRows.Count == 512) { lowerTraceRows.Dequeue(); lowerTraceDropped++; }
+                lowerTraceRows.Enqueue((serial, row));
+            }
+            catch (Exception) { lowerTraceFaults++; }
+        }
+        HealthComponent.DamagedEventHandler lowerDamage = (remaining, impulse) =>
+        {
+            try
+            {
+                if (lowerTriggerPhysics == 0) lowerTriggerPhysics = Engine.GetPhysicsFrames();
+                LowerTrace("damage", $"remaining={remaining} impulse={impulse} player={player.GlobalPosition} " +
+                    $"shield={input.Current.ShieldHeld}/{shield.IsActive} direction={shield.GuardDirection} " +
+                    $"energy={energy.EnergyRatio:R} heat={energy.HeatRatio:R}");
+            }
+            catch (Exception) { lowerTraceFaults++; }
+        };
+        if (lowerTraceEnabled)
+        {
+            // Borrow current actors only. This extra enumeration is not a new
+            // danger scan/physics query and never authorizes a command.
+            Godot.Collections.Array<Node> lowerChildren = actorRoot.GetChildren();
+            using Godot.Collections.Array lowerChildrenOwner = (Godot.Collections.Array)lowerChildren;
+            foreach (Node child in lowerChildren)
+            {
+                if (child is not Node2D source || !source.IsInsideTree() || source.IsQueuedForDeletion() ||
+                    !(source is RustShellSquire && source.SceneFilePath == "res://scenes/enemies/residents/v001/scrap-wanderer.tscn" ||
+                      source is BellBackLaborer && source.Name.ToString().StartsWith(encounterId.Replace('.', '_'), StringComparison.Ordinal)))
+                    continue;
+                ulong actorId = source.GetInstanceId();
+                string scene = source.SceneFilePath;
+                AttackPhase lowerLastPublication = AttackPhase.None;
+                Action<AttackPresentationFrame> publication = frame =>
+                {
+                    if (frame.Timeline.Phase == AttackPhase.None && lowerLastPublication == AttackPhase.None) return;
+                    lowerLastPublication = frame.Timeline.Phase;
+                    try { LowerTrace("publication_pre_move", $"actor={actorId} scene={scene} attack={frame.Timeline.AttackId} " +
+                        $"phase={frame.Timeline.Phase} remaining={frame.Timeline.PhaseRemainingSeconds:R} " +
+                        $"shape={frame.Shape.Kind} origin={frame.Shape.Origin} extent={frame.Shape.Extent} " +
+                        $"rotation={frame.Shape.RotationRadians:R} points={frame.Shape.Points?.Count ?? 0} " +
+                        $"actor_position={source.GlobalPosition}"); }
+                    catch (Exception) { lowerTraceFaults++; }
+                };
+                if (source is RustShellSquire rust)
+                {
+                    rust.AttackFrameChanged += publication;
+                    RustShellState lowerLastPostState = RustShellState.Idle;
+                    Action<RustShellFrame, int> postMove = (frame, facing) =>
+                    {
+                        if (frame.AttackTimeline.Phase == AttackPhase.None && frame.State == lowerLastPostState) return;
+                        lowerLastPostState = frame.State;
+                        try { LowerTrace("rust_post_move", $"actor={actorId} attack={frame.AttackTimeline.AttackId} " +
+                            $"phase={frame.AttackTimeline.Phase} remaining={frame.AttackTimeline.PhaseRemainingSeconds:R} " +
+                            $"state={frame.State} facing={facing} actor_position={rust.GlobalPosition} " +
+                            $"hitbox_position={rust.GetNode<Hitbox>("AttackHitbox").GlobalPosition}"); }
+                        catch (Exception) { lowerTraceFaults++; }
+                    };
+                    rust.FrameChanged += postMove;
+                    lowerPostMoves.Add((rust, postMove));
+                }
+                else ((BellBackLaborer)source).AttackFrameChanged += publication;
+                lowerPublications.Add((source, publication));
+                LowerTrace("bound", $"actor={actorId} scene={scene} no_input=true no_extra_physics_query=true");
+            }
+            playerHealth.Damaged += lowerDamage;
+        }
         // Stage 2 responds only to the actual NORMAL Main RED's suppressed mixed arrival.
         // It does not pre-position before suppression, restart batch0 or add a movement budget.
         bool counterweightSuppressionKeyboard = (tree is Knight.Tests.RunRealtimePrologueProbe || headlessNormalPlan) &&
             KeyboardRouteInputDriver.Current != null &&
             encounterId == "canyon.v2.encounter.counterweight-lift";
+        StaticBody2D stepSource = counterweightSuppressionKeyboard
+            ? group.GetNodeOrNull<StaticBody2D>("../../Collision/LiftAccessStepTwo") : null;
+        StaticBody2D stepLanding = counterweightSuppressionKeyboard
+            ? group.GetNodeOrNull<StaticBody2D>("../../Collision/LiftBackLanding") : null;
+        bool counterweightStepJumpIssued = false;
+        int counterweightStepJumpFrame = -1;
+        int counterweightWallJumpFrame=-1,counterweightWallAcceptedBefore=-1;
+        bool counterweightWallLandingSeen=false;
+        var counterweightClimbRows=new List<object>(64);
+        ulong counterweightClimbStart=0,counterweightClimbLast=0;
+        string counterweightClimbFault=null;
+        void ObserveCounterweightClimb(Node2D enemy,bool jumpPlanned)
+        {
+            if(!counterweightSuppressionKeyboard || enemy is not RustShellSquire)return;
+            try
+            {
+                var sampled=player.GetNode<PlayerInputReader>("Input");
+                ulong physics=Engine.GetPhysicsFrames();
+                if(counterweightClimbStart==0 && player.IsOnFloor() &&
+                    sampled.CurrentFrame.MoveAxis<-.5f && Mathf.Abs(player.Velocity.X)<.5f &&
+                    enemy.GlobalPosition.Y-player.GlobalPosition.Y < -42)
+                    counterweightClimbStart=physics;
+                if(counterweightClimbStart==0 || physics==counterweightClimbLast ||
+                    physics-counterweightClimbStart>=64 || counterweightClimbRows.Count==64)return;
+                counterweightClimbLast=physics;
+                var contacts=new List<object>(4);
+                var currentMotor=player.GetNode<PlayerMotor>("Motor");
+                int slides=player.GetSlideCollisionCount();
+                for(int index=0;index<Math.Min(slides,8);index++)
+                {
+                    using KinematicCollision2D contact=player.GetSlideCollision(index);
+                    GodotObject collider=contact.GetCollider();
+                    if(counterweightWallJumpFrame>=0 && collider==stepLanding &&
+                        contact.GetNormal().Y<-.9f && player.IsOnFloor() &&
+                        currentMotor.AcceptedJumpCount==counterweightWallAcceptedBefore+1)
+                        counterweightWallLandingSeen=true;
+                    string path="none";
+                    if(collider is Node node){using NodePath ownedPath=node.GetPath();path=ownedPath.ToString();}
+                    var supportShape=(collider as Node)?.GetNodeOrNull<CollisionShape2D>("Collision");
+                    Rect2? bounds=supportShape?.Shape!=null
+                        ? supportShape.GlobalTransform*supportShape.Shape.GetRect() : null;
+                    contacts.Add(new
+                    {
+                        Id=collider?.GetInstanceId()??0,Path=path,
+                        Type=collider?.GetType().Name??"none",Nx=contact.GetNormal().X,Ny=contact.GetNormal().Y,
+                        SupportX=bounds?.Position.X,SupportY=bounds?.Position.Y,
+                        SupportW=bounds?.Size.X,SupportH=bounds?.Size.Y
+                    });
+                }
+                var bodyShape=player.GetNode<CollisionShape2D>("BodyCollider");
+                var enemyShape=enemy.GetNode<CollisionShape2D>("BodyCollider");
+                Rect2 body=bodyShape.GlobalTransform*bodyShape.Shape.GetRect();
+                Rect2 enemyBody=enemyShape.GlobalTransform*enemyShape.Shape.GetRect();
+                counterweightClimbRows.Add(new
+                {
+                    Physics=physics,Reader=sampled.CurrentFrameSequence,Boundary="after_original_jump_command_before_wait",
+                    X=player.GlobalPosition.X,Y=player.GlobalPosition.Y,Vx=player.Velocity.X,Vy=player.Velocity.Y,
+                    Enemy=enemy.GetInstanceId(),EnemyX=enemy.GlobalPosition.X,EnemyY=enemy.GlobalPosition.Y,
+                    BodyX=body.Position.X,BodyY=body.Position.Y,BodyW=body.Size.X,BodyH=body.Size.Y,
+                    EnemyBodyX=enemyBody.Position.X,EnemyBodyY=enemyBody.Position.Y,
+                    EnemyBodyW=enemyBody.Size.X,EnemyBodyH=enemyBody.Size.Y,
+                    Floor=player.IsOnFloor(),Wall=player.IsOnWall(),Slides=slides,Contacts=contacts.ToArray(),
+                    OmittedContacts=Math.Max(0,slides-8),Axis=sampled.CurrentFrame.MoveAxis,
+                    JumpPlanned=jumpPlanned,RawSpace=Input.IsPhysicalKeyPressed(Key.Space),
+                    SampledJump=sampled.CurrentFrame.JumpPressed,SampledHeld=sampled.CurrentFrame.JumpHeld,
+                    currentMotor.AcceptedJumpCount,currentMotor.IsDashing,
+                    WallJumpFrame=counterweightWallJumpFrame,WallLandingSeen=counterweightWallLandingSeen,
+                    Claw=player.GetNode<MechanicalClawController>("MechanicalClaw").CurrentFrame.State.ToString(),
+                    ObservationOnly=true,ExtraQueries=0,ExtraFrames=0
+                });
+            }
+            catch(Exception error){counterweightClimbFault??=error.GetType().Name+": "+error.Message;}
+        }
+        // Default consumers retain their early-interruption policy. Main may
+        // explicitly schedule the one K after its captured actor's real Shot,
+        // so the stun is not spent while lethal J's own-Shot gate is closed.
+        bool mixedPostShotSchedule = postShotClawSchedule && counterweightSuppressionKeyboard;
+        var mixedLaneControl = mixedPostShotSchedule
+            ? new MixedLanePositionControl(player, stepLanding, group) : null;
+        RangedWeaponEnemy mixedClawEnemy = null;
+        bool mixedLiveEnrolled = false, mixedFirstJObserved = false;
+        LegacyThreadInteractionAdapter mixedClawAdapter = null;
+        int mixedClawApplications = 0;
+        bool mixedClawShotSeen = false, mixedClawStunned = false;
+        ulong mixedClawActorId = 0, mixedClawShotOrdinal = 0, mixedClawShotPhysics = 0;
+        bool mixedFatalConnected = false, mixedDefeated = false;
+        ulong mixedEarlyWindowPhysics = 0, mixedPreviewPhysics = 0, mixedPreviewSequence = 0;
+        ulong mixedPreviewSelected = 0, mixedClawTargetId = 0;
+        bool mixedPreviewExists = false, mixedPreviewLos = false, mixedPreviewOwn = false;
+        ulong mixedPreviewAuthority = 0;
+        Transform2D mixedPreviewPose = default;
+        Vector2 mixedPreviewVelocity = default, mixedPreviewAim = default, mixedPreviewAnchor = default;
+        List<string> mixedLiveAdmissionRows = counterweightSuppressionKeyboard ? new(64) : null;
+        int mixedLiveAdmissionSamples = 0, mixedLiveAdmissionOmitted = 0, mixedLiveAdmissionFaults = 0;
+        bool mixedOwnPrepStarted = false, mixedOwnPrepReady = false;
+        int mixedOwnPrepLoop = -1, mixedOwnPrepHp = 0, mixedOwnPrepRequests = 0, mixedOwnPrepRecoveries = 0;
+        int mixedOwnPrepJumps = 0, mixedOwnPrepDashes = 0, mixedOwnPrepEdges = 0, mixedOwnPrepAttackEdges = 0;
+        ulong mixedOwnPrepSequence = 0, mixedOwnPrepCast = 0;
+        Vector2 mixedOwnPrepPosition = default;
+        ulong mixedClawWindowPhysics = 0;
+        MechanicalClawController mixedClaw = player.GetNode<MechanicalClawController>("MechanicalClaw");
+        ThreadTarget2D mixedClawTarget = null;
+        int mixedClawStage = 0, mixedClawEdges = 0, mixedClawSamples = 0;
+        ulong mixedClawSequence = 0, mixedClawCastId = 0;
+        int mixedFirstEdgeEnd = -1;
+        ulong mixedFirstPress = 0, mixedFirstHandoff = 0;
+        var mixedLaterReceipts = new List<MixedLaterClawReceipt>();
+        var mixedSuppressedOwners = new HashSet<ulong>();
+        Node2D mixedLaterActor = null;
+        ThreadTarget2D mixedLaterTarget = null;
+        LegacyThreadInteractionAdapter mixedLaterAdapter = null;
+        ulong mixedLaterCast = 0, mixedLaterActorId = 0, mixedLaterTargetId = 0,
+            mixedLaterSequence = 0, mixedLaterPress = 0;
+        int mixedLaterEdges = 0, mixedLaterSamples = 0, mixedLaterApps = 0, mixedLaterHp = 0,
+            mixedLaterRequests = 0, mixedLaterCompleted = 0, mixedLaterJumps = 0, mixedLaterDashes = 0;
+        bool mixedLaterPending = false, mixedLaterForeign = false, mixedLaterLatched = false,
+            mixedLaterEffect = false, mixedLaterFailed = false, mixedLaterAborted = false;
+        bool mixedLaterAttackHandoffPending = false;
+        int mixedLaterFaults = 0;
+        string mixedLaterFault = null;
+        RustShellSquire mixedGuardRust = null;
+        Hitbox mixedGuardHitbox = null;
+        Hurtbox mixedGuardHurtbox = null;
+        CollisionShape2D mixedGuardFloor = null;
+        IDamageReceiver mixedGuardReceiver = null;
+        Task10RustGuardEpoch mixedGuardEpoch = default;
+        Task10RustGuardReceipt mixedGuardReceipt = default;
+        ulong mixedGuardActorId = 0, mixedGuardHitboxId = 0, mixedGuardHurtboxId = 0;
+        ulong mixedGuardRequestedAttack = 0, mixedGuardRequestedSequence = 0;
+        ulong mixedGuardTransition = 0, mixedGuardConsumedTransition = 0, mixedGuardReturnedTransition = 0;
+        ulong mixedGuardPhysics = 0, mixedGuardSequence = 0, mixedGuardEventEpoch = 0;
+        int mixedGuardHp = 0, mixedGuardRequests = 0, mixedGuardRecoveries = 0;
+        int mixedGuardContacts = 0, mixedGuardReturns = 0, mixedGuardFaults = 0;
+        int mixedCooldownSupportAttempts = 0, mixedCooldownSupportDenied = 0;
+        bool mixedGuardKAccepted = false;
+        bool mixedReturnPending = false, mixedReturnLeaseStarted = false, mixedGuardStateKnown = false;
+        Task10CompletedRustReturn mixedHopCompletedReturn = default;
+        ulong mixedReturnTransition = 0, mixedReturnCommandSequence = 0;
+        int mixedReturnLeaseCommands = 0, mixedHopReadyLastMask = -1;
+        RustShellState mixedGuardObservedState = RustShellState.Idle;
+        bool MixedGuardRetained()
+        {
+            return GodotObject.IsInstanceValid(mixedGuardRust) && mixedGuardRust.IsInsideTree() &&
+                !mixedGuardRust.IsQueuedForDeletion() && mixedGuardRust.GetInstanceId() == mixedGuardActorId &&
+                mixedGuardRust.GetParent() == actorRoot && group.OwnsLiveActor(mixedGuardRust) &&
+                mixedGuardRust.GetNode<HealthComponent>("Health").CurrentHealth > 0 &&
+                mixedGuardRust.GetWorld2D() == player.GetWorld2D() && !tree.Paused &&
+                GodotObject.IsInstanceValid(mixedGuardHitbox) && mixedGuardHitbox.GetInstanceId() == mixedGuardHitboxId &&
+                mixedGuardHitbox.GetParent() == mixedGuardRust &&
+                GodotObject.IsInstanceValid(mixedGuardHurtbox) && mixedGuardHurtbox.GetInstanceId() == mixedGuardHurtboxId &&
+                mixedGuardHurtbox.GetParent() == player &&
+                ReferenceEquals(mixedGuardHurtbox.ResolveDamageReceiver(), mixedGuardReceiver) &&
+                mixedGuardReceiver is PlayerGuardedDamageReceiver && monitor.Player == player &&
+                playerHealth.CurrentHealth == mixedGuardHp && mixedGuardHp > 0 &&
+                monitor.RecoveryRequested == mixedGuardRequests && monitor.RecoveryCompleted == mixedGuardRecoveries;
+        }
+        bool MixedGuardFullSupport() => player.IsOnFloor() &&
+            GodotObject.IsInstanceValid(mixedGuardFloor) &&
+            TryTask10CapsuleCorridor(player, mixedGuardFloor, out _, out _, out _, out _) &&
+            HasFloorContact(player, (StaticBody2D)mixedGuardFloor.GetParent());
+        void MixedGuardPublication(AttackPresentationFrame value)
+        {
+            try
+            {
+                if (!MixedGuardRetained()) { mixedGuardReceipt = default; mixedGuardEpoch = default; return; }
+                var beforeEpoch = mixedGuardEpoch;
+                ulong beforeReceipt = mixedGuardReceipt.Sequence;
+                mixedGuardEpoch = Task10AdvanceRustGuardEpoch(mixedGuardEpoch, value.Timeline, Engine.GetPhysicsFrames());
+                if (!mixedGuardEpoch.ContinuousActive || value.Timeline.AttackId != mixedGuardReceipt.Attack)
+                    mixedGuardReceipt = default;
+                if (!mixedGuardStateKnown || mixedGuardObservedState != mixedGuardRust.CurrentState ||
+                    beforeEpoch.Phase != mixedGuardEpoch.Phase || beforeEpoch.AttackId != mixedGuardEpoch.AttackId ||
+                    beforeReceipt != 0 && mixedGuardReceipt.Sequence == 0)
+                    MixedResourceSnapshot("Rust_guard_epoch_state", $"rust_actor={mixedGuardActorId} " +
+                        $"rust_state={mixedGuardRust.CurrentState} actual_phase={value.Timeline.Phase} " +
+                        $"actual_attack={value.Timeline.AttackId} actual_remaining={value.Timeline.PhaseRemainingSeconds:R} " +
+                        $"epoch={mixedGuardEpoch.Epoch} continuous={mixedGuardEpoch.ContinuousActive} " +
+                        $"receipt_sequence={beforeReceipt}->{mixedGuardReceipt.Sequence} observation_only=true");
+                mixedGuardStateKnown = true; mixedGuardObservedState = mixedGuardRust.CurrentState;
+            }
+            catch { mixedGuardFaults++; mixedGuardReceipt = default; mixedGuardEpoch = default; }
+        }
+        void MixedGuardResolved(PlayerShieldResult value, ulong transition)
+        {
+            try
+            {
+                mixedGuardTransition = 0;
+                if (!MixedGuardRetained() || !MixedGuardFullSupport() || !value.Guarded || value.DamageAmount != 0 ||
+                    value.KnockbackScale != 0f || value.SpendHeavyEnergy || value.BrokeGuard ||
+                    mixedGuardRequestedAttack == 0 || mixedGuardRequestedAttack != mixedGuardEpoch.AttackId ||
+                    !mixedGuardEpoch.ContinuousActive || !mixedGuardHitbox.Monitoring ||
+                    !input.CurrentFrame.KeyboardActions || input.CurrentFrame.LegacyShieldHeld ||
+                    !input.CurrentFrame.ShieldHeld || !shield.IsActive || !Input.IsPhysicalKeyPressed(Key.L) ||
+                    input.CurrentFrameSequence <= mixedGuardRequestedSequence ||
+                    input.KeyboardAimDirection.Dot(shield.GuardDirection) < .99f) return;
+                Vector2 incoming = mixedGuardHitbox.GlobalPosition - mixedGuardHurtbox.GlobalPosition;
+                if (!incoming.IsFinite() || incoming.IsZeroApprox() ||
+                    incoming.Normalized().Dot(shield.GuardDirection) <
+                        Mathf.Cos(Mathf.DegToRad(PlayerShieldSettings.Approved.FrontArcDegrees * .5f)) - .0001f) return;
+                mixedGuardTransition = transition; mixedGuardPhysics = Engine.GetPhysicsFrames();
+                mixedGuardSequence = input.CurrentFrameSequence; mixedGuardEventEpoch = mixedGuardEpoch.Epoch;
+            }
+            catch { mixedGuardFaults++; mixedGuardTransition = 0; }
+        }
+        void MixedGuardConnected(Hurtbox hurtbox)
+        {
+            try
+            {
+                if (hurtbox != mixedGuardHurtbox || mixedGuardTransition <= mixedGuardConsumedTransition ||
+                    mixedGuardPhysics != Engine.GetPhysicsFrames() || mixedGuardEventEpoch != mixedGuardEpoch.Epoch ||
+                    !MixedGuardRetained() || !MixedGuardFullSupport() || !mixedGuardHitbox.Monitoring ||
+                    mixedGuardHitbox.GuardClass != DamageGuardClass.Normal || mixedGuardHitbox.Damage <= 0 ||
+                    !input.CurrentFrame.ShieldHeld || !shield.IsActive ||
+                    mixedGuardRust.CurrentFrame.AttackTimeline.AttackId != mixedGuardEpoch.AttackId ||
+                    mixedGuardRust.CurrentFrame.AttackTimeline.Phase != AttackPhase.Active) return;
+                var receipt = new Task10RustGuardReceipt(mixedGuardActorId, mixedGuardHitboxId, mixedGuardHurtboxId,
+                    mixedGuardEpoch.AttackId, mixedGuardEpoch.Epoch, mixedGuardPhysics, mixedGuardSequence,
+                    mixedGuardTransition, playerHealth.CurrentHealth);
+                if (!Task10RustGuardReceiptCurrent(receipt, mixedGuardActorId, mixedGuardHitboxId,
+                    mixedGuardHurtboxId, mixedGuardEpoch, Engine.GetPhysicsFrames(), playerHealth.CurrentHealth, true)) return;
+                mixedGuardReceipt = receipt; mixedGuardConsumedTransition = mixedGuardTransition; mixedGuardContacts++;
+                MixedResourceSnapshot("Rust_guard_contact", $"receipt={receipt} direction={shield.GuardDirection} " +
+                    $"aim={input.KeyboardAimDirection} axis={input.CurrentFrame.MoveAxis:R} " +
+                    $"rawAD={Input.IsPhysicalKeyPressed(Key.A)}/{Input.IsPhysicalKeyPressed(Key.D)} " +
+                    "normal_guard_zero=true same_native_hitbox_connected=true callback_input=false");
+            }
+            catch { mixedGuardFaults++; mixedGuardReceipt = default; }
+        }
+        void BindMixedRustGuard(RustShellSquire source)
+        {
+            TestAssert.True(mixedGuardRust == null || mixedGuardRust == source,
+                "one observed saved Rust owns this local guard lease; never replace a living source silently");
+            if (mixedGuardRust != null) return;
+            mixedGuardRust = source; mixedGuardActorId = source.GetInstanceId();
+            mixedGuardHitbox = source.GetNode<Hitbox>("AttackHitbox"); mixedGuardHitboxId = mixedGuardHitbox.GetInstanceId();
+            mixedGuardHurtbox = player.GetNode<Hurtbox>("Hurtbox"); mixedGuardHurtboxId = mixedGuardHurtbox.GetInstanceId();
+            mixedGuardReceiver = mixedGuardHurtbox.ResolveDamageReceiver();
+            mixedGuardFloor = actorRoot.GetNode<CollisionShape2D>("../Collision/LiftBackLanding/Collision");
+            mixedGuardHp = playerHealth.CurrentHealth; mixedGuardRequests = monitor.RecoveryRequested;
+            mixedGuardRecoveries = monitor.RecoveryCompleted;
+            source.AttackFrameChanged += MixedGuardPublication;
+            mixedGuardHitbox.Connected += MixedGuardConnected;
+            shield.ShieldResolved += MixedGuardResolved;
+        }
+        Task10RustGuardPolicy? MixedRustOrientationPolicy()
+        {
+            TestAssert.True(mixedGuardFaults == 0, "MIXED_RUST_GUARD_OBSERVER_RED: local receipt observation failed");
+            if (!mixedPostShotSchedule || !mixedGuardKAccepted || !mixedDefeated || !mixedFatalConnected ||
+                mixedLaterPending || !MixedGuardRetained()) return null;
+            bool spent = mixedGuardHitbox.Monitoring && Task10RustGuardReceiptCurrent(mixedGuardReceipt,
+                mixedGuardActorId, mixedGuardHitboxId, mixedGuardHurtboxId, mixedGuardEpoch,
+                Engine.GetPhysicsFrames(), playerHealth.CurrentHealth, true);
+            return new(mixedGuardActorId, mixedGuardHitboxId,
+                mixedGuardRust.CurrentFrame.AttackTimeline.AttackId, spent, true);
+        }
+        void ObserveMixedRustReturn()
+        {
+            bool current = Task10RustGuardReceiptCurrent(mixedGuardReceipt, mixedGuardActorId,
+                mixedGuardHitboxId, mixedGuardHurtboxId, mixedGuardEpoch, Engine.GetPhysicsFrames(),
+                playerHealth.CurrentHealth, MixedGuardRetained());
+            TestAssert.True(!mixedReturnPending || input.CurrentFrameSequence <= mixedReturnCommandSequence || current,
+                "MIXED_RETURN_LEASE_EXPIRED_RED: issued Left guard needs its actual sample before the same receipt expires");
+            if (mixedGuardContacts == 0 || mixedGuardConsumedTransition == mixedGuardReturnedTransition ||
+                !MixedGuardRetained() || !MixedGuardFullSupport() ||
+                !Task10RustReturnSampleAccepted(mixedGuardReceipt, current, input.CurrentFrameSequence,
+                    mixedGuardConsumedTransition, mixedGuardReturnedTransition) || !input.CurrentFrame.KeyboardActions ||
+                !input.CurrentFrame.ShieldHeld ||
+                !shield.IsActive || !Input.IsPhysicalKeyPressed(Key.L) ||
+                shield.GuardDirection.Dot(Vector2.Left) < .99f || input.KeyboardAimDirection.Dot(Vector2.Left) < .99f) return;
+            mixedGuardReturnedTransition = mixedGuardConsumedTransition; mixedGuardReturns++;
+            mixedReturnPending = false;
+            if (mixedHopCompletedReturn.Physics == 0)
+            {
+                mixedHopCompletedReturn = new(mixedGuardReceipt, Engine.GetPhysicsFrames(), input.CurrentFrameSequence,
+                    mixedGuardConsumedTransition, mixedGuardReturnedTransition, current, true);
+                MixedResourceSnapshot("Rust_return_prerequisite_completed", $"contact={mixedGuardReceipt} " +
+                    $"return_physics={mixedHopCompletedReturn.Physics} return_sequence={mixedHopCompletedReturn.Sequence} " +
+                    "historical_fact_only=true future_current_receipt_claim=false");
+            }
+            MixedResourceSnapshot("Rust_guard_return_left", $"contact_sequence={mixedGuardReceipt.Sequence} " +
+                $"actual_sequence={input.CurrentFrameSequence} guard={shield.GuardDirection} " +
+                $"aim={input.KeyboardAimDirection} axis={input.CurrentFrame.MoveAxis:R} full_support=true callback_input=false");
+        }
+        bool mixedClawLatched = false, mixedClawAborted = false, mixedClawCompleted = false;
+        bool mixedSetupRequired = false, mixedSetupIssued = false, mixedSetupAwaitContact = false, mixedSetupAttackOpen = false;
+        bool mixedForeignPreludeRequired = false;
+        int mixedSetupAccepted = 0, mixedSetupContacts = 0, mixedSetupEdgeStart = 0, mixedSetupDamageBefore = 0;
+        ulong mixedSetupAttackId = 0, mixedSetupHurtboxId = 0, mixedSetupPlayerId = 0;
+        string mixedSetupFault = null;
+        bool mixedNeutralWindowSeen = false, mixedNeutralPending = false;
+        ulong mixedNeutralSequence = 0;
+        int mixedNeutralSamples = 0;
+        int mixedJetStage = 0, mixedJetDashBaseline = 0, mixedJetSamples = 0;
+        int mixedJetRejectedBaseline = 0, mixedJetBeforeReaderSamples = 0;
+        ulong mixedJetSequence = 0, mixedJetFloor = 0;
+        float mixedJetSign = 0f, mixedJetStopX = 0f;
+        bool mixedJetOpportunity = false, mixedJetCompleted = false;
+        MechanicalClawFailure mixedClawFailure = MechanicalClawFailure.None;
+        MechanicalClawState mixedClawLastState = MechanicalClawState.Idle;
+        int mixedClawHp = 0, mixedClawRequests = 0;
+        PlayerMotor mixedClawMotor = player.GetNode<PlayerMotor>("Motor");
+        int mixedClawJumps = 0, mixedClawDashes = 0;
+        bool LaterEffect(Node2D owner) => owner switch
+        {
+            RustShellSquire rust => rust.CurrentState == RustShellState.Stunned,
+            RangedWeaponEnemy ranged => ranged.CurrentFrame.State == RangedWeaponState.Stunned,
+            GraveLampMoth moth => moth.CurrentState == GraveLampMothState.ThreadStunned,
+            BellBackLaborer bell => bell.CurrentState == BellBackLaborerState.Exposed,
+            _ => false
+        };
+        void BeginLaterClaw(Node2D owner, ThreadTarget2D target, bool foreign)
+        {
+            if (!mixedPostShotSchedule || mixedFirstEdgeEnd < 0) return;
+            TestAssert.True(!mixedLaterPending && mixedLaterFaults == 0 &&
+                GodotObject.IsInstanceValid(owner) && owner.IsInsideTree() && !owner.IsQueuedForDeletion() &&
+                owner.GetParent() == actorRoot && target.GetParent() == owner && !LaterEffect(owner) &&
+                mixedClaw.CurrentFrame.State == MechanicalClawState.Idle &&
+                Task10MixedLaterClawLedgerAccepted(mixedFirstEdgeEnd,
+                    KeyboardRouteInputDriver.Current.ClawEdges, mixedClawCastId, mixedFirstHandoff,
+                    player.GetInstanceId(), actorRoot.GetInstanceId(), mixedLaterReceipts, false, mixedLaterFaults),
+                "MIXED_LATER_K_BEGIN_RED: previous receipt, live actor/parent, fresh effect and Idle must agree");
+            mixedLaterActor = owner; mixedLaterTarget = target;
+            mixedLaterAdapter = target.GetNode<LegacyThreadInteractionAdapter>("LegacyThreadInteractionAdapter");
+            mixedLaterActorId = owner.GetInstanceId(); mixedLaterTargetId = target.GetInstanceId();
+            mixedLaterCast = mixedClaw.CurrentFrame.NextCastId;
+            mixedLaterSequence = input.CurrentFrameSequence; mixedLaterPress = 0;
+            mixedLaterEdges = KeyboardRouteInputDriver.Current.ClawEdges; mixedLaterSamples = 0;
+            mixedLaterApps = mixedLaterAdapter.ApplicationCount; mixedLaterHp = playerHealth.CurrentHealth;
+            mixedLaterRequests = monitor.RecoveryRequested; mixedLaterCompleted = monitor.RecoveryCompleted;
+            mixedLaterJumps = mixedClawMotor.AcceptedJumpCount; mixedLaterDashes = mixedClawMotor.AcceptedDashCount;
+            mixedLaterLatched = mixedLaterEffect = mixedLaterFailed = mixedLaterAborted = false;
+            mixedLaterForeign = foreign; mixedLaterPending = true;
+            MixedResourceSnapshot("later_K_begin", $"actor={mixedLaterActorId} target={mixedLaterTargetId} " +
+                $"cast={mixedLaterCast} edge={mixedLaterEdges} foreign={foreign}");
+        }
+        void CancelUnissuedLaterClaw()
+        {
+            if (!mixedPostShotSchedule || !mixedLaterPending) return;
+            TestAssert.True(mixedLaterSamples == 0 && mixedLaterPress == 0 &&
+                KeyboardRouteInputDriver.Current.ClawEdges == mixedLaterEdges &&
+                mixedClaw.CurrentFrame.NextCastId == mixedLaterCast &&
+                mixedLaterAdapter.ApplicationCount == mixedLaterApps,
+                "MIXED_LATER_K_NO_EDGE_RED: rejected prefix cannot erase an issued cast");
+            mixedLaterPending = false;
+            mixedLaterActor = null; mixedLaterTarget = null; mixedLaterAdapter = null;
+        }
+        void ObserveLaterClaw(MechanicalClawFrame value, GrappleSurface2D surface)
+        {
+            if (!mixedLaterPending) return;
+            try
+            {
+                if (input.CurrentFrameSequence != mixedLaterSequence)
+                {
+                    mixedLaterSequence = input.CurrentFrameSequence;
+                    if (input.CurrentFrame.ClawPressed)
+                    {
+                        mixedLaterSamples++;
+                        if (mixedLaterPress == 0) mixedLaterPress = mixedLaterSequence;
+                        mixedLaterFailed |= !input.CurrentFrame.KeyboardActions || input.CurrentFrame.AttackPressed ||
+                            input.CurrentFrame.PrimaryPressed || input.CurrentFrame.ShieldHeld;
+                    }
+                }
+                bool sameActor = GodotObject.IsInstanceValid(mixedLaterActor) &&
+                    mixedLaterActor.IsInsideTree() && !mixedLaterActor.IsQueuedForDeletion() &&
+                    mixedLaterActor.GetInstanceId() == mixedLaterActorId && mixedLaterActor.GetParent() == actorRoot;
+                mixedLaterFailed |= !sameActor || monitor.Player != player ||
+                    monitor.RecoveryRequested != mixedLaterRequests || monitor.RecoveryCompleted != mixedLaterCompleted ||
+                    playerHealth.CurrentHealth != mixedLaterHp || mixedClawMotor.AcceptedJumpCount != mixedLaterJumps ||
+                    mixedClawMotor.AcceptedDashCount != mixedLaterDashes || value.Failure != MechanicalClawFailure.None;
+                mixedLaterLatched |= value.State == MechanicalClawState.Latched && surface == mixedLaterTarget &&
+                    value.CastId == mixedLaterCast && value.LockedTargetRuntimeId == mixedLaterTargetId;
+                mixedLaterEffect |= sameActor && mixedLaterLatched &&
+                    mixedLaterAdapter.ApplicationCount == mixedLaterApps + 1 && LaterEffect(mixedLaterActor);
+                if (mixedLaterSamples == 0 || value.State != MechanicalClawState.Idle) return;
+                var receipt = new MixedLaterClawReceipt(mixedLaterEdges,
+                    KeyboardRouteInputDriver.Current.ClawEdges, mixedLaterSamples, mixedLaterCast,
+                    player.GetInstanceId(), mixedLaterActorId, actorRoot.GetInstanceId(),
+                    sameActor ? mixedLaterActor.GetParent().GetInstanceId() : 0, mixedLaterTargetId,
+                    mixedLaterPress, input.CurrentFrameSequence, mixedLaterAdapter.ApplicationCount - mixedLaterApps,
+                    mixedLaterLatched, mixedLaterEffect, true, mixedLaterAborted,
+                    mixedLaterFailed || value.NextCastId != mixedLaterCast + 1, mixedLaterHp, playerHealth.CurrentHealth);
+                mixedLaterReceipts.Add(receipt);
+                mixedLaterAttackHandoffPending |= mixedLaterForeign;
+                mixedLaterPending = false;
+                mixedLaterActor = null; mixedLaterTarget = null; mixedLaterAdapter = null;
+                MixedResourceSnapshot("later_K_Idle_receipt", $"{receipt}");
+            }
+            catch (Exception error) { mixedLaterFaults++; mixedLaterFault ??= error.ToString(); }
+        }
+        Action<ulong, Vector2> mixedClawShot = (ordinal, _) =>
+        {
+            mixedClawShotSeen = true;
+            mixedClawShotOrdinal = ordinal;
+            mixedClawShotPhysics = Engine.GetPhysicsFrames();
+        };
+        Action mixedClawDefeated = () => mixedDefeated = true;
+        Action<RangedWeaponFrame> mixedClawEnemyFrame = value =>
+            mixedClawStunned |= value.State == RangedWeaponState.Stunned;
         const int mixedRecordCapacity = 4096;
         List<string> mixedRecords = counterweightSuppressionKeyboard ? new(mixedRecordCapacity) : null;
+        List<Task10DangerCandidate> mixedContactCandidates = counterweightSuppressionKeyboard ? new(16) : null;
+        List<Task10DangerCandidate> previousContactCandidates = counterweightSuppressionKeyboard ? new(16) : null;
+        bool mixedContactClipped = false, previousContactClipped = false, mixedImmediateWarning = false;
+        float mixedContactWarningSeconds = float.PositiveInfinity;
+        ulong mixedContactTick = 0, previousContactTick = 0, mixedContactSequence = 0, previousContactSequence = 0;
+        bool mixedHeldLeftUsed = false;
+        // Retained-state A/B experiment only. Never enabled by the ordinary route runner.
+        bool mixedLeftProbe = counterweightSuppressionKeyboard &&
+            OS.GetEnvironment("KNIGHT_COUNTERWEIGHT_LEFT_PROBE") == "1";
         int mixedDecisionId = 0, mixedDropped = 0, mixedObservationErrors = 0;
         bool mixedClosed = false, mixedEnergyKnown = false;
         ulong mixedEnergyPhysics = 0, mixedEnergySequence = 0;
         PlayerEnergyState mixedEnergyState = default;
         float mixedEnergyGateThreshold = energy.Tuning.MaxEnergy * .35f;
         Task10EncounterDanger mixedLastDanger = default;
+        bool mixedCounterSampled = false;
+        List<string> mixedCounterSources = counterweightSuppressionKeyboard ? new(32) : null;
+        const int mixedCandidateCapacity = 4096;
+        const ulong mixedCandidateWindowTicks = 180;
+        List<string> mixedCandidateRows = counterweightSuppressionKeyboard ? new(mixedCandidateCapacity) : null;
+        var mixedProjectilePositions = new Dictionary<ulong, (ulong Physics, Vector2 Position)>();
+        ulong mixedCandidateStart = 0;
+        int mixedCandidatePasses = 0, mixedCandidateDropped = 0, mixedCandidateFaults = 0;
+        // Independent facts only: do not arm the HP1-gated mixedClawFrame/control ledger early.
+        string[] earlyMixedOctants = { "Right", "DownRight", "Down", "DownLeft", "Left", "UpLeft", "Up", "UpRight" };
+        var earlyMixedPreviews = new (ulong Stamp, ulong Physics, ulong Sequence, ulong Authority,
+            Transform2D Pose, Vector2 Velocity, Vector2 Aim, string Facts)[8];
+        string[] earlyMixedDangerRows = new string[8];
+        int[] earlyMixedSourceCounts = new int[8], earlyMixedSourceCaps = new int[8];
+        var earlyMixedSourceRows = new List<string>(64);
+        int earlyMixedSeen = 0, earlyMixedObserved = 0, earlyMixedAssociated = 0, earlyMixedFaults = 0, earlyMixedCapCount = 0;
+        ulong earlyMixedPublicationStamp = 0, earlyMixedScanStamp = 0;
+        bool earlyMixedSubscribed = false;
+        string earlyMixedFirstFault = null;
+        Action<MechanicalClawFrame, GrappleSurface2D> earlyMixedPreview = (value, _) =>
+        {
+            if (value.State != MechanicalClawState.Idle) return;
+            try
+            {
+                int batch = group.CurrentBatch, liveActors = group.LiveActorCount;
+                bool arrivalWarning = group.IsArrivalWarningActive;
+                if (batch != 1 || liveActors <= 0 || arrivalWarning || !input.CurrentFrame.KeyboardActions) return;
+                ulong stamp = ++earlyMixedPublicationStamp;
+                Vector2 aim = input.KeyboardAimDirection;
+                int octant = ((int)Mathf.Round(aim.Angle() / (Mathf.Pi / 4f)) + 8) % 8;
+                int bit = 1 << octant;
+                if ((earlyMixedSeen & bit) != 0) return;
+                earlyMixedSeen |= bit; // A failed copy must not turn a later publication into the claimed first one.
+                // This is the controller's actual property, not a synthetic eight-direction probe.
+                // Only its value snapshot is retained; no Surface/Node/Resource enters this buffer.
+                MechanicalClawTargetSnapshot chosen = mixedClaw.KeyboardPreview.Snapshot;
+                PlayerInputFrame raw = input.RawFrame, accepted = input.CurrentFrame;
+                ulong physics = Engine.GetPhysicsFrames(), sequence = input.CurrentFrameSequence;
+                ulong authority = mixedClaw.AuthorityRevision;
+                Transform2D pose = player.GlobalTransform;
+                Vector2 velocity = player.Velocity;
+                string facts = $"MIXED_EARLY_PREVIEW stamp={stamp} octant={earlyMixedOctants[octant]} " +
+                    $"physics={physics} sequence={sequence} authority={authority} loop={currentFrame}/900 " +
+                    $"batch={batch} live_actors={liveActors} arrival_warning={arrivalWarning} " +
+                    $"original_suppression_resume_physics={mixedCandidateStart} " +
+                    $"player={player.GetInstanceId()} pose={pose} velocity={velocity} aim={aim} " +
+                    $"publication_caster={value.CasterWorldPosition} publication_velocity={value.CasterVelocity} " +
+                    $"cast={value.CastId} next_cast={value.NextCastId} failure={value.Failure} " +
+                    $"hp={playerHealth.CurrentHealth} J_started={attacksStarted} J_connected={attacksConnected} " +
+                    $"can_grapple={modes.CanBeginGrapple} shield_active={shield.IsActive} " +
+                    $"raw_L={raw.ShieldHeld} raw_J={raw.AttackPressed} raw_K={raw.ClawPressed} " +
+                    $"raw_Space={raw.JumpPressed} raw_Shift={raw.DashPressed} raw_aim={raw.Aim} raw_axis={raw.MoveAxis:R} " +
+                    $"current_L={accepted.ShieldHeld} current_J={accepted.AttackPressed} current_K={accepted.ClawPressed} " +
+                    $"current_Space={accepted.JumpPressed} current_Shift={accepted.DashPressed} " +
+                    $"current_aim={accepted.Aim} current_axis={accepted.MoveAxis:R} " +
+                    $"physical_WASD={Input.IsPhysicalKeyPressed(Key.W)}/{Input.IsPhysicalKeyPressed(Key.A)}/" +
+                    $"{Input.IsPhysicalKeyPressed(Key.S)}/{Input.IsPhysicalKeyPressed(Key.D)} " +
+                    $"chosen_id={chosen.RuntimeId} exists={chosen.Exists} los={chosen.HasLineOfSight} " +
+                    $"material={chosen.Material} anchor={chosen.WorldAnchor} legacy={chosen.IsLegacyInteraction} " +
+                    "boundary=ClawFrameChanged_Idle post_node_completed_claimed=false " +
+                    "unchosen_los=unmeasured extra_resolver=false event_input=false";
+                earlyMixedPreviews[octant] = (stamp, physics, sequence, authority, pose, velocity, aim, facts);
+                earlyMixedObserved |= bit;
+            }
+            catch (Exception error)
+            {
+                earlyMixedFaults++;
+                earlyMixedFirstFault ??= error.GetType().Name + ": " + error.Message;
+            }
+        };
+        int mixedMothGeometrySamples = 0;
+        string mixedMothGeometryMismatch = null;
+        bool mixedLateActive = false, mixedEarlyCandidates = false, mixedEarlyCounters = false;
+        long mixedLatePass = 0;
+        int mixedLateEvaluated = 0, mixedLatePassed = 0, mixedLateDropped = 0,
+            mixedLateFactDropped = 0, mixedLateFaults = 0;
+        var mixedLateFacts = counterweightSuppressionKeyboard ? new List<string>(32) : null;
+        var mixedLateRows = counterweightSuppressionKeyboard ? new Queue<string>(96) : null;
+        var mixedGuardSwitchWindow = counterweightSuppressionKeyboard ? new Task10PinnedGuardWindow() : null;
+        Task10GuardCapsule? mixedLateCapsule = null;
+        var mixedIncomingHistory = counterweightSuppressionKeyboard ? new Task10IncomingGuardHistory() : null;
+        Task10IncomingGuardContext? IncomingContext(bool eligible) => counterweightSuppressionKeyboard && eligible
+            ? new Task10IncomingGuardContext(mixedIncomingHistory, Engine.GetPhysicsFrames(), input.CurrentFrameSequence,
+                (float)player.GetPhysicsProcessDeltaTime(), player.Velocity) : null;
+        void LateFact(string fact)
+        {
+            if (mixedLateFacts.Count < 32) mixedLateFacts.Add(fact); else mixedLateFactDropped++;
+        }
+        void ObserveLateCandidate(Task10DangerCandidate row)
+        {
+            if (mixedEarlyCandidates) ObserveMixedCandidate(row);
+            if (!mixedLateActive) return;
+            try { LateFact($"candidate ordinal={row.Ordinal} order={row.ActorOrder} actor={row.SourceActorId} " +
+                $"leaf={row.LeafId} projectile={row.ProjectileId} kind={row.SourceKind} attack={row.Timeline.AttackId} " +
+                $"phase={row.Timeline.Phase} remaining={row.Timeline.PhaseRemainingSeconds:R} urgency={row.Urgency:R} " +
+                $"replaced={row.ReplacedWinner} orientation_consumed={row.OrientationConsumed} departure_excluded={row.DepartureExcluded} gap={row.FromActiveGap} source={row.GuardSource} clearance={row.GuardClearance:R} " +
+                $"has_shape={row.HasShape} shape_kind={row.Shape.Kind} shape_x={row.Shape.Origin.X:R} " +
+                $"shape_y={row.Shape.Origin.Y:R} extent_x={row.Shape.Extent.X:R} extent_y={row.Shape.Extent.Y:R} " +
+                $"rotation={row.Shape.RotationRadians:R} copied_from_same_scan=true"); }
+            catch { mixedLateFaults++; }
+        }
+        void ObserveLateCounter(ulong id, string state, AttackPhase phase, float remaining, float allowance, string reason)
+        {
+            if (mixedEarlyCounters) ObserveMixedCounter(id, state, phase, remaining, allowance, reason);
+            if (!mixedLateActive) return;
+            try { LateFact($"counter actor={id} state={state} phase={phase} remaining={remaining:R} " +
+                $"allowance={allowance:R} reason={reason}"); }
+            catch { mixedLateFaults++; }
+        }
+        bool galleryHp2Enabled = headlessNormalPlan && encounterId == "canyon.v2.encounter.pendulum-gallery" &&
+            KeyboardRouteInputDriver.Current != null;
+        var galleryHp2Prefix = new List<string>(24);
+        bool galleryHp2Flushed = false;
+        int galleryHp2Faults = 0;
+        bool? galleryHp2OuterBudget = null;
+        var galleryHp2JsonOptions = new System.Text.Json.JsonSerializerOptions {
+            NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals
+        };
+        void GalleryHp2Flush(string boundary)
+        {
+            if (!galleryHp2Enabled || galleryHp2Flushed) return;
+            galleryHp2Flushed = true;
+            try
+            {
+                for (int index = 0; index < galleryHp2Prefix.Count; index++)
+                    GD.Print($"TASK10_GALLERY_HP2_PREFIX ordinal={index + 1} {galleryHp2Prefix[index]}");
+                GD.Print($"TASK10_GALLERY_HP2_PREFIX_END boundary={boundary} count={galleryHp2Prefix.Count} capacity=24 faults={galleryHp2Faults} completed_strings_only=true flush_once=true safety_authorization=false");
+            }
+            catch { galleryHp2Faults++; }
+        }
+        var galleryCounterTail = new Queue<string>(128);
+        var galleryCounterPrefix = new List<string>(32);
+        bool galleryCounterPrefixFlushed = false;
+        bool galleryCounterPending = false;
+        string galleryCounterRow = "", galleryCounterLastStage = "not-evaluated";
+        int galleryCounterEvaluated = 0, galleryCounterPassed = 0;
+        int galleryCounterFaults = 0, galleryCounterOverflow = 0, galleryCounterTotal = 0;
+        int galleryCounterLastJCommand = -1;
+        void GalleryCounterStage(string stage, string facts)
+        {
+            if (!galleryCounterPending) return;
+            try
+            {
+                galleryCounterLastStage = stage;
+                galleryCounterRow += $" | stage={stage} physics={Engine.GetPhysicsFrames()} process={Engine.GetProcessFrames()} input={input.CurrentFrameSequence} {facts}";
+            }
+            catch { galleryCounterFaults++; }
+        }
+        bool GalleryCounterGate(int bit, bool value)
+        {
+            // Observe only the original call if short-circuit evaluation reaches it.
+            if (bit == 0x04000) galleryHp2OuterBudget = value;
+            if (galleryCounterPending)
+            { galleryCounterEvaluated |= bit; if (value) galleryCounterPassed |= bit; }
+            return value;
+        }
+        bool GalleryCounterEndpoint(string stage, bool value)
+        {
+            if (galleryCounterPending) GalleryCounterStage(stage, $"original_budget_value={value}");
+            return value;
+        }
+        void GalleryCounterComplete(string boundary)
+        {
+            if (!galleryCounterPending) return;
+            try
+            {
+                if (galleryCounterTail.Count == 128) { galleryCounterTail.Dequeue(); galleryCounterOverflow++; }
+                string completedRow = $"TASK10_GALLERY_COUNTER_PENDING {galleryCounterRow} last_stage={galleryCounterLastStage} evaluated=0x{galleryCounterEvaluated:X5} passed=0x{galleryCounterPassed:X5} not_evaluated=0x{(0x1FFFF & ~galleryCounterEvaluated):X5} completion={boundary} completion_physics={Engine.GetPhysicsFrames()} completion_process={Engine.GetProcessFrames()} completion_input={input.CurrentFrameSequence} unvisited_stages=unknown";
+                if (galleryCounterPrefix.Count < 32) galleryCounterPrefix.Add(completedRow);
+                galleryCounterTail.Enqueue(completedRow);
+                galleryCounterTotal++;
+            }
+            catch { galleryCounterFaults++; }
+            galleryCounterPending = false;
+            galleryCounterRow = "";
+        }
+        void GalleryCounterFlush(string boundary)
+        {
+            if (galleryCounterTotal == 0 && galleryCounterFaults == 0) return;
+            try
+            {
+                if (!galleryCounterPrefixFlushed)
+                {
+                    galleryCounterPrefixFlushed = true;
+                    for (int index = 0; index < galleryCounterPrefix.Count; index++)
+                        GD.Print($"TASK10_GALLERY_COUNTER_PREFIX ordinal={index + 1} {galleryCounterPrefix[index]}");
+                    GD.Print($"TASK10_GALLERY_COUNTER_PREFIX_END count={galleryCounterPrefix.Count} capacity=32 completed_strings_only=true flush_once=true");
+                }
+                while (galleryCounterTail.Count > 0) GD.Print(galleryCounterTail.Dequeue());
+                GD.Print($"TASK10_GALLERY_COUNTER_TAIL boundary={boundary} capacity=128 total={galleryCounterTotal} overflow={galleryCounterOverflow} faults={galleryCounterFaults} strings_only=true bit_04000=foreign_budget bit_08000=mixed_setup bit_10000=foreign_prelude original_mixed_masks_unchanged=true");
+            }
+            catch { galleryCounterFaults++; }
+        }
+        bool ObserveLateJGate(int bit, bool value)
+        {
+            GalleryCounterGate(bit, value);
+            if (mixedLateActive) { mixedLateEvaluated |= bit; if (value) mixedLatePassed |= bit; }
+            return value;
+        }
+        void CaptureLateDecision(string stage, Task10EncounterDanger danger, bool pinEligible)
+        {
+            if (!mixedLateActive) return;
+            try
+            {
+                string row = "MIXED_LATE_DECISION " + System.Text.Json.JsonSerializer.Serialize(new {
+                    stage, pass=mixedLatePass, physics=Engine.GetPhysicsFrames(), loop=currentFrame,
+                    physicsDelta=player.GetPhysicsProcessDeltaTime(), pinEligible,
+                    pinTrigger=pinEligible && danger.NearContactGuard,
+                    capsule=mixedLateCapsule is { } cap ? new {
+                        radius=cap.Radius, height=cap.Height,
+                        xx=cap.Transform.X.X, xy=cap.Transform.X.Y,
+                        yx=cap.Transform.Y.X, yy=cap.Transform.Y.Y,
+                        x=cap.Transform.Origin.X, y=cap.Transform.Origin.Y,
+                        source="same_original_scan_argument", extraQuery=false
+                    } : null,
+                    sequence=input.CurrentFrameSequence, actor=trackedActorId, enemyHealth=lastEnemyHealth,
+                    dx=lastDx, dy=lastDy, playerX=player.GlobalPosition.X, playerY=player.GlobalPosition.Y,
+                    playerVx=player.Velocity.X, playerVy=player.Velocity.Y,
+                    shieldActive=shield.IsActive, guardX=shield.GuardDirection.X, guardY=shield.GuardDirection.Y,
+                    sampledMove=input.CurrentFrame.MoveAxis, aimX=input.KeyboardAimDirection.X, aimY=input.KeyboardAimDirection.Y,
+                    frozenFirst=mixedFirstEdgeEnd>=0, capturedDefeated=mixedDefeated, capturedFatal=mixedFatalConnected,
+                    evaluated=mixedLateEvaluated, passed=mixedLatePassed,
+                    failed=mixedLateEvaluated & ~mixedLatePassed, notEvaluated=0x3fff & ~mixedLateEvaluated,
+                    danger.Threat, danger.SourceActorId, danger.AttackId, danger.Phase, danger.RemainingSeconds,
+                    danger.SafeCounterSeconds, danger.HasRanged, danger.CandidateObserverFaults,
+                    danger.NearContactGuard, danger.NearContactUnknownActive, danger.NearContactOverlappingActive,
+                    danger.IncomingGuardVeto, danger.IncomingGuardUnknown, danger.IncomingGuardPredicted,
+                    cachedEnergyKnown=mixedEnergyKnown, cachedEnergyPhysics=mixedEnergyPhysics,
+                    cachedEnergySequence=mixedEnergySequence, cachedEnergy=mixedEnergyState.Energy,
+                    cachedHeat=mixedEnergyState.Heat, inputShield=input.CurrentFrame.ShieldHeld,
+                    facts=mixedLateFacts.ToArray(), factsDropped=mixedLateFactDropped
+                });
+                if (mixedLateRows.Count == 96) { mixedLateRows.Dequeue(); mixedLateDropped++; }
+                mixedLateRows.Enqueue(row);
+                mixedGuardSwitchWindow.Observe(row, pinEligible && danger.NearContactGuard);
+            }
+            catch { mixedLateFaults++; }
+        }
+        void AddMixedCandidateRow(string row)
+        {
+            if (mixedCandidateRows.Count < mixedCandidateCapacity) mixedCandidateRows.Add(row);
+            else mixedCandidateDropped++;
+        }
+        void ObserveMixedCandidate(Task10DangerCandidate row)
+        {
+            // The resolver isolates this callback (including these getters). All
+            // retained data are numbers/strings, never native nodes or resources.
+            ulong physics = Engine.GetPhysicsFrames();
+            if (row.Timeline.Phase == AttackPhase.Active &&
+                GodotObject.InstanceFromId(row.SourceActorId) is GraveLampMoth publishedMoth &&
+                GodotObject.IsInstanceValid(publishedMoth) && publishedMoth.IsInsideTree() &&
+                !publishedMoth.IsQueuedForDeletion())
+            {
+                var publishedLeaf = publishedMoth.GetNodeOrNull<AttackTelegraphVisual>("VisualRoot/AttackTelegraph");
+                if (GodotObject.IsInstanceValid(publishedLeaf) && publishedLeaf.IsInsideTree() &&
+                    !publishedLeaf.IsQueuedForDeletion() &&
+                    publishedLeaf.CurrentFrame.Timeline.AttackId == row.Timeline.AttackId &&
+                    publishedLeaf.CurrentFrame.Timeline.Phase == AttackPhase.Active &&
+                    publishedLeaf.CurrentFrame.Shape.Kind == AttackShapeKind.Circle)
+                {
+                    // The real actor already published this attack's world shape.
+                    // Missing scan geometry must not make this active Moth
+                    // incomparable with a later overlapping projectile.
+                    AttackShapeFrame published = publishedLeaf.CurrentFrame.Shape;
+                    mixedMothGeometrySamples++;
+                    if (!row.HasShape || row.LeafId != publishedLeaf.GetInstanceId() ||
+                        row.Shape.Kind != published.Kind || row.Shape.Origin != published.Origin ||
+                        row.Shape.Extent != published.Extent ||
+                        row.Shape.RotationRadians != published.RotationRadians ||
+                        !float.IsFinite(row.GuardClearance))
+                        mixedMothGeometryMismatch ??= $"physics={physics} actor={row.SourceActorId} " +
+                            $"attack={row.Timeline.AttackId} leaf={row.LeafId}/{publishedLeaf.GetInstanceId()} " +
+                            $"shape_known={row.HasShape} clearance={row.GuardClearance:R} " +
+                            $"published={published.Kind}/{published.Origin}/{published.Extent}";
+                }
+            }
+            if (row.Ordinal == 0)
+            {
+                var collider = player.GetNodeOrNull<CollisionShape2D>("Hurtbox/HurtboxCollider");
+                bool available = GodotObject.IsInstanceValid(collider);
+                Transform2D transform = available ? collider.GlobalTransform : default;
+                CapsuleShape2D capsule = available ? collider.Shape as CapsuleShape2D : null;
+                AddMixedCandidateRow($"MIXED_CANDIDATE_PLAYER physics={physics} pass={mixedCandidatePasses} " +
+                    $"sample={input.CurrentFrameSequence} player_id={player.GetInstanceId()} " +
+                    $"player={player.GlobalPosition} velocity={player.Velocity} " +
+                    $"collider_available={available} collider_id={(available ? collider.GetInstanceId() : 0)} " +
+                    $"disabled={(available ? collider.Disabled.ToString() : "unknown")} capsule={capsule != null} " +
+                    $"radius={(capsule != null ? capsule.Radius : float.NaN):R} height={(capsule != null ? capsule.Height : float.NaN):R} " +
+                    $"basis_x={transform.X.X:R},{transform.X.Y:R} basis_y={transform.Y.X:R},{transform.Y.Y:R} " +
+                    $"origin={transform.Origin.X:R},{transform.Origin.Y:R}");
+            }
+            bool motionKnown = row.ProjectileId != 0 &&
+                mixedProjectilePositions.TryGetValue(row.ProjectileId, out var previous) && physics > previous.Physics;
+            // Displacement over the observed interval, not authored speed, future
+            // hit prediction, homing direction or an ETA based on Active lifetime.
+            ulong interval = motionKnown ? physics - mixedProjectilePositions[row.ProjectileId].Physics : 0;
+            Vector2 displacement = motionKnown ? row.GuardSource - mixedProjectilePositions[row.ProjectileId].Position : Vector2.Zero;
+            if (row.ProjectileId != 0) mixedProjectilePositions[row.ProjectileId] = (physics, row.GuardSource);
+            string points = row.HasShape && row.Shape.Points != null
+                ? string.Join(";", row.Shape.Points.Select(point => $"{point.X:R},{point.Y:R}")) : "unavailable";
+            AddMixedCandidateRow($"MIXED_CANDIDATE physics={physics} pass={mixedCandidatePasses} sample={input.CurrentFrameSequence} " +
+                $"ordinal={row.Ordinal} actor_order={row.ActorOrder} actor={row.SourceActorId} leaf={row.LeafId} " +
+                $"projectile={row.ProjectileId} source_kind={row.SourceKind} attack={row.Timeline.AttackId} " +
+                $"kind={row.Timeline.Kind} phase={row.Timeline.Phase} duration={row.Timeline.PhaseDurationSeconds:R} " +
+                $"remaining={row.Timeline.PhaseRemainingSeconds:R} lock={row.Timeline.HasLockedTarget} " +
+                $"lock_point={row.Timeline.LockedWorldTarget} guard_source={row.GuardSource} urgency={row.Urgency:R} " +
+                $"replaced={row.ReplacedWinner} gap={row.FromActiveGap} shape_known={row.HasShape} " +
+                $"departure_excluded={row.DepartureExcluded} orientation_consumed={row.OrientationConsumed} " +
+                $"guard_clearance={row.GuardClearance:R} " +
+                $"shape={row.Shape.Kind} origin={row.Shape.Origin} extent={row.Shape.Extent} rotation={row.Shape.RotationRadians:R} " +
+                $"points={points} motion_known={motionKnown} interval_ticks={interval} displacement={displacement} " +
+                "geometry_world=true motion_is_interval_average=true eta_known=false");
+        }
+        void ObserveMixedCounter(ulong id, string state, AttackPhase phase, float remaining, float allowance, string reason)
+        {
+            if (mixedCounterSources.Count < 32)
+                mixedCounterSources.Add($"{id}:{state}:{phase}:remaining={remaining:R}:allowance={allowance:R}:{reason}");
+        }
         void MixedResourceSnapshot(string boundary, string details = "")
         {
             if (!counterweightSuppressionKeyboard || mixedClosed) return;
@@ -10560,6 +14574,380 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             }
             catch (Exception) { mixedObservationErrors++; } // Never interrupt a production event.
         }
+        string ObserveWinningRustContact(Task10EncounterDanger danger)
+        {
+            if (danger.Phase != AttackPhase.Active || danger.SourceActorId == 0 || danger.AttackId == 0)
+                return "";
+            try
+            {
+                if (GodotObject.InstanceFromId(danger.SourceActorId) is not RustShellSquire rust ||
+                    !GodotObject.IsInstanceValid(rust) || rust.IsQueuedForDeletion() ||
+                    !actorRoot.IsAncestorOf(rust)) return "";
+                var hitbox = rust.GetNodeOrNull<Hitbox>(rust.AttackHitboxPath);
+                var hurtbox = player.GetNodeOrNull<Hurtbox>("Hurtbox");
+                var timeline = rust.CurrentFrame.AttackTimeline;
+                if (!GodotObject.IsInstanceValid(hitbox) || !GodotObject.IsInstanceValid(hurtbox) ||
+                    !hitbox.Monitoring || timeline.Phase != AttackPhase.Active || timeline.AttackId != danger.AttackId ||
+                    hurtbox.ResolveDamageReceiver() is not PlayerGuardedDamageReceiver receiver)
+                    return " rust_contact=identity_unavailable";
+                const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.NonPublic;
+                if (typeof(Hitbox).GetField("_attackId", flags)?.GetValue(hitbox) is not ulong attack ||
+                    attack != danger.AttackId ||
+                    typeof(Hitbox).GetField("_hitInstances", flags)?.GetValue(hitbox) is not HashSet<ulong> targets ||
+                    typeof(PlayerGuardedDamageReceiver).GetField("_processedAttackIds", flags)?.GetValue(receiver)
+                        is not HashSet<DamageAttackIdentity> processed ||
+                    typeof(HealthComponent).GetField("_processedAttackIds", flags)?.GetValue(playerHealth)
+                        is not HashSet<DamageAttackIdentity> health)
+                    return " rust_contact=ledger_unavailable";
+                ulong source = hitbox.GetInstanceId(), target = hurtbox.GetInstanceId();
+                var identity = new DamageAttackIdentity(source, attack);
+                return $" rust_contact=observed rust_hitbox={source} rust_attack={attack} player_hurtbox={target} " +
+                    $"rust_target_spent={targets.Contains(target)} rust_receiver_seen={processed.Contains(identity)} " +
+                    $"rust_health_seen={health.Contains(identity)} rust_contact_observer_only=true";
+            }
+            catch (Exception)
+            {
+                // Diagnostic failure is unknown, never unspent or an input veto.
+                return " rust_contact=observer_fault";
+            }
+        }
+        string DescribeContactCandidates(Task10GuardCapsule? capsule)
+        {
+            if (mixedContactCandidates == null || mixedContactCandidates.Count == 0) return "";
+            try
+            {
+                return $" contact_candidates={mixedContactCandidates.Count} contact_clipped={mixedContactClipped} " +
+                    $"contact_capsule={capsule?.Transform} contact_radius={capsule?.Radius:R} contact_height={capsule?.Height:R} " +
+                    "contact_shapes=[" + string.Join(";", mixedContactCandidates.Select(row =>
+                        $"{row.SourceKind}/{row.SourceActorId}/{row.ProjectileId}/{row.LeafId}/{row.Timeline.AttackId}/" +
+                        $"{row.Timeline.PhaseRemainingSeconds:R}/{row.GuardClearance:R}/{row.HasShape}/{row.Shape.Kind}/" +
+                        $"{row.Shape.Origin}/{row.Shape.Extent}/{row.Shape.RotationRadians:R}/" +
+                        $"{row.OrientationConsumed}/{row.DepartureExcluded}/{row.NominalStepEmissionClear}")) + "]";
+            }
+            catch (Exception) { return " contact_candidates=observer_fault"; }
+        }
+        bool TryHeldLeftCandidate(Task10EncounterDanger danger, out Task10DangerCandidate bullet)
+        {
+            bullet = default;
+            if (mixedHeldLeftUsed || !counterweightSuppressionKeyboard || mixedContactClipped || previousContactClipped ||
+                mixedImmediateWarning || danger.MissingGuardSourceCount != 0 || danger.CandidateObserverFaults != 0 ||
+                mixedContactTick == 0 || previousContactTick == 0 || mixedContactTick != Engine.GetPhysicsFrames() ||
+                previousContactTick + 1 != mixedContactTick || previousContactSequence + 1 != mixedContactSequence ||
+                mixedContactSequence != input.CurrentFrameSequence || Engine.TimeScale != 1d || Engine.PhysicsTicksPerSecond != 60 ||
+                danger.Phase != AttackPhase.Active || danger.GuardSource.X <= player.GlobalPosition.X ||
+                !shield.IsActive || !input.Current.ShieldHeld || !shield.GuardDirection.IsEqualApprox(Vector2.Left) ||
+                !input.KeyboardAimDirection.IsEqualApprox(Vector2.Left) || !Input.IsPhysicalKeyPressed(Key.L) ||
+                combat.IsAttacking || mixedClawMotor.IsDashing || mixedClawMotor.HasEnvironmentalLaunchMomentum ||
+                mixedClawMotor.HasGrappleReleaseMomentum || mixedClaw.CurrentFrame.State != MechanicalClawState.Idle ||
+                input.CurrentFrame.JumpPressed || input.CurrentFrame.JumpHeld || input.CurrentFrame.DashPressed ||
+                input.CurrentFrame.AttackPressed || input.CurrentFrame.ClawPressed || playerHealth.CurrentHealth != 2 ||
+                player.Velocity.X is not (< 0f and > -50f) || MathF.Abs(player.Velocity.Y) > .001f ||
+                mixedLateCapsule is not { } cap || cap.Transform.X != Vector2.Right || cap.Transform.Y != Vector2.Down)
+                return false;
+            const float dt = 1f / 60f, margin = .25f;
+            float west = -player.Velocity.X * dt;
+            var floor = actorRoot.GetNodeOrNull<CollisionShape2D>("../Collision/LiftBackLanding/Collision");
+            if (!GodotObject.IsInstanceValid(floor) || floor.GetParent() is not StaticBody2D body || !player.IsOnFloor() ||
+                !HasFloorContact(player, body) || !TryTask10CapsuleCorridor(player, floor, out float bodyLeft,
+                    out _, out float floorLeft, out _) || bodyLeft - west <= floorLeft + margin)
+                return false;
+            int matches = 0, rightRust = 0;
+            foreach (var row in mixedContactCandidates)
+            {
+                if (row.OrientationConsumed || row.DepartureExcluded) return false;
+                if (row.FromActiveGap)
+                {
+                    if (!row.NominalStepEmissionClear) return false;
+                    continue;
+                }
+                if (!row.HasShape || !float.IsFinite(row.GuardClearance) || row.GuardClearance <= margin ||
+                    row.LeafId == 0 || row.Timeline.AttackId == 0) return false;
+                var old = previousContactCandidates.FindLast(before => before.SourceActorId == row.SourceActorId &&
+                    before.ProjectileId == row.ProjectileId && before.LeafId == row.LeafId && before.Timeline.AttackId == row.Timeline.AttackId);
+                if (!old.HasShape || old.Shape.Kind != row.Shape.Kind || old.Shape.Extent != row.Shape.Extent ||
+                    old.Shape.RotationRadians != row.Shape.RotationRadians) return false;
+                Vector2 step = row.Shape.Origin - old.Shape.Origin;
+                if (!step.IsFinite()) return false;
+                if (row.Shape.Kind == AttackShapeKind.Rectangle && row.Timeline.Kind == EnemyAttackKind.RustShellThrust &&
+                    row.SourceActorId == danger.SourceActorId && row.Timeline.AttackId == danger.AttackId)
+                {
+                    if (row.Shape.RotationRadians != 0f || step != Vector2.Zero ||
+                        row.Shape.Origin.X - row.Shape.Extent.X - cap.Transform.Origin.X - cap.Radius <= margin ||
+                        GodotObject.InstanceFromId(row.SourceActorId) is not RustShellSquire rust || rust.Velocity != Vector2.Zero)
+                        return false;
+                    rightRust++;
+                    continue;
+                }
+                if (row.Shape.Kind != AttackShapeKind.Circle || row.ProjectileId == 0 ||
+                    GodotObject.InstanceFromId(row.SourceActorId) is not RangedWeaponEnemy { Role: RangedWeaponRole.Burst }) return false;
+                if (row.GuardClearance > step.Length() + west + margin) continue;
+                if (step.LengthSquared() <= margin * margin || step.Normalized().Dot(Vector2.Right) < .3f ||
+                    row.Shape.Origin.X >= cap.Transform.Origin.X || row.Shape.Extent.X <= margin) return false;
+                // Both endpoints of the admitted neutral west-displacement interval
+                // land strictly inside the convex expanded capsule; no missed graze.
+                var end = row.Shape with { Origin = row.Shape.Origin + step, Extent = row.Shape.Extent - Vector2.One * margin };
+                var westEnd = cap with { Transform = new Transform2D(0f, cap.Transform.Origin + Vector2.Left * west) };
+                if (Task10GuardCircleClearance(end, cap) != 0f || Task10GuardCircleClearance(end, westEnd) != 0f) return false;
+                bullet = row;
+                matches++;
+            }
+            return matches == 1 && rightRust == 1;
+        }
+        async Task ProbeHeldLeftOnce(Task10EncounterDanger danger, Task10DangerCandidate bullet)
+        {
+            TestAssert.True(TryTask10FullFloorSupport(player, out ulong floor), "LEFT_GUARD_PROBE_SETUP: requires actual full floor support");
+            var hurtbox = player.GetNode<Hurtbox>("Hurtbox");
+            var receiver = (PlayerGuardedDamageReceiver)hurtbox.ResolveDamageReceiver();
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var ledger = (HashSet<DamageAttackIdentity>)typeof(PlayerGuardedDamageReceiver)
+                .GetField("_processedAttackIds", flags)!.GetValue(receiver)!;
+            var before = new HashSet<DamageAttackIdentity>(ledger);
+            var wanted = new DamageAttackIdentity(bullet.SourceActorId, bullet.Timeline.AttackId);
+            TestAssert.True(!before.Contains(wanted), "LEFT_GUARD_PROBE_SETUP: bullet must be unprocessed");
+            var oldPose = player.GlobalPosition;
+            var oldVx = player.Velocity.X;
+            var oldSequence = input.CurrentFrameSequence;
+            int oldRequests = monitor.RecoveryRequested;
+            int receipts = 0, zeroGuards = 0;
+            void OnShield(PlayerShieldResult result, ulong _)
+            {
+                receipts++;
+                if (result.Guarded && result.DamageAmount == 0 && result.KnockbackScale == 0 &&
+                    !result.SpendHeavyEnergy && !result.BrokeGuard) zeroGuards++;
+            }
+            shield.ShieldResolved += OnShield;
+            try
+            {
+                GD.Print($"LEFT_GUARD_PROBE_BEGIN sample={oldSequence} actor={wanted.SourceRuntimeId} shot={wanted.LocalAttackId} fixed_probe={mixedLeftProbe} live_candidates=true");
+                SendMouse(MouseButton.Right, true, player, player.GlobalPosition + Vector2.Left * 96f);
+                await PhysicsFrames(tree, monitor, 1);
+            }
+            finally { shield.ShieldResolved -= OnShield; }
+            var added = ledger.Where(id => !before.Contains(id)).ToArray();
+            string rust = ObserveWinningRustContact(danger);
+            bool support = TryTask10FullFloorSupport(player, out ulong afterFloor) && afterFloor == floor;
+            GD.Print($"LEFT_GUARD_PROBE_RECEIPT sample={oldSequence}->{input.CurrentFrameSequence} hp={playerHealth.CurrentHealth} " +
+                $"receipts={receipts} zero={zeroGuards} new_ids={added.Length} matched={added.Length == 1 && added[0] == wanted} " +
+                $"support={support} dx={player.GlobalPosition.X-oldPose.X:R} vx={oldVx:R}->{player.Velocity.X:R} " +
+                $"axis={input.Current.MoveAxis:R} held={input.Current.ShieldHeld} direction={shield.GuardDirection}{rust}");
+            TestAssert.True(input.CurrentFrameSequence == oldSequence + 1 && receipts == 1 && zeroGuards == 1 &&
+                added.Length == 1 && added[0] == wanted && playerHealth.CurrentHealth == 2 &&
+                monitor.RecoveryRequested == oldRequests && support && player.GlobalPosition.X <= oldPose.X &&
+                player.Velocity.X > oldVx && player.Velocity.X <= 0 && input.Current.MoveAxis == 0 &&
+                input.Current.ShieldHeld && shield.IsActive && shield.GuardDirection.IsEqualApprox(Vector2.Left) &&
+                rust.Contains("rust_target_spent=False rust_receiver_seen=False rust_health_seen=False", StringComparison.Ordinal),
+                "LEFT_GUARD_PROBE_RED: real next step must block the identified shot without Rust contact, recovery or east movement");
+            GD.Print("LEFT_GUARD_PROBE_OK source_bound=true real_keyboard=true single_step=true whole_route_proof=false");
+        }
+        // One post-hop preparation sample. The production resolver publishes this
+        // before Motor; never replace it with a second predictive resolver call.
+        int mixedPostHopKStage = 0, mixedPostHopPreviews = 0, mixedPostHopReceiptStart = 0;
+        ulong mixedPostHopCommandSequence = 0, mixedPostHopTarget = 0;
+        bool mixedPostHopAttempted = false, mixedPostHopIssued = false;
+        bool mixedPostHopRightProbe = counterweightSuppressionKeyboard &&
+            OS.GetEnvironment("KNIGHT_POSTHOP_RIGHT_PROBE") == "1";
+        bool mixedPostHopCrossProbe = counterweightSuppressionKeyboard &&
+            OS.GetEnvironment("KNIGHT_POSTHOP_CROSS_PROBE") == "1";
+        bool mixedPostHopEarlyCrossProbe = mixedPostHopCrossProbe &&
+            OS.GetEnvironment("KNIGHT_POSTHOP_EARLY_CROSS_PROBE") == "1";
+        // Default keyboard proof walks into a valid left-facing aim position
+        // during the sampled warning. Preserve the explicit right/late controls.
+        bool mixedPostHopDefaultCross = counterweightSuppressionKeyboard &&
+            !mixedPostHopRightProbe && !mixedPostHopCrossProbe;
+        bool mixedPostHopCrossEnabled = mixedPostHopDefaultCross || mixedPostHopCrossProbe;
+        bool mixedPostHopEarlyPositioning = mixedPostHopDefaultCross || mixedPostHopEarlyCrossProbe;
+        bool mixedExplicitRecharge = OS.GetEnvironment("KNIGHT_POSTHOP_RECHARGE_PROBE") == "1";
+        bool mixedRechargeEnabled = Task10PostHopRechargeRoute(mixedPostHopEarlyPositioning,
+            headlessNormalPlan, mixedExplicitRecharge);
+        if (mixedPostHopEarlyPositioning)
+            GD.Print($"TASK10_POSTHOP_RECHARGE_ROUTING normal_plan={headlessNormalPlan} " +
+                $"explicit_probe={mixedExplicitRecharge} early_positioning={mixedPostHopEarlyPositioning} " +
+                $"selected={mixedRechargeEnabled} safety_authorization=false");
+        int mixedRechargeDeferrals = 0;
+        var mixedPostHopCrossPlan = new List<(float Axis, float X, float Vx)>(13);
+        int mixedPostHopCrossIndex = 0;
+        ulong mixedPostHopCrossWarning = 0;
+        float mixedPostHopCrossStartY = 0;
+        float mixedPostHopCrossStartEnergy = 0;
+        bool mixedPostHopRightStarted = false;
+        int mixedPostHopRightSettle = 0;
+        ulong mixedPostHopRightWarning = 0;
+        Vector2 mixedPostHopRightOrigin = default;
+        float mixedPostHopRightMaximumX = 0;
+        MixedLaterClawReceipt mixedPostHopAcceptedReceipt = default;
+        int mixedBrakeStage=0, mixedBrakeForceSamples=0, mixedBrakeDeadline=0;
+        int mixedBrakeJumps=0, mixedBrakeDashes=0, mixedBrakeRejected=0, mixedBrakeAttacks=0, mixedBrakeClaws=0;
+        int mixedBrakeStartedBase=-1, mixedBrakeConnectedBase=-1;
+        int mixedBrakeBackoffAttempts=0, mixedBrakeBackoffDenied=0;
+        bool mixedBrakeReleasedByJ=false;
+        ulong mixedBrakeSequence=0, mixedBrakeNextCast=0, mixedBrakeFloor=0, mixedBrakeShape=0;
+        Transform2D mixedBrakeFloorTransform=default;
+        PlayerMotionSettings mixedBrakeMotion=null;
+        MobilityModuleSettings mixedBrakeModule=default;
+        Task10PostHopBackoffPlan mixedBrakePlan=default;
+        Task10PostHopGeometry mixedBrakeGeometry=default;
+        int mixedFirstRustReceiptIndex = -1, mixedPostHopRustHp = 0;
+        MixedLaterClawReceipt mixedFirstRustReceipt = default;
+        ulong mixedPostHopRustWarning = 0;
+        Vector2 mixedPostHopRememberedAim = Vector2.Zero;
+        Task10PostHopPreview mixedPostHopPreview = default;
+        MechanicalClawTargetResolution mixedPostHopSelection = MechanicalClawTargetResolution.None;
+        MechanicalClawKeyboardTrace mixedPostHopTrace = null;
+        int mixedPostHopObservationAttempts = 0, mixedPostHopObservationCompleted = 0;
+        void ObservePostHopCandidateGeometry()
+        {
+            // Passive scalar snapshot at the SAME production preview publication.
+            // No extra resolver, LOS query, receiver mutation, input or wait.
+            mixedPostHopObservationAttempts++;
+            bool completed = Task10CapturePostHopObservation(() =>
+            {
+                var chosen = mixedPostHopSelection;
+                string chosenPath = GodotObject.IsInstanceValid(chosen.Surface) && chosen.Surface.IsInsideTree()
+                    ? chosen.Surface.GetPath().ToString() : "off-tree-or-none";
+                int count = 0;
+                for (int child = 0; child < actorRoot.GetChildCount(); child++)
+                {
+                    if (actorRoot.GetChild(child) is not GraveLampMoth moth || !GodotObject.IsInstanceValid(moth) ||
+                        !moth.IsInsideTree() || moth.IsQueuedForDeletion()) continue;
+                    var target = moth.GetNodeOrNull<ThreadTarget2D>("ThreadTarget");
+                    if (!GodotObject.IsInstanceValid(target)) continue;
+                    Vector2 anchor = target.WorldAnchor;
+                    Vector2 offset = anchor - player.GlobalPosition;
+                    float angle = offset.IsZeroApprox() ? 0f : Mathf.Abs(input.KeyboardAimDirection.AngleTo(offset));
+                    MixedResourceSnapshot("posthop_candidate", $"actor_id={moth.GetInstanceId()} target_id={target.GetInstanceId()} " +
+                        $"state={moth.CurrentState} hp_now={moth.GetNode<HealthComponent>("Health").CurrentHealth} " +
+                        $"anchor={anchor} actor_position={moth.GlobalPosition} actor_velocity={moth.Velocity} " +
+                        $"available={target.IsAvailable} target_group={target.IsInGroup(ThreadTarget2D.TargetGroup)} " +
+                        $"distance={offset.Length():R} aim_angle_radians={angle:R} " +
+                        $"chosen_id={chosen.Snapshot.RuntimeId} chosen_anchor={chosen.Snapshot.WorldAnchor} chosen_path={chosenPath} " +
+                        "same_preview_boundary=true unselected_los=unmeasured extra_resolver=false event_input=false");
+                    count++;
+                }
+                MixedResourceSnapshot("posthop_candidate_end", $"count={count} same_preview_boundary=true extra_resolver=false event_input=false");
+            }, () => mixedObservationErrors++);
+            if (completed) mixedPostHopObservationCompleted++;
+        }
+        Action<MechanicalClawFrame, GrappleSurface2D> mixedClawFrame = (value, surface) =>
+        {
+            ObserveLaterClaw(value, surface);
+            if (mixedPostHopKStage == 1 && value.State == MechanicalClawState.Idle)
+            {
+                mixedPostHopSelection = mixedClaw.KeyboardPreview;
+                mixedPostHopPreview = new(Engine.GetPhysicsFrames(), input.CurrentFrameSequence,
+                    mixedClaw.AuthorityRevision, player.GlobalTransform, input.KeyboardAimDirection,
+                    input.CurrentFrame.KeyboardActions, Input.IsPhysicalKeyPressed(Key.W),
+                    input.CurrentFrame.ShieldHeld || shield.IsActive || Input.IsPhysicalKeyPressed(Key.L),
+                    true, !Task10PostHopNeutralInput(input.CurrentFrame,input.RawFrame,Task10PostHopHeldMask()));
+                mixedPostHopPreviews++;
+                if (mixedPostHopPreviews <= 4)
+                    MixedResourceSnapshot("posthop_Rust_preview", $"preview={mixedPostHopPreview} " +
+                        $"selected={mixedPostHopSelection.Snapshot.RuntimeId} exists={mixedPostHopSelection.Snapshot.Exists} " +
+                        $"los={mixedPostHopSelection.Snapshot.HasLineOfSight} legacy={mixedPostHopSelection.Snapshot.IsLegacyInteraction} " +
+                        "extra_resolver=false event_input=false");
+                if (mixedPostHopPreviews == 1) ObservePostHopCandidateGeometry();
+                if (mixedPostHopTrace is { } trace)
+                {
+                    mixedPostHopTrace = null;
+                    MixedResourceSnapshot("posthop_resolver_trace", $"focus={trace.FocusSurfaceId} " +
+                        $"rows={trace.Count} total={trace.Total} dropped={trace.Dropped} faults={trace.Faults} " +
+                        $"cone={trace.ConeQueries} los={trace.LosQueries} original_call_only=true");
+                    for (int i = 0; i < trace.Count; i++)
+                    {
+                        var row = trace.Read(i);
+                        if (row.Surface != trace.FocusSurfaceId && row.Stage != KeyboardClawTraceStage.Result) continue;
+                        MixedResourceSnapshot("posthop_resolver_row", $"stage={row.Stage} reason={row.Reason} " +
+                            $"surface={row.Surface} point={row.Point} angle={row.Angle:R} distance={row.Distance:R} " +
+                            $"los_evaluated={row.LosEvaluated} los={row.Los} baseline={row.Baseline} path={row.Path}");
+                    }
+                }
+            }
+            // Passive publication from the production resolver, before Motor/Combat.
+            // Never call a second resolver/ray to manufacture early-K admission.
+            if (value.State == MechanicalClawState.Idle && mixedClawStage == 0)
+            {
+                var preview = mixedClaw.KeyboardPreview;
+                mixedPreviewPhysics = Engine.GetPhysicsFrames();
+                mixedPreviewSequence = input.CurrentFrameSequence;
+                mixedPreviewSelected = preview.Snapshot.RuntimeId;
+                mixedPreviewExists = preview.Snapshot.Exists;
+                mixedPreviewLos = preview.Snapshot.HasLineOfSight;
+                mixedPreviewOwn = preview.Surface == mixedClawTarget && mixedPreviewSelected == mixedClawTargetId;
+                mixedPreviewAuthority = mixedClaw.AuthorityRevision;
+                mixedPreviewPose = player.GlobalTransform;
+                mixedPreviewVelocity = player.Velocity;
+                mixedPreviewAim = input.KeyboardAimDirection;
+                mixedPreviewAnchor = preview.Snapshot.WorldAnchor;
+            }
+            if (mixedClawStage is < 1 or > 3) return;
+            if (value.Failure != MechanicalClawFailure.None) mixedClawFailure = value.Failure;
+            if (value.State != mixedClawLastState)
+                MixedResourceSnapshot("owned_burst_K_state", $"state={value.State} cast={value.CastId} " +
+                    $"locked={value.LockedTargetRuntimeId} failure={value.Failure} shuttle={value.ShuttleDistance:R}");
+            mixedClawLastState = value.State;
+            mixedClawLatched |= value.State == MechanicalClawState.Latched && surface == mixedClawTarget &&
+                value.CastId == mixedClawCastId && value.LockedTargetRuntimeId == mixedClawTarget.GetInstanceId();
+        };
+        void CaptureMixedClawBaseline()
+        {
+            TestAssert.True(monitor.RecoveryRequested == startingRecoveries &&
+                monitor.RecoveryCompleted == startingRecoveries,
+                "mixed baseline cannot absorb an unexpected pending or completed recovery");
+            mixedClawHp = playerHealth.CurrentHealth;
+            mixedClawRequests = monitor.RecoveryRequested;
+            mixedClawJumps = mixedClawMotor.AcceptedJumpCount;
+            mixedClawDashes = mixedClawMotor.AcceptedDashCount;
+        }
+        bool TryBindMixedClawEnemy(RangedWeaponEnemy burst, bool liveEnrollment)
+        {
+            if (!counterweightSuppressionKeyboard || mixedClawEnemy != null || group.CurrentBatch != 1 ||
+                !CourtyardRearClawControl.Live(burst)) return false;
+            int hp = burst.GetNode<HealthComponent>("Health").CurrentHealth;
+            bool optedLive = liveEnrollment && mixedPostShotSchedule;
+            if (!Task10MixedBurstEnrollmentAccepted(optedLive, true, group.OwnsLiveActor(burst),
+                    burst.GetParent() == actorRoot,
+                    burst.Name.ToString().StartsWith(encounterId.Replace('.', '_'), StringComparison.Ordinal),
+                    burst.SceneFilePath == CanyonEncounterCatalog.BurstScene, hp)) return false;
+            var threadTarget = burst.GetNode<ThreadTarget2D>("ThreadTarget");
+            var adapter = threadTarget.GetNode<LegacyThreadInteractionAdapter>("LegacyThreadInteractionAdapter");
+            TestAssert.True(CourtyardRearClawControl.Live(threadTarget) &&
+                CourtyardRearClawControl.Live(adapter) && threadTarget.GetParent() == burst,
+                "mixed enrollment preserves the real authored target and adapter hierarchy");
+            mixedClawEnemy = burst;
+            mixedLiveEnrolled = optedLive;
+            mixedClawActorId = burst.GetInstanceId();
+            mixedClawTarget = threadTarget;
+            mixedClawTargetId = threadTarget.GetInstanceId();
+            mixedClawAdapter = adapter;
+            mixedClawApplications = adapter.ApplicationCount;
+            CaptureMixedClawBaseline();
+            burst.ShotEmitted += mixedClawShot;
+            burst.Defeated += mixedClawDefeated;
+            burst.FrameChanged += mixedClawEnemyFrame;
+            mixedClaw.ClawFrameChanged += mixedClawFrame;
+            MixedResourceSnapshot(optedLive ? "owned_burst_live_enrolled" : "owned_burst_first_J_contact_armed",
+                $"actor={mixedClawActorId} enemy_hp={hp} post_shot_required={mixedPostShotSchedule} " +
+                "registration_is_not_a_cast=true");
+            return true;
+        }
+        bool MixedSetupEngagement()
+        {
+            // This is a continuation of the one observed owned K, not permission
+            // to choose any HP2 resident. Keep it through the setup J windup.
+            return mixedPostShotSchedule && mixedLiveEnrolled && group.CurrentBatch == 1 &&
+                CourtyardRearClawControl.Live(mixedClawEnemy) && group.OwnsLiveActor(mixedClawEnemy) &&
+                mixedClawEnemy.GetInstanceId() == mixedClawActorId && mixedClawEnemy.GetParent() == actorRoot &&
+                mixedClawEnemy.SceneFilePath == CanyonEncounterCatalog.BurstScene &&
+                mixedClawEnemy.Name.ToString().StartsWith(encounterId.Replace('.', '_'), StringComparison.Ordinal) &&
+                mixedClawEnemy.GetNode<HealthComponent>("Health").CurrentHealth == 2 && !mixedFirstJObserved &&
+                CourtyardRearClawControl.Live(mixedClawTarget) && mixedClawTarget.GetParent() == mixedClawEnemy &&
+                mixedClawTarget.GetInstanceId() == mixedClawTargetId &&
+                CourtyardRearClawControl.Live(mixedClawAdapter) && mixedClawAdapter.GetParent() == mixedClawTarget &&
+                mixedClawShotSeen && mixedClawShotOrdinal != 0 && mixedClawCompleted && !mixedClawAborted &&
+                mixedClawStage == 4 && mixedClaw.CurrentFrame.State == MechanicalClawState.Idle &&
+                mixedFirstEdgeEnd == mixedClawEdges + 1 && mixedFirstPress != 0 && mixedFirstHandoff >= mixedFirstPress &&
+                KeyboardRouteInputDriver.Current?.ClawEdges == mixedFirstEdgeEnd && !mixedLaterPending;
+        }
         Action<PlayerEnergyFrame> mixedEnergyChanged = frame =>
         {
             if (mixedClosed) return;
@@ -10577,6 +14965,308 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         Action<PlayerShieldResult, ulong> mixedShieldResolved = (result, transition) =>
             MixedResourceSnapshot("shield_resolved_pre_resource", $"transition={transition} guarded={result.Guarded} " +
                 $"damage_amount={result.DamageAmount} broke_guard={result.BrokeGuard} request_source=unknown");
+        // A finite movement attempt, not a declaration that any danger is safe.
+        // 0=unarmed, 1=watch locked cycle, 2=commanded, 3=airborne,
+        // 4=landed/natural regeneration, 5=returned to the original combat loop.
+        int mixedHopStage = 0, mixedHopHp = 0, mixedHopJumps = 0, mixedHopDashes = 0,
+            mixedHopRawEdges = 0, mixedHopSamples = 0, mixedHopSettled = 0,
+            mixedHopAcknowledged = 0, mixedHopFaults = 0;
+        ulong mixedHopCycle = 0, mixedHopCommandSequence = 0, mixedHopCommandPhysics = 0, mixedHopLastSequence = 0,
+            mixedHopLanding = 0, mixedHopCasts = 0, mixedHopIdlePhysics = 0, mixedHopIdleSequence = 0;
+        float mixedHopLastEnergy = 0;
+        bool mixedHopApex = false, mixedHopNaturalIncrease = false, mixedHopIssued = false,
+            mixedHopPhysicalSnapshot = false;
+        string mixedHopFault = null;
+        string mixedUnwindType = null, mixedUnwindMessage = null;
+        Task10VolleyTailJournal mixedVolleyJournal = null;
+        Vector2 mixedHopAim = Vector2.Zero;
+        RangedWeaponEnemy mixedHopBurst = null;
+        BasinBoardingTickObserver mixedHopObserver = null;
+        Task10WarningHopCue mixedHopCue = default;
+        ulong mixedHopCuePreviousPhysics = 0, mixedHopFirstProjectileId = 0, mixedHopFirstOrdinal = 0;
+        Vector2 mixedHopCuePreviousPosition = Vector2.Zero;
+        var mixedHopRows = new List<string>(96);
+        var mixedHopShots = new Dictionary<RangedWeaponProjectile,
+            (ulong Ordinal, float Previous, float MinimumClearance, bool Passed, float Radius, bool RetiredUnpassed)>();
+        var mixedHopProofs = new Dictionary<RangedWeaponProjectile, Task10DepartedBurst>();
+        var mixedHopRetirements = new Dictionary<RangedWeaponProjectile,
+            (Vector2 Position, Task10GuardCapsule Capsule, ulong Physics, ulong Sequence, bool OwnerIdle)>();
+        void HopRow(string edge, string detail = "")
+        {
+            if (mixedHopRows.Count < 96)
+                mixedHopRows.Add($"MIXED_RECOVERY_HOP edge={edge} physics={Engine.GetPhysicsFrames()} loop={currentFrame}/900 " +
+                    $"stage={mixedHopStage} sample={input.CurrentFrameSequence} hp={playerHealth.CurrentHealth} " +
+                    $"player={player.GlobalPosition} velocity={player.Velocity} floor={player.IsOnFloor()} " +
+                    $"rawSpace={Input.IsPhysicalKeyPressed(Key.Space)} rawL={Input.IsPhysicalKeyPressed(Key.L)} " +
+                    $"rawJumpPressed={input.RawFrame.JumpPressed} rawJumpHeld={input.RawFrame.JumpHeld} " +
+                    $"actualJumps={mixedClawMotor.AcceptedJumpCount} energy={mixedEnergyState.Energy:R} " +
+                    $"regenDelay={mixedEnergyState.RegenDelayRemaining:R} shield={shield.IsActive} {detail}");
+        }
+        void HopFault(Exception error)
+        { mixedHopFaults++; mixedHopFault ??= error.Message; }
+        bool HopRetained() => GodotObject.IsInstanceValid(mixedHopBurst) && mixedHopBurst.IsInsideTree() &&
+            !mixedHopBurst.IsQueuedForDeletion() && mixedHopBurst.GetParent() == actorRoot &&
+            mixedHopBurst.GetNode<HealthComponent>("Health").CurrentHealth > 0 &&
+            mixedHopBurst.GetWorld2D() == player.GetWorld2D() && !tree.Paused && monitor.Player == player &&
+            playerHealth.CurrentHealth == mixedHopHp && mixedHopHp > 0 &&
+            monitor.RecoveryRequested == mixedClawRequests && monitor.RecoveryCompleted == startingRecoveries;
+        void HopShot(ulong ordinal, Vector2 origin)
+        {
+            try
+            {
+                if (mixedHopStage == 5) return;
+                if (mixedHopCycle == 0 || mixedHopBurst.CurrentFrame.AttackTimeline.AttackId != mixedHopCycle) return;
+                TestAssert.True(HopRetained() && ordinal > 0 && origin.IsFinite() && mixedHopShots.Count < 3 &&
+                    mixedHopBurst.CurrentFrame.AimDirection.IsEqualApprox(mixedHopAim), "hop shot owner/cycle/locked aim");
+                var shots = mixedHopBurst.GetChildren().OfType<RangedWeaponProjectile>().Where(shot =>
+                    !shot.IsRetired && GodotObject.IsInstanceValid(shot.Telegraph) &&
+                    shot.Telegraph.CurrentFrame.Timeline.AttackId == ordinal &&
+                    shot.Telegraph.CurrentFrame.Timeline.Kind == EnemyAttackKind.BeltBurstShot).ToArray();
+                TestAssert.True(shots.Length == 1 && mixedHopShots.Values.All(x => x.Ordinal != ordinal),
+                    "each actual emission has one distinct live Burst projectile identity");
+                var capsule = Task10CurrentGuardCapsule(player);
+                TestAssert.True(capsule.HasValue, "hop actual current player capsule");
+                float relative = (shots[0].GlobalPosition - capsule.Value.Transform.Origin).Dot(mixedHopAim);
+                TestAssert.True(relative < 0, "actual projectile starts behind the player's transverse plane");
+                var actualShape = shots[0].Telegraph.CurrentFrame.Shape;
+                TestAssert.True(actualShape.Kind == AttackShapeKind.Circle && actualShape.Extent.X > 0 &&
+                    float.IsFinite(actualShape.Extent.X), "hop projectile's actual immutable launch radius");
+                mixedHopShots.Add(shots[0], (ordinal, relative, float.PositiveInfinity, false, actualShape.Extent.X, false));
+                mixedHopProofs.Add(shots[0], new(mixedHopBurst.GetInstanceId(), shots[0].GetInstanceId(),
+                    shots[0].Telegraph.GetInstanceId(), ordinal, mixedHopAim, actualShape.Extent.X, false));
+                if (mixedHopShots.Count == 1)
+                {
+                    mixedHopFirstProjectileId = shots[0].GetInstanceId(); mixedHopFirstOrdinal = ordinal;
+                    mixedHopCuePreviousPhysics = Engine.GetPhysicsFrames(); mixedHopCuePreviousPosition = actualShape.Origin;
+                }
+                shots[0].Retired += HopRetired;
+                HopRow("shot", $"cycle={mixedHopCycle} ordinal={ordinal} projectile={shots[0].GetInstanceId()} " +
+                    $"planned_first={mixedHopBurst.CurrentFrame.FirstEmissionIndex} due={mixedHopBurst.CurrentFrame.EmissionsDue} " +
+                    $"signal_origin={origin} published_origin={actualShape.Origin} radius={actualShape.Extent.X:R} " +
+                    $"capsule={capsule.Value} aim={mixedHopAim} boundary=ShotEmitted_callback prediction=false");
+            }
+            catch (Exception error) { HopFault(error); }
+        }
+        void HopRetired(RangedWeaponProjectile shot)
+        {
+            try
+            {
+                if (mixedHopStage == 5 || !mixedHopShots.TryGetValue(shot, out var entry) || entry.Passed || entry.RetiredUnpassed) return;
+                var capsule = Task10CurrentGuardCapsule(player);
+                TestAssert.True(HopRetained() && capsule.HasValue && GodotObject.IsInstanceValid(shot) &&
+                    shot.IsInsideTree() && shot.GetParent() == mixedHopBurst && shot.GlobalPosition.IsFinite() &&
+                    !mixedHopRetirements.ContainsKey(shot), "one actual retirement endpoint before queued native deletion");
+                var ownerFrame = mixedHopBurst.CurrentFrame;
+                bool ownerIdle = ownerFrame.State == RangedWeaponState.Idle && ownerFrame.AttackTimeline.AttackId == 0;
+                mixedHopRetirements.Add(shot, (shot.GlobalPosition, capsule.Value,
+                    Engine.GetPhysicsFrames(), input.CurrentFrameSequence, ownerIdle));
+                HopRow("retired_endpoint", $"ordinal={entry.Ordinal} endpoint={shot.GlobalPosition} " +
+                    $"travelled={shot.TravelledDistance:R} capsule={capsule.Value} source_radius={entry.Radius:R} " +
+                    $"owner_state={ownerFrame.State} owner_attack={ownerFrame.AttackTimeline.AttackId} accepted_pass=false");
+            }
+            catch (Exception error) { HopFault(error); }
+        }
+        void HopFrame(RangedWeaponFrame value)
+        {
+            try
+            {
+                if (mixedHopStage == 5) return;
+                if (!HopRetained()) throw new InvalidOperationException("hop source/player authority changed");
+                if (mixedHopRetirements.Count > 0 && value.State == RangedWeaponState.Idle &&
+                    value.AttackTimeline.AttackId == 0)
+                {
+                    mixedHopIdlePhysics = Engine.GetPhysicsFrames(); mixedHopIdleSequence = input.CurrentFrameSequence;
+                    HopRow("owner_idle_published", "cause_not_inferred_from_retirement=true");
+                }
+                bool completedReturn = Task10CompletedRustReturnValid(mixedHopCompletedReturn,
+                    mixedGuardActorId, mixedGuardHitboxId, mixedGuardHurtboxId, Engine.GetPhysicsFrames(),
+                    input.CurrentFrameSequence, playerHealth.CurrentHealth, MixedGuardRetained());
+                if (Task10HopCycleAdmission(mixedHopStage, mixedHopCycle, value, completedReturn,
+                    HopRetained(), mixedHopShots.Count, mixedHopAcknowledged))
+                {
+                    mixedHopCycle = value.AttackTimeline.AttackId; mixedHopAim = value.AimDirection.Normalized();
+                    HopRow("locked_cycle", $"cycle={mixedHopCycle} aim={mixedHopAim} endpoint={value.AttackTimeline.LockedWorldTarget}");
+                }
+                if (mixedHopCycle == 0 || value.AttackTimeline.AttackId != mixedHopCycle || value.EmissionsDue == 0) return;
+                TestAssert.True(value.FirstEmissionIndex == mixedHopAcknowledged && value.EmissionsDue > 0 &&
+                    mixedHopShots.Count - mixedHopAcknowledged == value.EmissionsDue &&
+                    value.FirstEmissionIndex + value.EmissionsDue <= 3,
+                    "actual ShotEmitted count matches its zero-based planned interval, including Recovery tail emissions");
+                mixedHopAcknowledged = mixedHopShots.Count;
+            }
+            catch (Exception error) { HopFault(error); }
+        }
+        void ObserveHop(double delta)
+        {
+            try
+            {
+                if (mixedHopStage is 0 or 5) return;
+                TestAssert.True(HopRetained(), "hop same player/positive HP/source/no recovery");
+                var capsule = Task10CurrentGuardCapsule(player);
+                TestAssert.True(capsule.HasValue, "hop live native capsule");
+                Transform2D pose = capsule.Value.Transform;
+                float scale = pose.Y.Length();
+                TestAssert.True(float.IsFinite(scale) && scale > 0 &&
+                    MathF.Abs(pose.X.Length() - scale) < .001f && MathF.Abs(pose.X.Dot(pose.Y)) < .001f,
+                    "hop capsule uses actual uniform nonskew transform");
+                float playerSupport = scale * (capsule.Value.Radius +
+                    MathF.Max(0, capsule.Value.Height * .5f - capsule.Value.Radius) * MathF.Abs(pose.Y.Normalized().Dot(mixedHopAim)));
+                if (!mixedHopPhysicalSnapshot)
+                {
+                    HopRow("physical_snapshot", $"motor_settings={mixedClawMotor.MotionSettings} capsule={capsule.Value} " +
+                        $"physics_hz={Engine.PhysicsTicksPerSecond} time_scale={Engine.TimeScale:R} " +
+                        "boundary=post_motor_observer actual_motor_model_settings=true authoring_resource=false prediction=false");
+                    mixedHopPhysicalSnapshot = true;
+                }
+                foreach (var pair in mixedHopShots.ToArray())
+                {
+                    if (pair.Value.Passed || pair.Value.RetiredUnpassed) continue;
+                    var shot = pair.Key;
+                    bool retired = !GodotObject.IsInstanceValid(shot) || shot.IsRetired;
+                    AttackShapeFrame shape;
+                    if (retired)
+                    {
+                        TestAssert.True(mixedHopRetirements.TryGetValue(shot, out var end) &&
+                            end.Physics == Engine.GetPhysicsFrames() && end.Sequence == input.CurrentFrameSequence &&
+                            end.Capsule == capsule.Value,
+                            "retirement needs its actual same-tick endpoint and unchanged post-Motor capsule, never a stale last sample");
+                        float endRelative = (end.Position - pose.Origin).Dot(mixedHopAim);
+                        if (endRelative <= playerSupport + pair.Value.Radius)
+                        {
+                            bool idlePublished = mixedHopIdlePhysics == end.Physics && mixedHopIdleSequence == end.Sequence;
+                            TestAssert.True(Task10RecoveryHopShotResolved(false, true, true, end.OwnerIdle, idlePublished) &&
+                                float.IsFinite(pair.Value.MinimumClearance) && pair.Value.MinimumClearance > 0,
+                                "unpassed retirement requires its fresh endpoint, actual idle owner/publication and unchanged native HP");
+                            mixedHopShots[shot] = (pair.Value.Ordinal, endRelative, pair.Value.MinimumClearance,
+                                false, pair.Value.Radius, true);
+                            HopRow("retired_unpassed", $"ordinal={pair.Value.Ordinal} relative={endRelative:R} " +
+                                $"owner_idle={end.OwnerIdle} same_tick_published={idlePublished} counted_as_passed=false");
+                            continue;
+                        }
+                        // Retire clears the published telegraph. This derived end
+                        // circle uses its actual safe endpoint and immutable launch
+                        // radius, not a fabricated still-live publication or ETA.
+                        shape = new(AttackShapeKind.Circle, end.Position, Vector2.One * pair.Value.Radius,
+                            0, Array.Empty<Vector2>());
+                    }
+                    else
+                    {
+                        TestAssert.True(shot.IsInsideTree() && shot.GetParent() == mixedHopBurst &&
+                            GodotObject.IsInstanceValid(shot.Telegraph), "hop live projectile owner and publication");
+                        shape = shot.Telegraph.CurrentFrame.Shape;
+                    }
+                    TestAssert.True(shape.Kind == AttackShapeKind.Circle && shape.Origin.IsFinite() &&
+                        float.IsFinite(shape.Extent.X) && shape.Extent.X > 0, "hop actual published projectile circle");
+                    if (mixedHopStage == 1 && mixedHopShots.Count == 1 && !retired &&
+                        pair.Value.Ordinal == mixedHopFirstOrdinal && mixedHopCuePreviousPhysics != Engine.GetPhysicsFrames())
+                    {
+                        bool adjacent = mixedHopCuePreviousPhysics > 0 &&
+                            Engine.GetPhysicsFrames() - mixedHopCuePreviousPhysics == 1 && double.IsFinite(delta) && delta > 0;
+                        mixedHopCue = adjacent
+                            ? new(mixedHopBurst.GetInstanceId(), mixedHopCycle, mixedHopFirstProjectileId,
+                                mixedHopFirstOrdinal, Engine.GetPhysicsFrames(), input.CurrentFrameSequence, shape.Origin,
+                                (shape.Origin - mixedHopCuePreviousPosition) / (float)delta, shape.Extent.X, delta, pose)
+                            : default;
+                        mixedHopCuePreviousPhysics = Engine.GetPhysicsFrames(); mixedHopCuePreviousPosition = shape.Origin;
+                    }
+                    float relative = (shape.Origin - pose.Origin).Dot(mixedHopAim);
+                    float gap = Task10GuardShapeClearance(shape, capsule.Value);
+                    TestAssert.True(float.IsFinite(gap), "hop actual sampled shape clearance");
+                    float minimum = MathF.Min(pair.Value.MinimumClearance, gap);
+                    bool passed = relative > playerSupport + shape.Extent.X;
+                    if (mixedHopIssued && mixedHopSamples % 4 == 0)
+                        HopRow("projectile_sample", $"ordinal={pair.Value.Ordinal} " +
+                            $"origin={shape.Origin} radius={shape.Extent.X:R} capsule={capsule.Value} " +
+                            $"relative={relative:R} support={playerSupport:R} gap={gap:R} retired={retired} " +
+                            "boundary=post_motor_observer extra_spatial_queries=0 prediction=false");
+                    mixedHopShots[shot] = (pair.Value.Ordinal, relative, minimum, passed, pair.Value.Radius, false);
+                    if (passed)
+                    {
+                        TestAssert.True(pair.Value.Previous <= playerSupport + shape.Extent.X && minimum > 0,
+                            "actual same-HP projectile passed the full capsule, not merely retired or a guessed ETA");
+                        HopRow("passed_capsule", $"ordinal={pair.Value.Ordinal} sampled_min_gap={minimum:R} relative={relative:R}");
+                    }
+                }
+                if (!mixedHopIssued || input.CurrentFrameSequence == mixedHopLastSequence) return;
+                mixedHopLastSequence = input.CurrentFrameSequence; mixedHopSamples++;
+                if (input.RawFrame.JumpPressed) mixedHopRawEdges++;
+                if (mixedHopStage == 2 && Engine.GetPhysicsFrames() == mixedHopCommandPhysics &&
+                    mixedClawMotor.AcceptedJumpCount == mixedHopJumps && mixedHopRawEdges == 0 &&
+                    Input.IsPhysicalKeyPressed(Key.Space) && player.IsOnFloor())
+                {
+                    // The command was issued from PhysicsFrame, before this tick's
+                    // node processing. A new sequence alone is not an acknowledged
+                    // physical-key edge. Never re-press Space or extend the budget.
+                    HopRow("same_tick_before_jump_edge", $"command_physics={mixedHopCommandPhysics} " +
+                        $"command_sample={mixedHopCommandSequence} action_pressed={Input.IsActionPressed(InputActions.Jump)} " +
+                        $"action_just_pressed={Input.IsActionJustPressed(InputActions.Jump)}");
+                    return;
+                }
+                TestAssert.True(input.CurrentFrame.KeyboardActions && !input.CurrentFrame.LegacyShieldHeld &&
+                    !input.CurrentFrame.ShieldHeld && !shield.IsActive && input.CurrentFrame.MoveAxis == 0 &&
+                    !Input.IsPhysicalKeyPressed(Key.L) && !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D) &&
+                    mixedClawMotor.AcceptedJumpCount == mixedHopJumps + 1 &&
+                    mixedClawMotor.AcceptedDashCount == mixedHopDashes && mixedClaw.CurrentFrame.NextCastId == mixedHopCasts &&
+                    !combat.IsAttacking && mixedHopRawEdges == 1, "one actual accepted jump and unguarded neutral motion sample");
+                if (mixedHopStage == 2)
+                {
+                    TestAssert.True(!player.IsOnFloor() && input.CurrentFrameSequence > mixedHopCommandSequence,
+                        "Space command must create actual airborne motion");
+                    mixedHopStage = 3; HopRow("airborne");
+                }
+                if (!player.IsOnFloor() && player.Velocity.Y >= 0 && !mixedHopApex)
+                { mixedHopApex = true; HopRow("apex"); }
+                if (mixedEnergyKnown && mixedEnergyState.RegenDelayRemaining == 0 &&
+                    !energy.IsShieldSustained && mixedEnergyState.Energy > mixedHopLastEnergy)
+                    mixedHopNaturalIncrease = true;
+                mixedHopLastEnergy = mixedEnergyState.Energy;
+                if (mixedHopStage == 3 && player.IsOnFloor())
+                {
+                    TestAssert.True(mixedHopApex && mixedClawMotor.LandingCount == mixedHopLanding + 1 && MixedGuardFullSupport(),
+                        "one real landing on the same complete floor after an actual apex");
+                    mixedHopStage = 4; HopRow("landed");
+                }
+                if (mixedHopStage == 4 && !Input.IsPhysicalKeyPressed(Key.Space) && MixedGuardFullSupport() &&
+                    MathF.Abs(player.Velocity.X) <= .5f && MathF.Abs(player.Velocity.Y) <= .5f)
+                    mixedHopSettled++;
+                else mixedHopSettled = 0;
+                if (mixedHopStage == 4 && mixedHopSettled >= 2 && mixedHopNaturalIncrease &&
+                    mixedEnergyState.Energy >= 2f * energy.Tuning.AttackCost &&
+                    mixedHopAcknowledged == 3 && mixedHopShots.Count == 3 &&
+                    mixedHopShots.Values.All(x => x.Passed != x.RetiredUnpassed))
+                { mixedHopStage = 5; HopRow("landed_regenerated", $"energy_target={2f * energy.Tuning.AttackCost:R} " +
+                    $"shots=3 passed={mixedHopShots.Values.Count(x => x.Passed)} retired_unpassed={mixedHopShots.Values.Count(x => x.RetiredUnpassed)}"); }
+                else if (mixedHopSamples % 4 == 0) HopRow("post_motor_sample");
+            }
+            catch (Exception error) { HopFault(error); }
+        }
+        void BindHopSource()
+        {
+            var site = level.ResidentLayout.Single(x => x.Definition.StableId == "canyon.v2.resident.counterweight-lift.04").Definition;
+            var sources = actorRoot.GetChildren().OfType<RangedWeaponEnemy>().Where(source => source.Role == RangedWeaponRole.Burst &&
+                source.GetNodeOrNull<ResidentSceneBinding>("ResidentBinding")?.Profile?.SubtypeId == site.SubtypeId &&
+                source.GlobalPosition.DistanceSquaredTo(site.Placement.WorldSpawn) < .01f && Task10IsSavedResident(source)).ToArray();
+            TestAssert.True(sources.Length == 1, "one actual fixed-home resident owns this locked Burst cycle");
+            mixedHopBurst = sources[0]; mixedHopHp = playerHealth.CurrentHealth;
+            mixedHopStage = 1;
+            mixedVolleyJournal = new Task10VolleyTailJournal(mixedHopBurst, player, () => mixedHopCycle);
+            mixedVolleyJournal.Bind();
+            mixedHopBurst.ShotEmitted += HopShot; mixedHopBurst.FrameChanged += HopFrame;
+            mixedHopObserver = new BasinBoardingTickObserver { ProcessPhysicsPriority = 100, Sample = ObserveHop };
+            player.AddChild(mixedHopObserver);
+            HopRow("source_bound", $"source={mixedHopBurst.GetInstanceId()} stable_id={site.StableId}");
+            HopFrame(mixedHopBurst.CurrentFrame);
+        }
+        Task10HopDeparturePolicy? MixedDeparturePolicy()
+        {
+            if (mixedHopStage != 5 || !mixedHopIssued || mixedHopFaults != 0 || mixedHopAcknowledged != 3 ||
+                mixedHopShots.Count != 3 || !HopRetained()) return null;
+            // The proofs were captured at actual ShotEmitted, not reverse-mapped
+            // from a current/new owner cycle. History only admits a fresh geometry
+            // check; moving ahead of an old round revokes its exclusion immediately.
+            return new(true, true, mixedHopShots.Select(pair => mixedHopProofs[pair.Key] with
+                { Passed = pair.Value.Passed && !pair.Value.RetiredUnpassed }).ToArray());
+        }
         bool counterweightSuppressionRecovery = false;
         StaticBody2D counterweightSuppressionFloor = null;
         CollisionShape2D counterweightSuppressionFloorShape = null;
@@ -10631,6 +15321,29 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             splitBellDashes = splitBellMotor?.AcceptedDashCount ?? 0,
             splitBellRequests = monitor.RecoveryRequested;
         float splitBellCastStanceX = float.NaN;
+        int splitBellDiagnosticErrors=0;
+        int splitBellRearmRows=0,splitBellRearmEpisode=0,splitBellRearmSamples=0;
+        bool splitBellRearming=false;
+        string splitBellRearmLast=string.Empty;
+        void ObserveSplitBellRearm(BellBackLaborer bell,Task10EncounterDanger danger,bool defend,bool idle,
+            bool neutral,int direction,float error,float braking)
+        {
+            try
+            {
+                string key=$"{splitBellRearmEpisode}/{bell.CurrentState}/{defend}/{idle}/{neutral}";
+                if(splitBellRearmRows>=64 || splitBellRearmSamples>12 && key==splitBellRearmLast) return;
+                splitBellRearmLast=key; splitBellRearmRows++;
+                GD.Print($"TASK10_SPLIT_BELL_REARM record={splitBellRearmRows}/64 episode={splitBellRearmEpisode} " +
+                    $"physics={Engine.GetPhysicsFrames()} loop={currentFrame}/900 state={bell.CurrentState} " +
+                    $"hp={bell.GetNode<HealthComponent>("Health").CurrentHealth} error={error:R} vx={player.Velocity.X:R} " +
+                    $"braking={braking:R} direction={direction} idle={idle} neutral={neutral} defend={defend} " +
+                    $"danger={danger.SourceActorId}/{danger.AttackId}/{danger.Phase}/{danger.RemainingSeconds:R} " +
+                    $"raw_L={Input.IsPhysicalKeyPressed(Key.L)} sampled_L={input.Current.ShieldHeld} shield={shield.IsActive} " +
+                    $"energy={energy.EnergyRatio:R} input_seq={input.CurrentFrameSequence} " +
+                    "same_original_900=true extra_waits=0");
+            }
+            catch(Exception) { splitBellDiagnosticErrors++; }
+        }
         void GuardSplitBellPlayer()
         {
             TestAssert.True(player.GetInstanceId() == splitBellPlayerId &&
@@ -10652,7 +15365,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         }
         BellBackLaborer splitDiagnosticBell = null;
         string splitBellLastState = "";
-        int splitBellDiagnosticLines = 0, splitBellDiagnosticErrors = 0;
+        int splitBellDiagnosticLines = 0;
         void ObserveSplitBell(string boundary, BellBackLaborer selected = null, Vector2? impulse = null)
         {
             if (!splitBellDiagnostic) return;
@@ -10695,6 +15408,20 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         int frozenLowerJumps = frozenLowerMotor?.AcceptedJumpCount ?? 0;
         int frozenLowerDashes = frozenLowerMotor?.AcceptedDashCount ?? 0;
         int frozenLowerRequests = monitor.RecoveryRequested, frozenLowerLines = 0, frozenMothLines = 0;
+        int frozenForeignGuardRows=0;
+        string frozenForeignGuardLast=string.Empty;
+        var frozenCounterRows = frozenLowerKeyboard ? new List<string>(128) : null;
+        string frozenCounterLastDecision = string.Empty;
+        int frozenCounterOmitted = 0, frozenCounterFaults = 0, frozenCounterMask = 0;
+        ulong frozenCounterActor = 0, frozenCounterPhysics = 0, frozenCounterSequence = 0,
+            frozenCounterStartedId = 0;
+        Task10EncounterDanger frozenCounterDanger = default;
+        void FrozenCounterRecord(string row)
+        {
+            if (!frozenLowerKeyboard) return;
+            if (frozenCounterRows.Count < 128) frozenCounterRows.Add(row);
+            else frozenCounterOmitted++;
+        }
         // Share the already verified neutral Bell keyboard policy, not its
         // old generic rushing/idle-guard policy, with the Steam batch0 Bell.
         // Legacy helper/log names remain compatible; every receipt names its encounter.
@@ -10704,6 +15431,70 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         PlayerMotor gearBellMotor = gearBellKeyboard ? player.GetNode<PlayerMotor>("Motor") : null;
         ulong gearBellStanceActor = 0, gearBellStanceFloor = 0, gearBellStanceSample = 0;
         int gearBellSupportSamples = 0, gearBellLines = 0;
+        bool gearBellGuardDifferenceObserved = false;
+        int gearBellNeutralEvaluated = 0, gearBellNeutralPassed = 0, gearBellNeutralCalls = 0;
+        int gearBellReadinessRows = 0;
+        var gearBellReadinessMasks = new HashSet<int>();
+        string gearBellLastReadiness = "not_evaluated", gearBellReadinessFault = null;
+        bool gearBellPriorOverheated = energy.IsOverheated, gearBellFirstOverheat = false;
+        StaticBody2D gearLureFloor = null;
+        CollisionShape2D gearLureFloorShape = null;
+        int gearLureStage = 0, gearLureNeutralSamples = 0, gearLureTicks = 0, gearLureRows = 0;
+        ulong gearLureId = 0, gearLurePlayerId = player.GetInstanceId(), gearLureSequence = 0, gearLureHandoffSequence = 0;
+        Node gearLureParent = null;
+        int gearLureBellHealth = 0, gearLureRequests = monitor.RecoveryRequested;
+        int gearLureJumps = gearBellMotor?.AcceptedJumpCount ?? 0, gearLureDashes = gearBellMotor?.AcceptedDashCount ?? 0;
+        float gearLureNearX = float.NaN, gearLureOutX = float.NaN, gearLureInitialBellX = float.NaN;
+        float gearLureFullLeft = float.NaN, gearLureFullRight = float.NaN;
+        bool gearLureApproachSeen = false, gearLureInitiallyInBand = false, gearLureSameFloorRebased = false;
+        BasinBoardingTickObserver gearPostLureObserver = null;
+        string gearPostLureFault = null;
+        int gearPostLureSamples = 0;
+        ulong gearPostLureFirst = 0, gearPostLureLast = 0, gearPostLureSequence = 0;
+        var gearPostLureSources = new List<Vector2>(16);
+        bool gearPostLureCoverageComplete = false;
+        int gearPostLureGuardSelections = 0;
+        if (gearLureBell != null)
+        {
+            TestAssert.True(gearBellKeyboard && encounterId == "canyon.v2.encounter.gear-pistons" &&
+                GodotObject.IsInstanceValid(gearLureBell) && group.OwnsLiveActor(gearLureBell),
+                "fixed-platform lure is opt-in only for the actual retained Gear Bell");
+            gearLureId = gearLureBell.GetInstanceId(); gearLureParent = gearLureBell.GetParent();
+            gearLureBellHealth = gearLureBell.GetNode<HealthComponent>("Health").CurrentHealth;
+        }
+        void CheckGearLure()
+        {
+            string lurePlayerPose = GodotObject.IsInstanceValid(player) ? player.GlobalPosition.ToString() : "invalid";
+            string lureBellPose = GodotObject.IsInstanceValid(gearLureBell) ? gearLureBell.GlobalPosition.ToString() : "invalid";
+            TestAssert.True(GodotObject.IsInstanceValid(player) && player.IsInsideTree() &&
+                player.GetInstanceId() == gearLurePlayerId && monitor.Player == player &&
+                playerHealth.CurrentHealth == playerHealthAtStart &&
+                monitor.RecoveryRequested == gearLureRequests && monitor.RecoveryCompleted == startingRecoveries &&
+                gearBellMotor.AcceptedJumpCount == gearLureJumps && gearBellMotor.AcceptedDashCount == gearLureDashes &&
+                group.IsActive && !group.IsComplete && group.CurrentBatch == 1 && group.LiveActorCount == 1 &&
+                GodotObject.IsInstanceValid(gearLureBell) && gearLureBell.IsInsideTree() &&
+                !gearLureBell.IsQueuedForDeletion() && gearLureBell.GetInstanceId() == gearLureId &&
+                gearLureBell.GetParent() == gearLureParent && group.OwnsLiveActor(gearLureBell) &&
+                gearLureBell.GetNode<HealthComponent>("Health").CurrentHealth == gearLureBellHealth &&
+                HasFloorContact(player, gearLureFloor) &&
+                TryTask10CapsuleCorridor(player, gearLureFloorShape, out _, out _, out _, out _),
+                $"Gear lure keeps same player/Bell/HP and complete fixed PistonTwo support; " +
+                $"stage={gearLureStage} player={lurePlayerPose} bell={lureBellPose}");
+        }
+        void GearLureRecord(string boundary)
+        {
+            if (gearLureBell == null || gearLureRows >= 24) return;
+            gearLureRows++;
+            GD.Print($"TASK10_GEAR_FIXED_LURE boundary={boundary} row={gearLureRows}/24 stage={gearLureStage} " +
+                $"loop={currentFrame}/900 ticks={gearLureTicks} sample={input.CurrentFrameSequence} " +
+                $"player={player.GetInstanceId()}/{player.GlobalPosition} velocity={player.Velocity} " +
+                $"bell={gearLureBell.GetInstanceId()}/{gearLureBell.GlobalPosition}/{gearLureBell.CurrentState} " +
+                $"bell_velocity={gearLureBell.Velocity} near={gearLureNearX:R} outward={gearLureOutX:R} " +
+                $"full_interval={gearLureFullLeft:R}/{gearLureFullRight:R} approach_seen={gearLureApproachSeen} " +
+                $"neutral_samples={gearLureNeutralSamples} shield={input.Current.ShieldHeld}/{shield.IsActive} " +
+                $"energy={energy.EnergyRatio:R} heat={energy.HeatRatio:R} hp={playerHealth.CurrentHealth} " +
+                "real_keys=true actor_pose_writes=0 original_outer_budget=900");
+        }
         bool GearBellNeutralSupport(BellBackLaborer bell)
         {
             bool supported = TryTask10FullFloorSupport(player, out ulong floorId);
@@ -10720,14 +15511,30 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             gearBellStanceSample = input.CurrentFrameSequence;
             Vector2 delta = bell.GlobalPosition - player.GlobalPosition;
             float side = MathF.Sign(delta.X);
-            return supported && neutral && gearBellSupportSamples >= 2 &&
-                MathF.Abs(delta.Y) <= 46f && MathF.Abs(delta.X) is >= 55f and <= 64f &&
-                input.KeyboardAimDirection.Dot(Vector2.Right * side) > .99f &&
-                !gearBellMotor.IsDashing && !input.Current.JumpPressed && !input.Current.JumpHeld &&
-                !Input.IsPhysicalKeyPressed(Key.Space) && !Input.IsPhysicalKeyPressed(Key.Shift);
+            gearBellNeutralEvaluated = gearBellNeutralPassed = 0; gearBellNeutralCalls++;
+            bool Observed(int bit, bool value)
+            {
+                gearBellNeutralEvaluated |= bit;
+                if (value) gearBellNeutralPassed |= bit;
+                return value;
+            }
+            // Preserve the original short-circuit evaluation and stateful call
+            // count: logging must never call this helper again to obtain facts.
+            return Observed(1, supported) && Observed(2, neutral) && Observed(4, gearBellSupportSamples >= 2) &&
+                Observed(8, MathF.Abs(delta.Y) <= 46f) && Observed(16, MathF.Abs(delta.X) is >= 55f and <= 64f) &&
+                Observed(32, input.KeyboardAimDirection.Dot(Vector2.Right * side) > .99f) &&
+                Observed(64, !gearBellMotor.IsDashing) && Observed(128, !input.Current.JumpPressed) &&
+                Observed(256, !input.Current.JumpHeld) && Observed(512, !Input.IsPhysicalKeyPressed(Key.Space)) &&
+                Observed(1024, !Input.IsPhysicalKeyPressed(Key.Shift));
         }
         bool courtyardKeyboardJump = KeyboardRouteInputDriver.Current != null &&
             encounterId == "canyon.v2.encounter.sealed-courtyard";
+        var courtyardRearControl = courtyardKeyboardJump ? new CourtyardRearClawControl(player) : null;
+        int courtyardControlJumps = courtyardKeyboardJump ? player.GetNode<PlayerMotor>("Motor").AcceptedJumpCount : 0;
+        int courtyardControlDashes = courtyardKeyboardJump ? player.GetNode<PlayerMotor>("Motor").AcceptedDashCount : 0;
+        int courtyardControlRequests = monitor.RecoveryRequested;
+        var courtyardRearRows = new List<string>(192);
+        int courtyardRearSamples = 0, courtyardRearOmitted = 0, courtyardRearFaults = 0;
         StaticBody2D courtyardJumpStep = courtyardKeyboardJump
             ? group.GetNode<StaticBody2D>("../../Collision/CourtyardStep") : null;
         StaticBody2D courtyardJumpFloor = courtyardKeyboardJump
@@ -10844,7 +15651,223 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             }
         }
         bool skitterDiagnostic = encounterId == "canyon.v2.encounter.pendulum-gallery";
+        bool skitterNeutralGuardProbe = skitterDiagnostic &&
+            OS.GetEnvironment("KNIGHT_PENDULUM_NEUTRAL_GUARD_PROBE") == "1";
+        bool skitterEarlyBrakeProbe = skitterNeutralGuardProbe &&
+            OS.GetEnvironment("KNIGHT_PENDULUM_EARLY_BRAKE_PROBE") == "1";
+        int skitterEarlyBrakeRows = 0;
+        int skitterLockBrakeRows = 0;
+        bool skitterBaitStanceProbe = skitterEarlyBrakeProbe &&
+            OS.GetEnvironment("KNIGHT_PENDULUM_BAIT_STANCE_PROBE") == "1";
+        int skitterBaitStanceRows = 0;
+        int galleryDecisionRows = 0;
+        bool galleryForeignGuardProbe = skitterBaitStanceProbe &&
+            OS.GetEnvironment("KNIGHT_PENDULUM_FOREIGN_GUARD_PROBE") == "1";
+        bool galleryForeignGuardKeyboard = KeyboardRouteInputDriver.Current != null;
+        bool galleryForeignGuardEnabled = Task10GalleryForeignGuardRoute(galleryForeignGuardKeyboard,
+            skitterDiagnostic, headlessNormalPlan, galleryForeignGuardProbe);
+        if (skitterDiagnostic)
+            GD.Print($"TASK10_GALLERY_FOREIGN_GUARD_ROUTING normal_plan={headlessNormalPlan} " +
+                $"explicit_probe={galleryForeignGuardProbe} keyboard={galleryForeignGuardKeyboard} " +
+                $"gallery={skitterDiagnostic} selected={galleryForeignGuardEnabled} safety_authorization=false");
+        bool galleryForeignContactProbe = galleryForeignGuardProbe &&
+            OS.GetEnvironment("KNIGHT_PENDULUM_FOREIGN_CONTACT_PROBE") == "1";
+        bool galleryEarlyCounterProbe = galleryForeignContactProbe &&
+            OS.GetEnvironment("KNIGHT_PENDULUM_EARLY_COUNTER_PROBE") == "1";
+        bool galleryLaserCounterProbe = galleryEarlyCounterProbe &&
+            OS.GetEnvironment("KNIGHT_PENDULUM_LASER_COUNTER_PROBE") == "1";
+        bool galleryLaserFinishProbe = galleryLaserCounterProbe &&
+            OS.GetEnvironment("KNIGHT_PENDULUM_LASER_FINISH_PROBE") == "1";
+        int galleryLaserFinishRows = 0;
+        ulong lastGalleryForeignAttack = 0;
+        ulong galleryForeignActor = 0;
+        int galleryForeignRows = 0;
+        ulong lastNeutralSkitterAttack = 0;
         CanyonSkitter trackedSkitter = null;
+        void GalleryCounterBegin()
+        {
+            galleryHp2OuterBudget = null;
+            GalleryCounterComplete("next-original-loop-start");
+            galleryCounterEvaluated = galleryCounterPassed = 0;
+            galleryCounterLastStage = "not-evaluated";
+            if (!headlessNormalPlan || !skitterDiagnostic || KeyboardRouteInputDriver.Current == null) return;
+            try
+            {
+                if (!DiagnosticLive(trackedSkitter) || trackedSkitter.IsQueuedForDeletion() ||
+                    trackedSkitter.GetParent() != actorRoot || !group.OwnsLiveActor(trackedSkitter) || group.CurrentBatch != 1) return;
+                var hp = trackedSkitter.GetNodeOrNull<HealthComponent>("Health");
+                if (!DiagnosticLive(hp) || hp.CurrentHealth != 1) return;
+                var tracked = trackedSkitter.CurrentFrame;
+                galleryCounterPending = true;
+                galleryCounterRow = $"loop={currentFrame}/899 tracked_id={trackedSkitter.GetInstanceId()} tracked_hp={hp.CurrentHealth} tracked_state={tracked.State} tracked_attack={tracked.AttackTimeline.AttackId} tracked_phase={tracked.AttackTimeline.Phase} tracked_remaining={tracked.AttackTimeline.PhaseRemainingSeconds:R} cached_actor={trackedActorId} cached_target={lastActorPosition} cached_side={desiredActorSide:R}";
+                GalleryCounterStage("loop-enter", $"batch={group.CurrentBatch} next_j={nextAttackFrame} last_j_command_loop={galleryCounterLastJCommand} last_j_started_loop={lastAttackStartedFrame} attacks_requested={attacks} shield={input.CurrentFrame.ShieldHeld}/{shield.IsActive} attacking={combat.IsAttacking} energy={energy.EnergyRatio * energy.Tuning.MaxEnergy:R}");
+            }
+            catch { galleryCounterFaults++; }
+        }
+        bool galleryHandoffEnabled = headlessNormalPlan && skitterDiagnostic && KeyboardRouteInputDriver.Current != null;
+        var galleryHandoffTail = new Queue<string>(128);
+        int galleryHandoffOverflow = 0, galleryHandoffFaults = 0;
+        long galleryHandoffSerial = 0;
+        ulong galleryHandoffSelectedId = 0;
+        ulong galleryHandoffExitLoggedId = 0;
+        string galleryHandoffGroupStamp = null;
+        bool galleryHandoffHadNoActor = false;
+        void GalleryHandoffAppend(string row)
+        {
+            if (galleryHandoffTail.Count == 128) { galleryHandoffTail.Dequeue(); galleryHandoffOverflow++; }
+            galleryHandoffTail.Enqueue(row);
+        }
+        void GalleryHandoffRecord(string stage, Node2D selected = null)
+        {
+            if (!galleryHandoffEnabled) return;
+            long serial = ++galleryHandoffSerial;
+            ulong readStart = Time.GetTicksUsec();
+            try
+            {
+                ulong physics = Engine.GetPhysicsFrames(), process = Engine.GetProcessFrames();
+                if (selected == null && galleryHandoffSelectedId != 0)
+                    selected = GodotObject.InstanceFromId(galleryHandoffSelectedId) as Node2D;
+                bool wrapperValid = GodotObject.IsInstanceValid(selected);
+                bool? insideTree = wrapperValid ? selected.IsInsideTree() : null;
+                bool? queued = wrapperValid ? selected.IsQueuedForDeletion() : null;
+                bool? parentMatch = wrapperValid ? selected.GetParent() == actorRoot : null;
+                bool? treeMatch = insideTree == true ? selected.GetTree() == tree : null;
+                bool selectedValid = wrapperValid && insideTree == true && queued == false &&
+                    treeMatch == true && parentMatch == true;
+                string selectedHealth = "unknown", selectedIdentity = "id=unknown type=unknown owned_binding=unknown";
+                if (wrapperValid)
+                {
+                    var hp = selected.GetNodeOrNull<HealthComponent>("Health");
+                    if (GodotObject.IsInstanceValid(hp)) selectedHealth = hp.CurrentHealth.ToString();
+                    selectedIdentity = $"id={selected.GetInstanceId()} type={selected.GetType().Name} owned_binding={group.OwnsLiveActor(selected)}";
+                }
+                string selectedFacts = $"wrapper_valid={wrapperValid} inside_tree={insideTree?.ToString() ?? "unknown"} queued={queued?.ToString() ?? "unknown"} parent_match={parentMatch?.ToString() ?? "unknown"} tree_match={treeMatch?.ToString() ?? "unknown"} fresh_selected_tree_eligible={selectedValid} hp={selectedHealth} {selectedIdentity}";
+                int childCount = actorRoot.GetChildCount(), childrenRead = Math.Min(childCount, 16);
+                var owned = new List<string>(16);
+                for (int index = 0; index < childrenRead; index++)
+                {
+                    if (actorRoot.GetChild(index) is not Node2D child || !DiagnosticLive(child) ||
+                        child.IsQueuedForDeletion() || child.GetTree() != tree || child.GetParent() != actorRoot ||
+                        !group.OwnsLiveActor(child)) continue;
+                    var hp = child.GetNodeOrNull<HealthComponent>("Health");
+                    owned.Add($"{child.GetInstanceId()}/{child.GetType().Name}/hp={(DiagnosticLive(hp) ? hp.CurrentHealth : -1)}");
+                }
+                int slideCount = player.GetSlideCollisionCount(), slidesRead = Math.Min(slideCount, 8);
+                var support = new List<string>(8);
+                for (int index = 0; index < slidesRead; index++)
+                {
+                    var slide = player.GetSlideCollision(index);
+                    if (slide.GetCollider() is not Node collider || !DiagnosticLive(collider) || collider.IsQueuedForDeletion())
+                    { support.Add("unknown-contact"); continue; }
+                    var shape = collider.GetNodeOrNull<CollisionShape2D>("Collision");
+                    bool corridor = TryTask10CapsuleCorridor(player, shape,
+                        out float bodyLeft, out float bodyRight, out float floorLeft, out float floorRight);
+                    support.Add(FormattableString.Invariant($"id={collider.GetInstanceId()} normal={slide.GetNormal()} corridor={corridor} body={bodyLeft:R}..{bodyRight:R} floor={floorLeft:R}..{floorRight:R} unknown_geometry={!float.IsFinite(bodyLeft) || !float.IsFinite(floorLeft)}"));
+                }
+                var current = input.CurrentFrame;
+                var raw = input.RawFrame;
+                var claw = player.GetNodeOrNull<MechanicalClawController>("MechanicalClaw");
+                string clawFacts = DiagnosticLive(claw)
+                    ? $"{claw.CurrentFrame.State}/{claw.CurrentFrame.Failure}/cast={claw.CurrentFrame.CastId}/locked={claw.CurrentFrame.LockedTargetRuntimeId}"
+                    : "unknown";
+                GalleryHandoffAppend(FormattableString.Invariant($"TASK10_GALLERY_HANDOFF seq={serial} stage={stage} physics={physics} process={process} loop={currentFrame}/899 input={input.CurrentFrameSequence} batch={group.CurrentBatch} live={group.LiveActorCount} arrival={group.IsArrivalWarningActive} suppressed={group.SpawnSuppressed} complete={group.IsComplete} {selectedFacts} owned_bindings=[{string.Join(';', owned)}] binding_only=true children_read={childrenRead}/{childCount} children_clipped={childCount > childrenRead} cached_actor={trackedActorId} cached_side={desiredActorSide:R} cached_target={lastActorPosition} cached_dx={lastDx:R} cached_dy={lastDy:R} current_frame={current} raw_frame={raw} physical_WASD={Input.IsPhysicalKeyPressed(Key.W)}/{Input.IsPhysicalKeyPressed(Key.A)}/{Input.IsPhysicalKeyPressed(Key.S)}/{Input.IsPhysicalKeyPressed(Key.D)} physical_JKL={Input.IsPhysicalKeyPressed(Key.J)}/{Input.IsPhysicalKeyPressed(Key.K)}/{Input.IsPhysicalKeyPressed(Key.L)} player={player.GlobalPosition} velocity={player.Velocity} grounded={player.IsOnFloor()} hp={playerHealth.CurrentHealth} mode={modes.CurrentMode} slot={modes.ActiveSlot} shield={shield.IsActive} direction={shield.GuardDirection} energy={energy.EnergyRatio:R} claw={clawFacts} supports=[{string.Join(';', support)}] slides_read={slidesRead}/{slideCount} slides_clipped={slideCount > slidesRead} read_us={readStart}..{Time.GetTicksUsec()} read_end_physics={Engine.GetPhysicsFrames()} read_end_process={Engine.GetProcessFrames()} extra_frames=0 extra_queries=0"));
+            }
+            catch (Exception error)
+            {
+                galleryHandoffFaults++;
+                GalleryHandoffAppend($"TASK10_GALLERY_HANDOFF seq={serial} stage={stage} diagnostic-read-error={error.GetType().Name} faults={galleryHandoffFaults} loop={currentFrame} read_us={readStart}..{Time.GetTicksUsec()}");
+            }
+        }
+        void GalleryHandoffPoll()
+        {
+            if (!galleryHandoffEnabled) return;
+            try
+            {
+                string stamp = $"{group.CurrentBatch}/{group.LiveActorCount}/{group.IsArrivalWarningActive}/{group.SpawnSuppressed}/{group.IsComplete}";
+                if (stamp != galleryHandoffGroupStamp)
+                {
+                    galleryHandoffGroupStamp = stamp;
+                    GalleryHandoffRecord("group-stage-change");
+                }
+                if (galleryHandoffSelectedId != 0 && galleryHandoffExitLoggedId != galleryHandoffSelectedId &&
+                    (GodotObject.InstanceFromId(galleryHandoffSelectedId) is not Node2D prior ||
+                     !DiagnosticLive(prior) || prior.IsQueuedForDeletion() || prior.GetParent() != actorRoot ||
+                     prior.GetNodeOrNull<HealthComponent>("Health") is { CurrentHealth: <= 0 }))
+                {
+                    GalleryHandoffRecord("previous-selection-no-longer-eligible-observed");
+                    galleryHandoffExitLoggedId = galleryHandoffSelectedId;
+                }
+            }
+            catch (Exception) { galleryHandoffFaults++; GalleryHandoffRecord("stage-poll-read-error"); }
+        }
+        void GalleryHandoffSelection(Node2D selected)
+        {
+            if (!galleryHandoffEnabled) return;
+            try
+            {
+                ulong id = DiagnosticLive(selected) && !selected.IsQueuedForDeletion() && selected.GetParent() == actorRoot
+                    ? selected.GetInstanceId() : 0;
+                if (id != galleryHandoffSelectedId || id != 0 && galleryHandoffHadNoActor)
+                {
+                    galleryHandoffSelectedId = id;
+                    GalleryHandoffRecord(id != 0 && galleryHandoffHadNoActor ? "valid-target-reacquired" : "final-selection-change", selected);
+                }
+                galleryHandoffHadNoActor = id == 0;
+            }
+            catch (Exception) { galleryHandoffFaults++; GalleryHandoffRecord("selection-read-error"); }
+        }
+        void GalleryHandoffFlush(string boundary)
+        {
+            if (!galleryHandoffEnabled) return;
+            try
+            {
+                while (galleryHandoffTail.Count > 0) GD.Print(galleryHandoffTail.Dequeue());
+                GD.Print($"TASK10_GALLERY_HANDOFF_TAIL boundary={boundary} capacity=128 total={galleryHandoffSerial} overflow={galleryHandoffOverflow} faults={galleryHandoffFaults} strings_only=true stage_events_only=true extra_frames=0 extra_queries=0");
+            }
+            catch (Exception) { galleryHandoffFaults++; }
+        }
+        int galleryForeignCounterDenials = 0;
+        bool GalleryForeignCounterBudgetReady(Node2D selected, string boundary)
+        {
+            if (!headlessNormalPlan || !skitterDiagnostic || KeyboardRouteInputDriver.Current == null) return true;
+            if (!DiagnosticLive(group) || group.IsQueuedForDeletion() || group.GetTree() != tree ||
+                !DiagnosticLive(actorRoot) || actorRoot.IsQueuedForDeletion() || actorRoot.GetTree() != tree ||
+                group.GetNodeOrNull<Node>(group.ActorRootPath) != actorRoot ||
+                !DiagnosticLive(selected) || selected.IsQueuedForDeletion() || selected.GetTree() != tree ||
+                selected.GetParent() != actorRoot) return false;
+            if (group.OwnsLiveActor(selected) || !Task10IsSavedResident(selected)) return true;
+            HealthComponent selectedHealth = selected.GetNodeOrNull<HealthComponent>("Health");
+            if (!DiagnosticLive(selectedHealth) || selectedHealth.IsQueuedForDeletion() ||
+                selectedHealth.GetParent() != selected || selectedHealth.CurrentHealth <= 0) return false;
+            // Re-enumerate current group ownership on every call. Do not alter
+            // trackedSkitter's diagnostic initialization, window or listeners.
+            foreach (Node child in actorRoot.GetChildren())
+            {
+                if (child is not CanyonSkitter witness || !DiagnosticLive(witness) ||
+                    witness.IsQueuedForDeletion() || witness.GetTree() != tree ||
+                    witness.GetParent() != actorRoot || !group.OwnsLiveActor(witness)) continue;
+                HealthComponent witnessHealth = witness.GetNodeOrNull<HealthComponent>("Health");
+                if (!DiagnosticLive(witnessHealth) || witnessHealth.IsQueuedForDeletion() ||
+                    witnessHealth.GetParent() != witness || witnessHealth.CurrentHealth <= 0) continue;
+                float currentEnergy = energy.EnergyRatio * energy.Tuning.MaxEnergy;
+                float attackCost = energy.Tuning.AttackCost;
+                float shieldDrain = energy.Tuning.ShieldDrainPerSecond;
+                float rushSeconds = witness.Settings.RushSeconds;
+                int physicsHz = Engine.PhysicsTicksPerSecond;
+                if (!Task10GalleryForeignCounterBudget(true, currentEnergy, attackCost, shieldDrain,
+                    rushSeconds, physicsHz))
+                {
+                    if (galleryForeignCounterDenials++ < 16)
+                    {
+                        float requiredTotal = attackCost + shieldDrain * (.20f + rushSeconds + 3f / physicsHz);
+                        GD.Print(FormattableString.Invariant(
+                            $"TASK10_GALLERY_FOREIGN_COUNTER_DENIED boundary={boundary} physics={Engine.GetPhysicsFrames()} input={input.CurrentFrameSequence} selected={selected.GetInstanceId()} witness={witness.GetInstanceId()} witness_hp={witnessHealth.CurrentHealth} energy={currentEnergy:R} required_total={requiredTotal:R} attack_cost={attackCost:R} shield_drain={shieldDrain:R} rush={rushSeconds:R} hz={physicsHz} denial={galleryForeignCounterDenials}/16 safety_authorization=false"));
+                    }
+                    return false;
+                }
+            }
+            return true;
+        }
         Hitbox rushHitbox = null;
         Hurtbox skitterPlayerHurtbox = null;
         ulong skitterPlayerHurtboxId = 0;
@@ -10886,7 +15909,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             splitCadencePass = 0, splitCombinedPass = 0, splitBranchEntries = 0,
             splitCastReturns = 0, splitStateLines = 0, splitStateSuppressed = 0,
             splitWindowExpiredSamples = 0, splitEdgeLines = 0, splitEdgeSuppressed = 0,
-            splitDiagnosticErrors = 0;
+            splitDiagnosticErrors = 0, splitPursuitRows = 0;
         string splitMothIdentity = "unavailable", splitStateKey = null,
             splitFirstObservation = "unavailable", splitLastObservation = "unavailable",
             splitFirstCastIds = "unavailable", splitLastCastIds = "unavailable",
@@ -11145,6 +16168,10 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         bool diagnosticFatalLogged = false;
         string diagnosticLastState = null;
         bool steamSentryDiagnostic = encounterId == "canyon.v2.encounter.steam-valves";
+        int steamKOpportunityRows = 0;
+        int steamPursuitRows = 0;
+        int steamArrivalHoldTicks = 0;
+        bool steamArrivalHolding = false;
         BellBackLaborer trackedSteamBell = null;
         Hitbox steamBellHitbox = null;
         Hitbox.ConnectedEventHandler steamBellConnected = null;
@@ -11253,6 +16280,55 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         bool sentryBoltWasLive = false;
         bool steamSentryBoltRetired = false;
         SteamSentryRecoveryDriver steamSentryRecovery = null;
+        Task10EncounterDanger? steamIterationDanger = null;
+        SteamSentryAmbientDanger steamIterationAmbient = default;
+        var steamDecisionPrefix = new List<(int Serial, string Text)>();
+        var steamDecisionTail = new Queue<(int Serial, string Text)>();
+        var steamDecisionTransitions = new List<(int Serial, string Text)>();
+        string steamTransitionSignature = null;
+        int steamTransitionTotal = 0, steamTransitionOmitted = 0;
+        int steamDecisionTotal = 0, steamDecisionDropped = 0, steamDecisionFaults = 0;
+        void ObserveSteamRecoveryDecision(string boundary)
+        {
+            if (!steamSentryDiagnostic || steamSentryRecovery == null) return;
+            try
+            {
+                int serial = ++steamDecisionTotal;
+                string row = $"serial={serial} boundary={boundary} physics={Engine.GetPhysicsFrames()} loop={currentFrame}/900 " +
+                    steamSentryRecovery.DescribeDecision(steamIterationAmbient) +
+                    $" winner={steamIterationDanger?.SourceActorId ?? 0} signal_before_next_node_processing=true";
+                if (serial <= 24) steamDecisionPrefix.Add((serial, row));
+                if (steamDecisionTail.Count == 128) { steamDecisionTail.Dequeue(); steamDecisionDropped++; }
+                steamDecisionTail.Enqueue((serial, row));
+                // Only actual command boundaries may define a transition;
+                // next_signal carries the preceding decision, not a new gate.
+                if (boundary is "driver_command" or "retired_tail_command")
+                {
+                    string signature = steamSentryRecovery.TransitionSignature(steamIterationAmbient);
+                    if (signature != steamTransitionSignature)
+                    {
+                        steamTransitionSignature = signature; steamTransitionTotal++;
+                        if (steamDecisionTransitions.Count < 160) steamDecisionTransitions.Add((serial, row));
+                        else steamTransitionOmitted++;
+                    }
+                }
+            }
+            catch (Exception) { steamDecisionFaults++; }
+        }
+        SteamSentryAmbientDanger ObserveSteamAmbient(ulong sentryId)
+        {
+            if (!steamIterationDanger.HasValue)
+            {
+                var observation = Task10ObserveSteamSentryAmbient(actorRoot, encounterId, sentryId,
+                    combat, shield, rangedThreatLeaves, WatchSkitterRearm);
+                steamIterationDanger = observation.Danger;
+                steamIterationAmbient = observation.Ambient;
+            }
+            Task10EncounterDanger danger = steamIterationDanger.Value;
+            SteamSentryAmbientDanger ambient = steamIterationAmbient;
+            monitor.CombatDecisionObserved?.Invoke(sentryId, danger, ambient.Defend);
+            return ambient;
+        }
         int steamRecoveryCastCommands = 0, steamRecoveryAttackCommands = 0;
         string lastSentryState = null;
         ulong lastSentryAttackId = 0;
@@ -11516,7 +16592,25 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             return envelope.Expand(transform * new Vector2(-halfSize.X, halfSize.Y));
         }
 
-        Action<PlayerEnergyFrame> diagnosticEnergyChanged = _ => GearDiagnosticSnapshot("state");
+        Action<PlayerEnergyFrame> diagnosticEnergyChanged = frame =>
+        {
+            GearDiagnosticSnapshot("state");
+            if (!gearBellKeyboard) return;
+            try
+            {
+                if (!gearBellFirstOverheat && !gearBellPriorOverheated && frame.State.Overheated)
+                {
+                    gearBellFirstOverheat = true;
+                    GD.Print($"TASK10_GEAR_BELL_FIRST_OVERHEAT physics={Engine.GetPhysicsFrames()} " +
+                        $"sample={input.CurrentFrameSequence} energy={frame.State.Energy:R} heat={frame.State.Heat:R} " +
+                        $"regen_delay={frame.State.RegenDelayRemaining:R} cool_delay={frame.State.HeatCoolDelayRemaining:R} " +
+                        $"sustained={frame.ShieldSustained} raw_L={Input.IsPhysicalKeyPressed(Key.L)} " +
+                        $"sample_L={input.Current.ShieldHeld} active={shield.IsActive} last_ready=({gearBellLastReadiness}) observer_only=true");
+                }
+                gearBellPriorOverheated = frame.State.Overheated;
+            }
+            catch (Exception error) { gearBellReadinessFault ??= error.ToString(); }
+        };
         Action<bool> diagnosticShieldChanged = _ => GearDiagnosticSnapshot("state");
         int playerDamageEvents = 0;
         HealthComponent.DamagedEventHandler playerDamaged = (remaining, impulse) =>
@@ -11554,10 +16648,76 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             (CapsuleShape2D)player.GetNode<CollisionShape2D>("BodyCollider").Shape;
         Rect2 arenaBounds = group.Definition.ArenaBounds;
         Rect2 activationBounds = group.Definition.ActivationBounds;
-        PlayerCombat.AttackStartedEventHandler started = (_, _) =>
+        BasinBoardingTickObserver steamBoundaryObserver = null;
+        var steamBoundaryRows = steamSentryDiagnostic ? new List<string>(64) : null;
+        SteamNativeBoundary steamPrevious = default;
+        int steamBoundarySamples = 0, steamBoundaryOmitted = 0, steamBoundaryFaults = 0;
+        void ObserveSteamBoundary(double delta)
+        {
+            try
+            {
+                Vector2 p = player.GlobalPosition, v = player.Velocity;
+                int keys = (Input.IsPhysicalKeyPressed(Key.A)?1:0) | (Input.IsPhysicalKeyPressed(Key.D)?2:0) |
+                    (Input.IsPhysicalKeyPressed(Key.W)?4:0) | (Input.IsPhysicalKeyPressed(Key.S)?8:0) |
+                    (Input.IsPhysicalKeyPressed(Key.L)?16:0) | (Input.IsPhysicalKeyPressed(Key.K)?32:0) |
+                    (Input.IsPhysicalKeyPressed(Key.J)?64:0);
+                var current = new SteamNativeBoundary(Engine.GetPhysicsFrames(), input.CurrentFrameSequence, currentFrame,
+                    p.X,p.Y,v.X,v.Y,group.CurrentBatch,group.LiveActorCount,group.IsActive,group.IsComplete,
+                    arenaBounds.HasPoint(p),trackedActorId,keys,input.CurrentFrame.MoveAxis,
+                    input.CurrentFrame.ShieldHeld,shield.IsActive,playerHealth.CurrentHealth);
+                bool changed = steamBoundarySamples == 0 || current.Batch != steamPrevious.Batch ||
+                    current.Live != steamPrevious.Live || current.Active != steamPrevious.Active ||
+                    current.Complete != steamPrevious.Complete || current.Inside != steamPrevious.Inside ||
+                    current.LastSelected != steamPrevious.LastSelected;
+                if (changed)
+                {
+                    if (steamBoundaryRows.Count < 64)
+                        steamBoundaryRows.Add("STEAM_NATIVE_BOUNDARY " + System.Text.Json.JsonSerializer.Serialize(new {
+                            before=steamPrevious, after=current, hasPrevious=steamBoundarySamples>0,
+                            selectedContext="last_outer_decision", phase="priority100_post_world", originalQueries=0 }));
+                    else steamBoundaryOmitted++;
+                }
+                steamPrevious=current; steamBoundarySamples++;
+            }
+            catch { steamBoundaryFaults++; }
+        }
+        PlayerCombat.AttackStartedEventHandler started = (attackId, direction) =>
         {
             attacksStarted++;
             lastAttackStartedFrame = currentFrame;
+            if (mixedSetupAttackOpen)
+            {
+                try
+                {
+                    mixedSetupAccepted++;
+                    mixedSetupAttackId = attackId;
+                    if (mixedSetupAccepted != 1 || attackId == 0 || !MixedSetupEngagement() ||
+                        player.GetInstanceId() != mixedSetupPlayerId || !input.CurrentFrame.KeyboardActions ||
+                        !input.CurrentFrame.AttackPressed || input.CurrentFrame.PrimaryPressed ||
+                        input.CurrentFrame.ClawPressed || input.CurrentFrame.ShieldHeld || shield.IsActive ||
+                        KeyboardRouteInputDriver.Current.AttackEdges != mixedSetupEdgeStart + 1)
+                        mixedSetupFault ??= "setup must be one accepted real keyboard J on the retained HP2 actor";
+                    MixedResourceSnapshot("owned_burst_setup_J_started", $"attack_id={attackId} direction={direction} " +
+                        $"actor={mixedClawActorId} hurtbox={mixedSetupHurtboxId} accepted={mixedSetupAccepted}");
+                }
+                catch (Exception error) { mixedSetupFault ??= error.Message; }
+            }
+            if (frozenLowerKeyboard)
+            {
+                try
+                {
+                    frozenCounterStartedId = attackId;
+                    FrozenCounterRecord($"TASK10_FROZEN_COUNTER_STARTED physics={Engine.GetPhysicsFrames()} " +
+                        $"sample={input.CurrentFrameSequence} attack_id={attackId} attack_direction={direction} " +
+                        $"facing={combat.LastAttackFacing} energy_after_spend={energy.EnergyRatio:R} heat={energy.HeatRatio:R} " +
+                        $"selected={frozenCounterActor} decision_mask={frozenCounterMask} " +
+                        $"decision_physics={frozenCounterPhysics} decision_sample={frozenCounterSequence} " +
+                        $"decision_age={Engine.GetPhysicsFrames()-frozenCounterPhysics} " +
+                        $"danger_actor={frozenCounterDanger.SourceActorId} danger_attack={frozenCounterDanger.AttackId} " +
+                        $"started={attacksStarted} connected={attacksConnected} observer_only=true");
+                }
+                catch (Exception) { frozenCounterFaults++; }
+            }
             MixedResourceSnapshot("attack_started_after_spend");
             if (steamSentryDiagnostic && trackedSentry != null)
                 SteamPolicyLog("attack_started", $"connected={attacksConnected}");
@@ -11566,10 +16726,78 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         };
         PlayerCombat.AttackStartedEventHandler directionStarted = (_, direction) =>
             lastAttackDirection = direction;
-        PlayerCombat.AttackConnectedEventHandler connected = _ =>
+        PlayerCombat.AttackConnectedEventHandler connected = hurtbox =>
         {
             attacksConnected++;
             lastAttackConnectedFrame = currentFrame;
+            if (!mixedBrakeReleasedByJ && mixedPostHopIssued && mixedPostHopKStage==3 && mixedHopStage==5 &&
+                Task10PostHopBrakeReleaseAllowed(ReferenceEquals(hurtbox.GetParent(),mixedGuardRust) &&
+                    MixedGuardRetained(),mixedBrakeStage,mixedBrakeStartedBase,mixedBrakeConnectedBase,
+                    attacksStarted,attacksConnected))
+            {
+                mixedBrakeReleasedByJ=true;
+                MixedResourceSnapshot("posthop_brake_real_J_release",$"actor={mixedGuardActorId} " +
+                    $"hurtbox={hurtbox.GetInstanceId()} starts={mixedBrakeStartedBase}->{attacksStarted} " +
+                    $"contacts={mixedBrakeConnectedBase}->{attacksConnected} stage={mixedBrakeStage} " +
+                    "source=real_same_Rust_Connected event_input=false lease_reacquired=false");
+            }
+            if (mixedClawEnemy != null && ReferenceEquals(hurtbox.GetParent(), mixedClawEnemy) &&
+                mixedClawEnemy.GetNode<HealthComponent>("Health").CurrentHealth == 0)
+            {
+                mixedFatalConnected = true;
+                MixedResourceSnapshot("owned_burst_fatal_J_connected", $"actor={mixedClawActorId} " +
+                    $"shot_seen={mixedClawShotSeen} ordinal={mixedClawShotOrdinal} shot_physics={mixedClawShotPhysics}");
+            }
+            if (counterweightSuppressionKeyboard && group.CurrentBatch == 1 &&
+                hurtbox.GetParent() is RangedWeaponEnemy burst)
+            {
+                TryBindMixedClawEnemy(burst, liveEnrollment: false);
+                if (ReferenceEquals(burst, mixedClawEnemy) && !mixedFirstJObserved &&
+                    burst.GetNode<HealthComponent>("Health").CurrentHealth == 1)
+                {
+                    mixedFirstJObserved = true;
+                    if (mixedLiveEnrolled && mixedClawStage == 0) CaptureMixedClawBaseline();
+                    MixedResourceSnapshot("owned_burst_first_J_contact_observed",
+                        $"actor={mixedClawActorId} enemy_hp=1 live_enrolled={mixedLiveEnrolled}");
+                }
+            }
+            if (mixedSetupAttackOpen && ReferenceEquals(hurtbox.GetParent(), mixedClawEnemy))
+            {
+                try
+                {
+                    mixedSetupContacts++;
+                    var actualHealth = mixedClawEnemy.GetNode<HealthComponent>("Health");
+                    if (!mixedSetupAwaitContact || mixedSetupContacts != 1 || mixedSetupAccepted != 1 ||
+                        mixedSetupAttackId == 0 || hurtbox.GetInstanceId() != mixedSetupHurtboxId ||
+                        !ReferenceEquals(hurtbox.ResolveDamageReceiver(), actualHealth) ||
+                        !group.OwnsLiveActor(mixedClawEnemy) || mixedClawEnemy.GetInstanceId() != mixedClawActorId ||
+                        player.GetInstanceId() != mixedSetupPlayerId || actualHealth.CurrentHealth != 1 ||
+                        !mixedFirstJObserved || healthDamageEvents != mixedSetupDamageBefore + 1)
+                        mixedSetupFault ??= "setup needs exactly one same-Hurtbox accepted damage contact HP2->1";
+                    mixedSetupAwaitContact = false;
+                    MixedResourceSnapshot("owned_burst_setup_J_contact", $"attack_id={mixedSetupAttackId} " +
+                        $"player={mixedSetupPlayerId} hitbox={combat.GetNode<Hitbox>("AttackHitbox").GetInstanceId()} " +
+                        $"actor={mixedClawActorId} hurtbox={hurtbox.GetInstanceId()} hp_before=2 hp_after={actualHealth.CurrentHealth} " +
+                        $"accepted={mixedSetupAccepted} contacts={mixedSetupContacts} damage_events={healthDamageEvents-mixedSetupDamageBefore} " +
+                        "source=PlayerCombat_connected_after_real_Hitbox_damage");
+                }
+                catch (Exception error) { mixedSetupFault ??= error.Message; }
+            }
+            if (frozenLowerKeyboard)
+            {
+                try
+                {
+                    bool valid = GodotObject.IsInstanceValid(hurtbox);
+                    FrozenCounterRecord($"TASK10_FROZEN_COUNTER_CONNECTED physics={Engine.GetPhysicsFrames()} " +
+                        $"sample={input.CurrentFrameSequence} last_started_attack_id={frozenCounterStartedId} " +
+                        $"hurtbox={(valid ? hurtbox.GetInstanceId() : 0)} " +
+                        $"hit_parent={(valid ? hurtbox.GetParent()?.GetInstanceId() ?? 0 : 0)} " +
+                        $"selected={frozenCounterActor} decision_physics={frozenCounterPhysics} " +
+                        $"decision_age={Engine.GetPhysicsFrames()-frozenCounterPhysics} energy={energy.EnergyRatio:R} " +
+                        $"started={attacksStarted} connected={attacksConnected} observer_only=true");
+                }
+                catch (Exception) { frozenCounterFaults++; }
+            }
             if (steamSentryDiagnostic && trackedSentry != null)
                 SteamPolicyLog("attack_connected", $"connected={attacksConnected}");
             CourtyardBellSnapshot("J-connected");
@@ -11584,8 +16812,78 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         SendAction(InputActions.SelectAttackMode, false);
         try
         {
+        if (gearLureBell != null)
+        {
+            gearPostLureObserver = new BasinBoardingTickObserver { ProcessPhysicsPriority = 100 };
+            gearPostLureObserver.Sample = nativeDelta =>
+            {
+                if (gearLureStage != 4 || group.IsComplete || !GodotObject.IsInstanceValid(gearLureBell) ||
+                    gearLureBell.GetNode<HealthComponent>("Health").CurrentHealth <= 0 || gearPostLureFault != null) return;
+                try
+                {
+                    ulong physics = Engine.GetPhysicsFrames();
+                    bool contact = false;
+                    // This observer owns only these returned temporary snapshots,
+                    // not their borrowed collider or the legacy helper's reads.
+                    for (int i = 0; i < player.GetSlideCollisionCount(); i++)
+                    {
+                        using KinematicCollision2D collision = player.GetSlideCollision(i);
+                        if (collision.GetCollider() == gearLureFloor && collision.GetNormal().Y < -.7f)
+                        { contact = true; break; }
+                    }
+                    bool full = player.IsOnFloor() && contact &&
+                        TryTask10CapsuleCorridor(player, gearLureFloorShape, out _, out _, out _, out _);
+                    TestAssert.True(full && player.GetInstanceId() == gearLurePlayerId && monitor.Player == player &&
+                        gearLureBell.GetInstanceId() == gearLureId && gearLureBell.GetParent() == gearLureParent &&
+                        group.OwnsLiveActor(gearLureBell) && playerHealth.CurrentHealth == playerHealthAtStart &&
+                        monitor.RecoveryRequested == gearLureRequests && monitor.RecoveryCompleted == startingRecoveries &&
+                        gearBellMotor.AcceptedJumpCount == gearLureJumps && gearBellMotor.AcceptedDashCount == gearLureDashes &&
+                        (gearPostLureLast == 0 || physics == gearPostLureLast + 1) &&
+                        input.CurrentFrameSequence > gearPostLureSequence,
+                        $"GEAR_POSTLURE_FIXED_FLOOR_RED physics={physics} loop={currentFrame}/900 " +
+                        $"player={player.GlobalPosition} velocity={player.Velocity} full={full} contact={contact} " +
+                        $"aim={input.KeyboardAimDirection} raw_AD={Input.IsPhysicalKeyPressed(Key.A)}/{Input.IsPhysicalKeyPressed(Key.D)} " +
+                        $"shield={input.Current.ShieldHeld}/{shield.IsActive} bell={gearLureBell.GlobalPosition} " +
+                        $"hp={playerHealthAtStart}->{playerHealth.CurrentHealth} samples={gearPostLureSamples}");
+                    if (gearPostLureSamples == 0) gearPostLureFirst = physics;
+                    gearPostLureLast = physics;
+                    gearPostLureSequence = input.CurrentFrameSequence;
+                    gearPostLureSamples++;
+                }
+                catch (Exception error) { gearPostLureFault ??= error.ToString(); }
+            };
+            player.AddChild(gearPostLureObserver);
+        }
+        if (lowerTraceEnabled)
+        {
+            lowerClawInputObserver = new BasinBoardingTickObserver { ProcessPhysicsPriority = lowerClaw.ProcessPhysicsPriority - 1 };
+            lowerClawInputObserver.Sample = _ =>
+            {
+                if (lowerControlStage is not (1 or 2) || lowerClawInputSamples >= 32) return;
+                lowerClawInputSamples++;
+                var frame = lowerClaw.CurrentFrame;
+                LowerTrace("claw_pre_node", $"stage={lowerControlStage} cast={frame.CastId} state={frame.State} " +
+                    $"lock={frame.LockedTargetRuntimeId} raw_K={input.RawFrame.ClawPressed} " +
+                    $"raw_J={input.RawFrame.AttackPressed} raw_L={input.RawFrame.ShieldHeld} " +
+                    $"sampled_aim={input.KeyboardAimDirection} axis={input.Current.MoveAxis:R} player={player.GlobalPosition} " +
+                    $"physical_WASDK={Input.IsPhysicalKeyPressed(Key.W)}/{Input.IsPhysicalKeyPressed(Key.A)}/" +
+                    $"{Input.IsPhysicalKeyPressed(Key.S)}/{Input.IsPhysicalKeyPressed(Key.D)}/{Input.IsPhysicalKeyPressed(Key.K)} " +
+                    $"preview_previous={lowerClaw.KeyboardPreview.Snapshot.RuntimeId} " +
+                    $"input_priority={input.ProcessPhysicsPriority} observer_priority={lowerClawInputObserver.ProcessPhysicsPriority} " +
+                    $"claw_priority={lowerClaw.ProcessPhysicsPriority} extra_resolver=false");
+            };
+            player.AddChild(lowerClawInputObserver);
+        }
+        if (steamSentryDiagnostic && KeyboardRouteInputDriver.Current != null)
+        {
+            steamBoundaryObserver = new BasinBoardingTickObserver { ProcessPhysicsPriority = 100 };
+            steamBoundaryObserver.Sample = ObserveSteamBoundary;
+            player.AddChild(steamBoundaryObserver);
+        }
         if (counterweightSuppressionKeyboard)
         {
+            mixedClaw.ClawFrameChanged += earlyMixedPreview;
+            earlyMixedSubscribed = true;
             energy.EnergyFrameChanged += mixedEnergyChanged;
             shield.ShieldFrameChanged += mixedShieldChanged;
             shield.ShieldResolved += mixedShieldResolved;
@@ -11601,8 +16899,39 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         for (int frame = 0; frame < 900 && !group.IsComplete; frame++)
         {
             currentFrame = frame;
-            if (steamSentryRecovery != null && steamSentryRecovery.TryFinishRetiredCounter())
+            GalleryCounterBegin();
+            GalleryHandoffPoll();
+            TestAssert.True(mixedSetupFault == null, $"MIXED_SETUP_J_RECEIPT_RED: {mixedSetupFault}");
+            TestAssert.True(!mixedSetupAwaitContact || combat.IsAttacking,
+                "MIXED_SETUP_J_MISS_RED: the one issued setup J must connect before its attack finishes; no retry");
+            if (mixedSetupAttackOpen && !mixedSetupAwaitContact && !combat.IsAttacking)
+                mixedSetupAttackOpen = false;
+            TestAssert.True(gearPostLureFault == null, gearPostLureFault ?? "post-lure fixed support remains valid");
+            ObserveSteamRecoveryDecision("next_signal_old_decision");
+            steamIterationDanger = null;
+            if (mixedNeutralPending && input.CurrentFrameSequence != mixedNeutralSequence)
             {
+                TestAssert.True(input.Current.KeyboardActions && input.Current.MoveAxis == 0f &&
+                    !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D) &&
+                    !input.Current.ShieldHeld && !shield.IsActive && player.IsOnFloor() &&
+                    playerHealth.CurrentHealth == mixedClawHp && monitor.Player == player &&
+                    monitor.RecoveryRequested == mixedClawRequests && monitor.RecoveryCompleted == startingRecoveries &&
+                    mixedClawMotor.AcceptedJumpCount == mixedClawJumps && mixedClawMotor.AcceptedDashCount == mixedClawDashes,
+                    $"MIXED_COOLDOWN_NEUTRAL_RED: after first real J finishes, an observed unguarded cooldown keeps " +
+                    $"the grounded engagement by sampled neutral A/D, not unconditional retreat; " +
+                    $"physics={Engine.GetPhysicsFrames()} sequence={mixedNeutralSequence}->{input.CurrentFrameSequence} " +
+                    $"axis={input.Current.MoveAxis} A={Input.IsPhysicalKeyPressed(Key.A)} D={Input.IsPhysicalKeyPressed(Key.D)} " +
+                    $"player={player.GlobalPosition} velocity={player.Velocity}");
+                mixedNeutralSamples++;
+                mixedNeutralPending = false;
+                MixedResourceSnapshot("owned_burst_cooldown_neutral_input_OK",
+                    $"sequence={mixedNeutralSequence}->{input.CurrentFrameSequence} velocity={player.Velocity}");
+            }
+            SteamSentryAmbientDanger retiredSteamAmbient = steamSentryRecovery?.HasRetiredOwner == true
+                ? ObserveSteamAmbient(steamSentryRecovery.SentryId) : default;
+            if (steamSentryRecovery != null && steamSentryRecovery.TryFinishRetiredCounter(retiredSteamAmbient))
+            {
+                ObserveSteamRecoveryDecision("retired_tail_command");
                 // The encounter already removed its defeated Sentry. Complete
                 // the real player's J2 tail using only original outer ticks.
                 if (steamSentryRecovery.Completed)
@@ -11612,6 +16941,10 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                         $"hp={playerHealth.CurrentHealth} original_budget=900 whole_goal=false");
                     steamSentryRecovery.Dispose();
                     steamSentryRecovery = null;
+                    // Dispose closes its own key lease; the selected foreign
+                    // threat, not the retired actor, still owns this tick's L.
+                    if (retiredSteamAmbient.Defend)
+                        SendMouse(MouseButton.Right, true, player, retiredSteamAmbient.GuardSource);
                 }
                 await PhysicsFrames(tree, monitor, 1);
                 continue;
@@ -11675,13 +17008,24 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                         $"upper_seconds={(observedTicks + 1f) / rate:R} " +
                         "sample_boundary=SceneTree_PhysicsFrame_pre_node independent_full_060_proof=false");
                     LogCounterweightSuppression("native_mixed_arrival_resume_original_combat");
+                    mixedCandidateStart = Engine.GetPhysicsFrames();
                     counterweightSuppressionRecovery = false;
                     SendAction(InputActions.SelectAttackMode, true);
                     SendAction(InputActions.SelectAttackMode, false);
-                    // Fall through to the unmodified first-child combat policy this same iteration.
+                    // Preserve first-child attack targeting; only simultaneous known
+                    // live-circle guard ties may use the current capsule clearance.
                 }
                 else
                 {
+                    // Suppressed arrival does not suspend already living residents
+                    // or their old rounds. Keep the original one-tick/900 driver,
+                    // but sample that same real danger set throughout recentering.
+                    Task10EncounterDanger recoveryDanger = Task10ObserveEncounterDanger(actorRoot,
+                        encounterId, null, false, rangedThreatLeaves, passiveRearmObserved: WatchSkitterRearm);
+                    bool defend = Task10MixedDefendWindow(shield, recoveryDanger);
+                    monitor.CombatDecisionObserved?.Invoke(0, recoveryDanger, defend);
+                    mixedDecisionId++;
+                    mixedLastDanger = recoveryDanger;
                     float delta = 4700f - player.GlobalPosition.X;
                     float towardSpeed = Mathf.Max(0f, Mathf.Sign(delta) * player.Velocity.X);
                     // Read-only stop estimate drives A/D release; actual sampled pose/support wins.
@@ -11689,8 +17033,14 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                         towardSpeed / rate + 1f;
                     bool advance = Mathf.Abs(delta) > 3f &&
                         (towardSpeed <= 0f || Mathf.Abs(delta) > brakingDistance);
-                    SendAction(InputActions.MoveLeft, advance && delta < 0f);
-                    SendAction(InputActions.MoveRight, advance && delta > 0f);
+                    // Real keyboard guard aim can briefly turn with A/D. Leave
+                    // no recenter direction intent underneath it, or the input
+                    // adapter would keep walking against the center while guarding.
+                    SendAction(InputActions.MoveLeft, !defend && advance && delta < 0f);
+                    SendAction(InputActions.MoveRight, !defend && advance && delta > 0f);
+                    SendMouse(MouseButton.Right, defend, player,
+                        recoveryDanger.Threat ? recoveryDanger.GuardSource : player.GlobalPosition);
+                    MixedResourceSnapshot("recenter_after_command_emit", $"guard_command={defend} advance={advance} selected_context=none");
                     if (CounterweightSuppressionSettled() && !counterweightSuppressionSettledLogged)
                     {
                         counterweightSuppressionSettledLogged = true;
@@ -11702,12 +17052,181 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     continue;
                 }
             }
-            Node2D actor = actorRoot.GetChildren().OfType<Node2D>()
-                .FirstOrDefault(candidate => candidate.Name.ToString().StartsWith(
-                    encounterId.Replace('.', '_'), StringComparison.Ordinal));
+            if (steamSentryDiagnostic && KeyboardRouteInputDriver.Current != null && group.IsActive &&
+                group.IsArrivalWarningActive && group.LiveActorCount == 0)
+            {
+                // The required wave has announced its arrival, but has no live
+                // actor yet. Do not turn that transient absence into an unrelated
+                // chase out of the arena. Residents remain active and observed.
+                if (!steamArrivalHolding)
+                    GD.Print($"STEAM_ARRIVAL_HOLD_BEGIN physics={Engine.GetPhysicsFrames()} loop={frame}/900 " +
+                        $"batch={group.CurrentBatch} player={player.GlobalPosition} health={playerHealth.CurrentHealth}");
+                steamArrivalHolding=true; steamArrivalHoldTicks++;
+                Task10EncounterDanger arrivalDanger = Task10ObserveEncounterDanger(actorRoot, encounterId,
+                    null, false, rangedThreatLeaves, passiveRearmObserved: WatchSkitterRearm);
+                bool arrivalDefend = !combat.IsAttacking && Task10MixedDefendWindow(shield, arrivalDanger);
+                monitor.CombatDecisionObserved?.Invoke(0, arrivalDanger, arrivalDefend);
+                SendAction(InputActions.PrimaryAction, false);
+                SendAction(InputActions.Claw, false);
+                SendAction(InputActions.MoveLeft, false);
+                SendAction(InputActions.MoveRight, false);
+                SendAction(InputActions.MoveUp, false);
+                SendAction(InputActions.MoveDown, false);
+                SendMouse(MouseButton.Right, arrivalDefend, player,
+                    arrivalDanger.Threat ? arrivalDanger.GuardSource : player.GlobalPosition);
+                await PhysicsFrames(tree, monitor, 1);
+                continue;
+            }
+            if (steamArrivalHolding)
+            {
+                steamArrivalHolding=false;
+                GD.Print($"STEAM_ARRIVAL_HOLD_END physics={Engine.GetPhysicsFrames()} loop={frame}/900 " +
+                    $"batch={group.CurrentBatch} live={group.LiveActorCount} total_ticks={steamArrivalHoldTicks} " +
+                    $"player={player.GlobalPosition} health={playerHealth.CurrentHealth} original_outer_ticks=true");
+            }
+            // The old wave still owns completion and all its individual receipts.
+            // A nearer live resident is nevertheless a real combatant, not a
+            // source to guard forever while walking past it toward the wave.
+            if (mixedPostShotSchedule && mixedClawEnemy == null && group.CurrentBatch == 1)
+                for (int index = 0; index < actorRoot.GetChildCount(); index++)
+                    if (actorRoot.GetChild(index) is RangedWeaponEnemy candidate &&
+                        TryBindMixedClawEnemy(candidate, liveEnrollment: true)) break;
+            bool mixedSetupIntent = MixedSetupEngagement();
+            mixedSetupRequired |= mixedSetupIntent;
+            bool mixedRequiredPriority = mixedPostShotSchedule && counterweightSuppressionKeyboard &&
+                group.CurrentBatch == 1 && mixedHopStage == 5 && mixedDefeated && mixedFatalConnected && MixedGuardRetained();
+            Node2D actor = Task10SelectEncounterActor(actorRoot, group, player.GlobalPosition,
+                compareAllOwned: counterweightSuppressionKeyboard && group.CurrentBatch == 1,
+                continuedOwnedBurst: counterweightSuppressionKeyboard ? mixedClawEnemy : null,
+                residentPursuitBounds: steamSentryDiagnostic && KeyboardRouteInputDriver.Current != null ? arenaBounds : null,
+                restrictMothResidentPursuit: splitBellKeyboard && group.CurrentBatch == 1,
+                continueSetupAfterK: mixedSetupIntent, preferLiveOwnedAfterHop: mixedRequiredPriority);
+            if (galleryLaserFinishProbe && group.CurrentBatch == 2 && group.LiveActorCount == 1 &&
+                KeyboardRouteInputDriver.Current != null && player.IsOnFloor() && frame >= nextAttackFrame &&
+                !combat.IsAttacking && actor is GraveLampMoth optionalDiver &&
+                optionalDiver.SceneFilePath == "res://scenes/enemies/residents/v001/bone-diver.tscn" &&
+                optionalDiver.CurrentFrame.AttackTimeline.Phase is AttackPhase.None or AttackPhase.Recovery &&
+                optionalDiver.GetNodeOrNull<Hitbox>("AttackHitbox") is { Monitoring: false })
+            {
+                // Choose a pursuit/strike target only; the original all-actor
+                // danger scan and the fresh J checks still run below.
+                var requiredLaser = actorRoot.GetChildren().OfType<PrismLaserGunner>().FirstOrDefault(laser =>
+                    laser.IsInsideTree() && !laser.IsQueuedForDeletion() && group.OwnsLiveActor(laser) &&
+                    laser.SceneFilePath == CanyonEncounterCatalog.LaserScene &&
+                    laser.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth == 1 &&
+                    Mathf.Abs(laser.GlobalPosition.X - player.GlobalPosition.X) is >= 8f and <= 64f &&
+                    Mathf.Abs(laser.GlobalPosition.Y - player.GlobalPosition.Y) <= 46f);
+                if (requiredLaser != null)
+                {
+                    actor = requiredLaser;
+                    if (galleryLaserFinishRows++ < 16)
+                        GD.Print($"TASK10_GALLERY_FINISH_TARGET physics={Engine.GetPhysicsFrames()} loop={frame} " +
+                            $"laser={actor.GetInstanceId()} diver={optionalDiver.GetInstanceId()} " +
+                            $"diver_phase={optionalDiver.CurrentFrame.AttackTimeline.Phase} energy={energy.EnergyRatio:R}");
+                }
+            }
+            if (mixedSetupIntent)
+                TestAssert.True(ReferenceEquals(actor, mixedClawEnemy),
+                    "MIXED_SETUP_SELECTION_RED: actual post-K HP2 engagement remains selected during its one setup J");
+            if (splitBellKeyboard && group.CurrentBatch == 1 && GodotObject.IsInstanceValid(actor) &&
+                actor.GetInstanceId() != trackedActorId && splitPursuitRows < 16)
+            {
+                splitPursuitRows++;
+                GD.Print($"SPLIT_MOTH_PURSUIT row={splitPursuitRows}/16 physics={Engine.GetPhysicsFrames()} loop={frame}/900 " +
+                    $"actor={actor.GetInstanceId()} name={actor.Name} owned={group.OwnsLiveActor(actor)} " +
+                    $"player={player.GlobalPosition} enemy={actor.GlobalPosition} live_wave={group.LiveActorCount} " +
+                    "optional_moth_J_geometry=true all_source_danger_retained=true");
+            }
+            if (mixedHopStage is >= 2 and < 5)
+            {
+                TestAssert.True(MixedGuardRetained(), "MIXED_RECOVERY_HOP_RED: airborne engagement identity cannot disappear");
+                // Only retain the engagement so the ordinary full danger scan
+                // below is not skipped by the old 74px selection-height limit.
+                actor = mixedGuardRust;
+            }
+            if (steamSentryDiagnostic && GodotObject.IsInstanceValid(actor) &&
+                actor.GetInstanceId() != trackedActorId && steamPursuitRows < 12)
+            {
+                steamPursuitRows++;
+                GD.Print($"STEAM_PURSUIT_SELECTION row={steamPursuitRows}/12 physics={Engine.GetPhysicsFrames()} loop={frame}/900 " +
+                    $"batch={group.CurrentBatch} live={group.LiveActorCount} actor={actor.GetInstanceId()} " +
+                    $"name={actor.Name} enemy={actor.GlobalPosition} player={player.GlobalPosition} " +
+                    $"inside_arena={arenaBounds.HasPoint(actor.GlobalPosition)} all_resident_dangers_retained=true");
+            }
+            // Independent live obligation: this reference was armed only by the
+            // real first J's Hurtbox contact, not by a fresh nearest-enemy guess.
+            bool mixedFinishIntent = counterweightSuppressionKeyboard && group.CurrentBatch == 1 &&
+                group.LiveActorCount > 0 && GodotObject.IsInstanceValid(mixedClawEnemy) &&
+                mixedClawEnemy.IsInsideTree() && !mixedClawEnemy.IsQueuedForDeletion() &&
+                mixedClawEnemy.GetParent() == actorRoot &&
+                mixedClawEnemy.SceneFilePath == CanyonEncounterCatalog.BurstScene &&
+                mixedClawEnemy.Name.ToString().StartsWith(encounterId.Replace('.', '_'), StringComparison.Ordinal) &&
+                mixedClawEnemy.GetNode<HealthComponent>("Health").CurrentHealth == 1 &&
+                player.GlobalPosition.IsFinite() && mixedClawEnemy.GlobalPosition.IsFinite() &&
+                MathF.Abs(mixedClawEnemy.GlobalPosition.Y - player.GlobalPosition.Y) <= 74f;
+            if (mixedFinishIntent)
+                TestAssert.True(actor == mixedClawEnemy,
+                    $"MIXED_FINISH_INTENT_RED: first real J's live HP1 owned Burst remains the selected engagement " +
+                    $"through cooldown and K handoff; physics={Engine.GetPhysicsFrames()} loop={frame} " +
+                    $"continued={mixedClawEnemy.GetInstanceId()} selected={(GodotObject.IsInstanceValid(actor) ? actor.GetInstanceId() : 0)}");
+            // Active A/D ownership must be invalidated before the invalid-actor
+            // early continue; selecting the owner again cannot resume stage5.
+            if (mixedBrakeStage is >=1 and <=3)
+            {
+                int next=Task10PostHopBrakeOwnerStage(mixedBrakeStage,mixedGuardActorId,
+                    GodotObject.IsInstanceValid(actor) ? actor.GetInstanceId() : 0,
+                    MixedGuardRetained() && MixedGuardFullSupport() && frame<=mixedBrakeDeadline);
+                if (next==5)
+                {
+                    mixedBrakeStage=5;
+                    SendAction(InputActions.MoveLeft,false); SendAction(InputActions.MoveRight,false);
+                    MixedResourceSnapshot("posthop_brake_owner_interrupted","terminal=true no_resume=true");
+                }
+            }
+            // This local driver must not steer toward a retired gallery target.
+            // Keep the global selection priority and all other encounter policies.
+            bool galleryLocalTargetScope = headlessNormalPlan && skitterDiagnostic &&
+                KeyboardRouteInputDriver.Current != null;
+            if (galleryLocalTargetScope && GodotObject.IsInstanceValid(actor) &&
+                (actor.IsQueuedForDeletion() || !actor.IsInsideTree() || actor.GetParent() != actorRoot ||
+                 actor.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is not > 0))
+                actor = null;
+            GalleryHandoffSelection(actor);
+            if (galleryCounterPending)
+            {
+                try
+                {
+                    bool valid = DiagnosticLive(actor) && !actor.IsQueuedForDeletion() && actor.GetParent() == actorRoot;
+                    GalleryCounterStage("actual-final-selection", valid
+                        ? $"selected_id={actor.GetInstanceId()} selected_type={actor.GetType().Name} selected_hp={actor.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth} selected_is_tracked={ReferenceEquals(actor, trackedSkitter)}"
+                        : "selected_valid=false selected_id=unknown selected_type=unknown selected_hp=unknown");
+                }
+                catch { galleryCounterFaults++; }
+            }
             if (!GodotObject.IsInstanceValid(actor))
             {
+                bool galleryWaitRequiresNeutral = headlessNormalPlan && skitterDiagnostic &&
+                    KeyboardRouteInputDriver.Current != null && group.CurrentBatch > 0 &&
+                    group.IsArrivalWarningActive && group.LiveActorCount == 0 && player.IsOnFloor() &&
+                    modes.CurrentMode == PlayerActionMode.Attack &&
+                    player.GetNode<MechanicalClawController>("MechanicalClaw").CurrentFrame.State == MechanicalClawState.Idle;
+                ulong galleryWaitInputBefore = input.CurrentFrameSequence;
+                if (galleryLocalTargetScope)
+                {
+                    SendAction(InputActions.MoveLeft, false);
+                    SendAction(InputActions.MoveRight, false);
+                }
+                GalleryHandoffRecord("no-valid-actor-before-original-await", actor);
                 await PhysicsFrames(tree, monitor, 1);
+                GalleryHandoffRecord("no-valid-actor-after-original-await", actor);
+                if (galleryWaitRequiresNeutral)
+                    TestAssert.True(!Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D) &&
+                        input.CurrentFrame.MoveAxis == 0f && input.RawFrame.MoveAxis == 0f,
+                        $"HANDOFF_WAIT_NEUTRAL_RED: original no-target arrival wait must sample released A/D and neutral horizontal input; " +
+                        $"loop={frame}/899 physics={Engine.GetPhysicsFrames()} input={galleryWaitInputBefore}->{input.CurrentFrameSequence} " +
+                        $"physical_AD={Input.IsPhysicalKeyPressed(Key.A)}/{Input.IsPhysicalKeyPressed(Key.D)} " +
+                        $"current_axis={input.CurrentFrame.MoveAxis:R} raw_axis={input.RawFrame.MoveAxis:R} " +
+                        $"batch={group.CurrentBatch} arrival={group.IsArrivalWarningActive} live={group.LiveActorCount}");
                 continue;
             }
             if (steamSentryDiagnostic && trackedSentry == null && actor is BellBoltSentry sentry)
@@ -11809,6 +17328,10 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             {
                 trackedActorId = actor.GetInstanceId();
                 desiredActorSide = Mathf.IsZeroApprox(dx) ? 1f : Mathf.Sign(dx);
+                if (Task10IsSavedResident(actor))
+                    GD.Print($"TASK10_RESIDENT_COMBAT_TARGET scene={actor.SceneFilePath} actor_id={trackedActorId} " +
+                        $"player_id={player.GetInstanceId()} hp={enemyHealth?.CurrentHealth} " +
+                        $"player={player.GlobalPosition} target={actor.GlobalPosition} wave={encounterId}");
             }
             bool splitBellPolicy = splitBellKeyboard && actor is BellBackLaborer;
             if (splitBellPolicy && actor is BellBackLaborer splitBell)
@@ -11820,7 +17343,8 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     // The passive RED observed a successful first K, then J into Armor
                     // after exposure ended. Rearm from the first admitted stance, not
                     // an arbitrary75-loop cadence; no J/L may cancel the next flight.
-                    SendMouse(MouseButton.Right, false, player, target);
+                    if(!splitBellRearming) { splitBellRearming=true; splitBellRearmEpisode++; splitBellRearmSamples=0; }
+                    splitBellRearmSamples++;
                     SendAction(InputActions.PrimaryAction, false);
                     SendAction(InputActions.Attack, false);
                     SendAction(InputActions.MoveUp, false);
@@ -11834,6 +17358,29 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     float vx = player.Velocity.X;
                     float braking = vx * vx / (2f * splitBellMotor.Tuning.GroundAcceleration) +
                         MathF.Abs(vx) / Engine.PhysicsTicksPerSecond;
+                    // This early continue used to bypass the shared danger
+                    // consumer entirely. Keep the original scanner/guard rules
+                    // here too, before deciding to move or start a new cast.
+                    Task10EncounterDanger rearmDanger;
+                    try
+                    {
+                        rearmDanger=Task10ObserveEncounterDanger(actorRoot,encounterId,actor,false,rangedThreatLeaves);
+                    }
+                    finally { rangedThreatLeaves.Clear(); }
+                    bool rearmDefend=!combat.IsAttacking && splitBellRearmClaw.CurrentFrame.State==MechanicalClawState.Idle &&
+                        Task10MixedDefendWindow(shield,rearmDanger);
+                    monitor.CombatDecisionObserved?.Invoke(actor.GetInstanceId(),rearmDanger,rearmDefend);
+                    if(rearmDefend)
+                    {
+                        SendAction(InputActions.MoveLeft,false);
+                        SendAction(InputActions.MoveRight,false);
+                        SendMouse(MouseButton.Right,true,player,rearmDanger.GuardSource);
+                        ObserveSplitBellRearm(splitBell,rearmDanger,true,idle,false,0,error,braking);
+                        await PhysicsFrames(tree,monitor,1);
+                        GuardSplitBell(splitBell);
+                        continue; // Real defense takes this original one-frame slot; no new wait budget.
+                    }
+                    SendMouse(MouseButton.Right,false,player,target);
                     int direction = idle && MathF.Abs(error) > 1.5f ? MathF.Sign(error) : 0;
                     if (direction != 0 && vx * error > 0f && MathF.Abs(error) <= braking + 1.5f)
                         direction = -MathF.Sign(vx);
@@ -11841,7 +17388,9 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     SendAction(InputActions.MoveRight, direction > 0);
                     bool neutral = direction == 0 && MathF.Abs(error) <= 1.5f && player.Velocity.Length() <= 2f &&
                         input.CurrentFrame.MoveAxis == 0f && !input.CurrentFrame.AttackPressed &&
-                        !input.CurrentFrame.ClawPressed && !input.CurrentFrame.ShieldHeld;
+                        !input.CurrentFrame.ClawPressed && !input.CurrentFrame.ShieldHeld &&
+                        !shield.IsActive && !Input.IsPhysicalKeyPressed(Key.L);
+                    ObserveSplitBellRearm(splitBell,rearmDanger,false,idle,neutral,direction,error,braking);
                     if (idle && neutral)
                     {
                         ThreadTarget2D splitTarget = splitBell.GetNode<ThreadTarget2D>("ThreadTarget");
@@ -11873,6 +17422,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     GuardSplitBell(splitBell);
                     continue;
                 }
+                splitBellRearming=false;
             }
             if (courtyardKeyboardJump && group.CurrentBatch == 1 && actor is BellBackLaborer &&
                 !courtyardJumpComplete && (courtyardJumpPreparing || dy < -74f))
@@ -12224,6 +17774,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             Vector2 sentryGuardSource = target;
             bool skitterPolicy = skitterDiagnostic && actor is CanyonSkitter;
             bool skitterThreat = false, skitterGuardRequired = false, skitterCanCounter = false;
+            if (galleryCounterPending) GalleryCounterStage("skitter-policy-enter", $"selected_skitter_policy={skitterPolicy}");
             Vector2 skitterGuardSource = target;
             if (skitterPolicy)
             {
@@ -12273,7 +17824,10 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 }
                 else
                 {
-                    if (skitterGuardRequested) SkitterPolicyLog("guard_cleared");
+                    if (skitterGuardRequested) SkitterPolicyLog("guard_cleared",
+                        $"player={player.GlobalPosition} velocity={player.Velocity} actor={liveSkitter.GlobalPosition} " +
+                        $"dx={dx:R} dy={dy:R} axis={input.CurrentFrame.MoveAxis:R} " +
+                        $"floor={DescribeFloorCollider(player)}");
                     skitterGuardRequested = skitterGuardAcknowledged = false;
                     if (!skitterReleaseRequested)
                     {
@@ -12296,6 +17850,11 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     timeline.PhaseRemainingSeconds >= attackSeconds + 2f / 60f && !monitoring &&
                     skitterReleaseSampled && !input.Current.ShieldHeld && !shield.IsActive &&
                     !energy.IsOverheated && energy.EnergyRatio * energy.Tuning.MaxEnergy >= energy.Tuning.AttackCost + reserve;
+                if (galleryCounterPending)
+                {
+                    try { GalleryCounterStage("selected-skitter-policy-result", $"can_counter={skitterCanCounter} threat={skitterThreat} guard_required={skitterGuardRequired} state={observed.State} phase={timeline.Phase} attack={timeline.AttackId} remaining={timeline.PhaseRemainingSeconds:R} attack_seconds={attackSeconds:R} reserve={reserve:R} energy={energy.EnergyRatio * energy.Tuning.MaxEnergy:R} attack_cost={energy.Tuning.AttackCost:R} monitoring={monitoring} release_sampled={skitterReleaseSampled} shield={input.CurrentFrame.ShieldHeld}/{shield.IsActive} overheated={energy.IsOverheated}"); }
+                    catch { galleryCounterFaults++; }
+                }
             }
             if (sentryPolicy)
             {
@@ -12317,9 +17876,12 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     sentryGuardSource = muzzle?.GlobalPosition ?? target;
                 BellBoltSentryFrame sentryFrame = liveSentry.CurrentFrame;
                 AttackTimelineFrame timeline = sentryFrame.AttackTimeline;
+                bool knownEmptyRetiredFire = sentryFrame.State == BellBoltSentryState.Fire &&
+                    steamSentryRecovery?.HasNativeGoneShotFor(liveSentry.GetInstanceId(),
+                        timeline.AttackId, Engine.GetPhysicsFrames()) == true;
                 sentryGuardRequired = (timeline.Phase == AttackPhase.Telegraph &&
                     timeline.PhaseRemainingSeconds <= .40f) ||
-                    sentryFrame.State == BellBoltSentryState.Fire || liveBolt != null;
+                    sentryFrame.State == BellBoltSentryState.Fire && !knownEmptyRetiredFire || liveBolt != null;
                 // A full .30s player attack must finish before the .40s guard window.
                 sentryAttackWouldOverlapGuard = timeline.Phase == AttackPhase.Telegraph &&
                     timeline.PhaseRemainingSeconds <= .70f;
@@ -12349,8 +17911,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                         sentryLastGuardSample = input.CurrentFrameSequence;
                         sentryGuardSamples++;
                         Vector2 sourceDirection = sentryGuardSource - player.GlobalPosition;
-                        bool correctDirection = sourceDirection.LengthSquared() > 1f &&
-                            shield.GuardDirection.Dot(sourceDirection.Normalized()) >= .9f;
+                        bool correctDirection = Task10SentryGuardDirectionAccepted(shield.GuardDirection, sourceDirection);
                         bool sampledGuard = input.Current.ShieldHeld && shield.IsActive &&
                             correctDirection;
                         if (sampledGuard && !sentryGuardAcknowledged)
@@ -12412,7 +17973,10 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 }
                 steamSentryRecovery ??= new SteamSentryRecoveryDriver(player, (BellBoltSentry)actor,
                     KeyboardRouteInputDriver.Current);
-                if (steamSentryRecovery.TryDrive(steamSentryBoltRetired, 900 - frame))
+                SteamSentryAmbientDanger ambient = ObserveSteamAmbient(actor.GetInstanceId());
+                bool recoveryHandled = steamSentryRecovery.TryDrive(steamSentryBoltRetired, 900 - frame, ambient);
+                ObserveSteamRecoveryDecision("driver_command");
+                if (recoveryHandled)
                 {
                     attacks += steamSentryRecovery.AttackCommands - steamRecoveryAttackCommands;
                     threadCasts += steamSentryRecovery.CastCommands - steamRecoveryCastCommands;
@@ -12427,17 +17991,42 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 steamSentryRecovery.Dispose();
                 steamSentryRecovery = null;
             }
+            // The same living Rust can now be on the other side after the one
+            // actual supported transfer. Refresh before BOTH strike geometry
+            // and J facing; never change the global target/aim selector.
+            bool postHopCurrentSide=mixedPostShotSchedule && mixedPostHopIssued && mixedPostHopKStage==3 &&
+                mixedBrakeStage==4 && ReferenceEquals(actor,mixedGuardRust) && MixedGuardRetained() && MixedGuardFullSupport();
+            float previousActorSide=desiredActorSide;
+            desiredActorSide=Task10PostHopCounterSide(postHopCurrentSide,mixedBrakeStage,dx,desiredActorSide);
+            if (previousActorSide!=desiredActorSide)
+                MixedResourceSnapshot("posthop_current_side",$"side={previousActorSide:R}->{desiredActorSide:R} dx={dx:R} " +
+                    $"actorX={actor.GlobalPosition.X:R} original_strike_gates=true fresh_decision=true");
             float signedGap = dx * desiredActorSide;
             bool frozenRustPolicy = frozenLowerKeyboard && actor is RustShellSquire;
             if (frozenRustPolicy)
-                TestAssert.True(playerHealth.CurrentHealth == playerHealthAtStart &&
-                    monitor.RecoveryRequested == frozenLowerRequests &&
-                    monitor.RecoveryCompleted == startingRecoveries &&
-                    frozenLowerMotor.AcceptedJumpCount == frozenLowerJumps &&
-                    frozenLowerMotor.AcceptedDashCount == frozenLowerDashes &&
-                    TryTask10CapsuleCorridor(player, frozenLowerFloorShape, out _, out _, out _, out _) &&
-                    HasFloorContact(player, frozenLowerFloor),
+            {
+                bool hp = playerHealth.CurrentHealth == playerHealthAtStart;
+                bool requested = monitor.RecoveryRequested == frozenLowerRequests;
+                bool completed = monitor.RecoveryCompleted == startingRecoveries;
+                bool jumps = frozenLowerMotor.AcceptedJumpCount == frozenLowerJumps;
+                bool dashes = frozenLowerMotor.AcceptedDashCount == frozenLowerDashes;
+                bool corridor = TryTask10CapsuleCorridor(player, frozenLowerFloorShape,
+                    out float capsuleLeft, out float capsuleRight, out float supportLeft, out float supportRight);
+                bool contact = HasFloorContact(player, frozenLowerFloor);
+                bool retained = hp && requested && completed && jumps && dashes && corridor && contact;
+                if (!retained)
+                    GD.Print($"TASK10_FROZEN_RUST_APPROACH_FAILURE physics={Engine.GetPhysicsFrames()} encounter={encounterId} " +
+                        $"actor={actor.GetInstanceId()} path={actor.GetPath()} scene={actor.SceneFilePath} player={player.GlobalPosition} " +
+                        $"hp={playerHealthAtStart}->{playerHealth.CurrentHealth}/{hp} " +
+                        $"requests={frozenLowerRequests}->{monitor.RecoveryRequested}/{requested} " +
+                        $"completed={startingRecoveries}->{monitor.RecoveryCompleted}/{completed} " +
+                        $"jumps={frozenLowerJumps}->{frozenLowerMotor.AcceptedJumpCount}/{jumps} " +
+                        $"dashes={frozenLowerDashes}->{frozenLowerMotor.AcceptedDashCount}/{dashes} " +
+                        $"corridor={corridor} capsule={capsuleLeft},{capsuleRight} support={supportLeft},{supportRight} contact={contact} " +
+                        "passive_snapshot=true thresholds_unchanged=true");
+                TestAssert.True(retained,
                     "keyboard frozen-lower Rust approach retains full actual FrozenExit support, HP and no jump/dash/recovery");
+            }
             lastDx = dx;
             lastDy = dy;
             lastSignedGap = signedGap;
@@ -12449,15 +18038,497 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 signedGap = Math.Abs(dx);
                 lastSignedGap = signedGap;
             }
-            bool verticalStrike = dy is >= -74f and <= -10f &&
-                                  Math.Abs(dx) <= (isMoth ? 36f : 30f);
-            bool horizontalStrike = Math.Abs(dy) <= (isMoth ? 32f : 46f) &&
-                                    signedGap is >= 8f and <= 64f;
+            bool verticalStrike, horizontalStrike;
+            if (isMoth) Task10MothStrikeGeometry(new Vector2(dx, dy), out verticalStrike, out horizontalStrike);
+            else
+            {
+                verticalStrike = dy is >= -74f and <= -10f && Math.Abs(dx) <= 30f;
+                horizontalStrike = Math.Abs(dy) <= 46f && signedGap is >= 8f and <= 64f;
+            }
             if (frozenRustPolicy) horizontalStrike &= signedGap >= 55f;
             bool strikeRange = verticalStrike || horizontalStrike;
-            Task10EncounterDanger encounterDanger = Task10ObserveEncounterDanger(actorRoot, encounterId,
-                actor, skitterThreat, rangedThreatLeaves);
+            if (galleryCounterPending) GalleryCounterStage("strike-geometry", $"strike={strikeRange} dx={dx:R} dy={dy:R} signed_gap={signedGap:R}");
+            if (counterweightSuppressionKeyboard && !mixedCounterSampled) mixedCounterSources.Clear();
+            bool observeMixedCandidates = counterweightSuppressionKeyboard && mixedCandidateStart != 0 &&
+                Engine.GetPhysicsFrames() - mixedCandidateStart < mixedCandidateWindowTicks;
+            if (observeMixedCandidates) mixedCandidatePasses++;
+            mixedEarlyCandidates = observeMixedCandidates;
+            mixedEarlyCounters = counterweightSuppressionKeyboard && !mixedCounterSampled;
+            mixedLateActive = Task10MixedLateObservationEnabled(counterweightSuppressionKeyboard,
+                mixedPostShotSchedule, mixedFinishIntent, mixedFirstEdgeEnd >= 0 && mixedClawStage == 4);
+            if (mixedLateActive) { mixedLatePass++; mixedLateFacts.Clear(); mixedLateFactDropped=0; }
+            ObserveMixedRustReturn();
+            Task10RustGuardPolicy? mixedRustPolicy = MixedRustOrientationPolicy();
+            Action<Task10DangerCandidate> dangerObserver = observeMixedCandidates || mixedLateActive ? ObserveLateCandidate : null;
+            if (lowerTraceEnabled)
+            {
+                // Compare a separately sampled capsule only in the diagnostic;
+                // original decision still receives its old null guardCapsule.
+                Task10GuardCapsule? passiveCapsule = Task10CurrentGuardCapsule(player);
+                Action<Task10DangerCandidate> originalObserver = dangerObserver;
+                lowerCandidatePasses++;
+                dangerObserver = row =>
+                {
+                    originalObserver?.Invoke(row);
+                    float passiveClearance = row.HasShape && passiveCapsule.HasValue
+                        ? Task10GuardShapeClearance(row.Shape, passiveCapsule.Value) : float.PositiveInfinity;
+                    LowerTrace("candidate", $"ordinal={row.Ordinal} order={row.ActorOrder} actor={row.SourceActorId} " +
+                        $"attack={row.Timeline.AttackId} phase={row.Timeline.Phase} remaining={row.Timeline.PhaseRemainingSeconds:R} " +
+                        $"source_kind={row.SourceKind} source={row.GuardSource} urgency={row.Urgency:R} replaced={row.ReplacedWinner} " +
+                        $"has_shape={row.HasShape} shape={row.Shape.Kind} origin={row.Shape.Origin} extent={row.Shape.Extent} " +
+                        $"rotation={row.Shape.RotationRadians:R} decision_clearance={row.GuardClearance:R} " +
+                        $"passive_clearance={passiveClearance:R} passive_capsule={passiveCapsule.HasValue} " +
+                        "decision_capsule_unchanged=true");
+                };
+            }
+            Action<ulong, string, AttackPhase, float, float, string> counterObserver =
+                mixedEarlyCounters || mixedLateActive ? ObserveLateCounter : null;
+            bool gearPostLureCollecting = gearLureBell != null && gearLureStage == 4 &&
+                ReferenceEquals(actor, gearLureBell);
+            gearPostLureSources.Clear();
+            gearPostLureCoverageComplete = gearPostLureCollecting && !steamIterationDanger.HasValue;
+            if (gearPostLureCollecting)
+            {
+                var priorDangerObserver = dangerObserver;
+                dangerObserver = row =>
+                {
+                    priorDangerObserver?.Invoke(row);
+                    if (gearPostLureSources.Count >= 16) { gearPostLureCoverageComplete = false; return; }
+                    gearPostLureSources.Add(row.GuardSource);
+                };
+            }
+            if (lowerTraceEnabled && frame == 0)
+            {
+                var priorCounterObserver = counterObserver;
+                counterObserver = (id, state, phase, remaining, allowance, reason) =>
+                {
+                    priorCounterObserver?.Invoke(id, state, phase, remaining, allowance, reason);
+                    LowerTrace("counter_source", $"actor={id} state={state} phase={phase} remaining={remaining:R} " +
+                        $"allowance={allowance:R} reason={reason} original_counter_fold=true");
+                };
+            }
+            // Passive only: locate the saved resident within this mounted actor
+            // root. Do not retain its wrapper in the scalar diagnostic buffer.
+            RangedWeaponEnemy courtyardRear = null;
+            if (courtyardKeyboardJump && group.CurrentBatch == 0)
+                for (int index = 0; index < actorRoot.GetChildCount(); index++)
+                    if (actorRoot.GetChild(index) is RangedWeaponEnemy rear &&
+                        GodotObject.IsInstanceValid(rear) && rear.IsInsideTree() &&
+                        !rear.IsQueuedForDeletion() &&
+                        rear.SceneFilePath == "res://scenes/enemies/residents/v001/precision-laser.tscn")
+                    { courtyardRear = rear; break; }
+            ulong courtyardRearId = courtyardRear?.GetInstanceId() ?? 0UL;
+            float courtyardForeignSafe = float.PositiveInfinity;
+            int courtyardForeignSources = 0;
+            if (courtyardRearId != 0)
+            {
+                var previousCounterObserver = counterObserver;
+                counterObserver = (id, state, phase, remaining, allowance, reason) =>
+                {
+                    previousCounterObserver?.Invoke(id, state, phase, remaining, allowance, reason);
+                    if (id == courtyardRearId) return;
+                    courtyardForeignSources++;
+                    courtyardForeignSafe = MathF.Min(courtyardForeignSafe, allowance);
+                };
+            }
+            // Pair each first Idle preview with the next ORIGINAL scan that actually runs.
+            // A cached steam result did not invoke this observer and cannot stand in for that scan.
+            int earlyMixedScanMask = counterweightSuppressionKeyboard && !steamIterationDanger.HasValue
+                ? earlyMixedObserved & ~earlyMixedAssociated : 0;
+            ulong earlyMixedThisScan = 0, earlyMixedScanPhysics = 0, earlyMixedScanSequence = 0,
+                earlyMixedScanAuthority = 0;
+            Transform2D earlyMixedScanPose = default;
+            Vector2 earlyMixedScanVelocity = default, earlyMixedScanAim = default;
+            if (earlyMixedScanMask != 0)
+            {
+                try
+                {
+                    earlyMixedThisScan = ++earlyMixedScanStamp;
+                    earlyMixedScanPhysics = Engine.GetPhysicsFrames();
+                    earlyMixedScanSequence = input.CurrentFrameSequence;
+                    earlyMixedScanAuthority = mixedClaw.AuthorityRevision;
+                    earlyMixedScanPose = player.GlobalTransform;
+                    earlyMixedScanVelocity = player.Velocity;
+                    earlyMixedScanAim = input.KeyboardAimDirection;
+                    var earlyMixedPreviousCounterObserver = counterObserver;
+                    counterObserver = (id, state, phase, remaining, allowance, reason) =>
+                    {
+                        try { earlyMixedPreviousCounterObserver?.Invoke(id, state, phase, remaining, allowance, reason); }
+                        finally
+                        {
+                            try
+                            {
+                                for (int octant = 0; octant < 8; octant++)
+                                {
+                                    if ((earlyMixedScanMask & (1 << octant)) == 0) continue;
+                                    if (earlyMixedSourceRows.Count >= 64)
+                                    { earlyMixedSourceCaps[octant]++; earlyMixedCapCount++; continue; }
+                                    earlyMixedSourceRows.Add($"MIXED_EARLY_PREVIEW_COUNTER " +
+                                        $"preview_stamp={earlyMixedPreviews[octant].Stamp} octant={earlyMixedOctants[octant]} " +
+                                        $"scan_stamp={earlyMixedThisScan} physics={earlyMixedScanPhysics} " +
+                                        $"sequence={earlyMixedScanSequence} actor={id} state={state} " +
+                                        $"phase={phase} remaining={remaining:R} allowance={allowance:R} reason={reason} " +
+                                        "source=original_counterObserver same_scan=true preview_same_call=false fold_unchanged=true");
+                                    earlyMixedSourceCounts[octant]++;
+                                }
+                            }
+                            catch (Exception error)
+                            {
+                                earlyMixedFaults++;
+                                earlyMixedFirstFault ??= error.GetType().Name + ": " + error.Message;
+                            }
+                        }
+                    };
+                }
+                catch (Exception error)
+                {
+                    earlyMixedScanMask = 0;
+                    earlyMixedFaults++;
+                    earlyMixedFirstFault ??= error.GetType().Name + ": " + error.Message;
+                }
+            }
+            bool leftProbeAdvanced = false;
+            if (mixedContactCandidates != null)
+            {
+                (mixedContactCandidates, previousContactCandidates) = (previousContactCandidates, mixedContactCandidates);
+                previousContactClipped = mixedContactClipped;
+                previousContactTick = mixedContactTick;
+                previousContactSequence = mixedContactSequence;
+                mixedContactCandidates.Clear();
+                mixedContactClipped = false;
+                mixedImmediateWarning = false;
+                mixedContactWarningSeconds = float.PositiveInfinity;
+                mixedContactTick = mixedContactSequence = 0;
+                if (!steamIterationDanger.HasValue && mixedRecords.Count < mixedRecordCapacity)
+                {
+                    mixedContactTick = Engine.GetPhysicsFrames();
+                    mixedContactSequence = input.CurrentFrameSequence;
+                    var priorContactObserver = dangerObserver;
+                    dangerObserver = row =>
+                    {
+                        priorContactObserver?.Invoke(row);
+                        if (row.Timeline.Phase == AttackPhase.Telegraph &&
+                            (!float.IsFinite(row.Timeline.PhaseRemainingSeconds) || row.Timeline.PhaseRemainingSeconds <= 1f/60f))
+                            mixedImmediateWarning = true;
+                        if (row.Timeline.Phase == AttackPhase.Telegraph)
+                            mixedContactWarningSeconds = MathF.Min(mixedContactWarningSeconds,
+                                float.IsFinite(row.Timeline.PhaseRemainingSeconds) ? row.Timeline.PhaseRemainingSeconds : 0f);
+                        if (row.Timeline.Phase == AttackPhase.Active)
+                        {
+                            if (mixedContactCandidates.Count < 16)
+                            {
+                                bool emissionClear = row.FromActiveGap && row.SourceActorId != 0 &&
+                                    Engine.TimeScale == 1d && Engine.PhysicsTicksPerSecond > 0 &&
+                                    GodotObject.InstanceFromId(row.SourceActorId) is RangedWeaponEnemy ranged &&
+                                    ranged.IsBurstEmissionClearThrough(row.Timeline.AttackId, 1d / Engine.PhysicsTicksPerSecond);
+                                mixedContactCandidates.Add(row with { NominalStepEmissionClear = emissionClear });
+                            }
+                            else mixedContactClipped = true;
+                        }
+                    };
+                }
+            }
+            var rechargeCoverage = mixedRechargeEnabled
+                ? new Task10RechargeSourceCoverage(Engine.GetPhysicsFrames(), input.CurrentFrameSequence) : null;
+            if (mixedRechargeEnabled && !steamIterationDanger.HasValue)
+            {
+                var previousRechargeCounter = counterObserver;
+                counterObserver = (id, state, phase, remaining, allowance, reason) =>
+                {
+                    try
+                    {
+                        if (reason != "actor_timeline") return;
+                        bool current = true, burst = false, clear = false;
+                        if (phase == AttackPhase.Active)
+                        {
+                            // Projectile AttackId is a damage ordinal, not the owning
+                            // volley's ID. Observe the actor from this same original scan.
+                            current = false;
+                            if (GodotObject.InstanceFromId(id) is RangedWeaponEnemy { Role: RangedWeaponRole.Burst } source &&
+                                source.GetParent() == actorRoot && source.HasPresentationAuthority &&
+                                source.CurrentFrame.AttackTimeline.Phase == phase &&
+                                source.CurrentFrame.AttackTimeline.PhaseRemainingSeconds == remaining)
+                            {
+                                current = burst = true;
+                                clear = source.IsBurstEmissionClearThrough(source.CurrentFrame.AttackTimeline.AttackId, 1d / 60d);
+                            }
+                        }
+                        rechargeCoverage.Observe(id, phase, allowance, current, burst, clear);
+                    }
+                    catch { rechargeCoverage.Fault(); }
+                    finally
+                    {
+                        try { previousRechargeCounter?.Invoke(id, state, phase, remaining, allowance, reason); }
+                        catch { rechargeCoverage.Fault(); }
+                    }
+                };
+            }
+            Task10EncounterDanger encounterDanger = steamIterationDanger ?? Task10ObserveEncounterDanger(actorRoot, encounterId,
+                actor, skitterThreat, rangedThreatLeaves,
+                counterObserver,
+                WatchSkitterRearm, dangerObserver,
+                counterweightSuppressionKeyboard ? (mixedLateCapsule = Task10CurrentGuardCapsule(player)) : null, mixedRustPolicy,
+                departurePolicy: MixedDeparturePolicy(),
+                incomingGuard: IncomingContext(mixedPostHopIssued && mixedPostHopKStage == 3 && mixedHopStage == 5));
+            if (galleryCounterPending)
+            {
+                try { GalleryCounterStage("original-danger-returned", $"source={encounterDanger.SourceActorId} attack={encounterDanger.AttackId} phase={encounterDanger.Phase} remaining={encounterDanger.RemainingSeconds:R} safe_counter={encounterDanger.SafeCounterSeconds:R} threat={encounterDanger.Threat} ranged={encounterDanger.HasRanged} missing_guard={encounterDanger.MissingGuardSourceCount} unknown_active={encounterDanger.NearContactUnknownActive} overlap={encounterDanger.NearContactOverlappingActive} incoming_veto={encounterDanger.IncomingGuardVeto}"); }
+                catch { galleryCounterFaults++; }
+            }
+            if (earlyMixedScanMask != 0)
+            {
+                try
+                {
+                    ulong returnedPhysics = Engine.GetPhysicsFrames(), returnedSequence = input.CurrentFrameSequence;
+                    for (int octant = 0; octant < 8; octant++)
+                    {
+                        int bit = 1 << octant;
+                        if ((earlyMixedScanMask & bit) == 0) continue;
+                        var preview = earlyMixedPreviews[octant];
+                        earlyMixedDangerRows[octant] = $"MIXED_EARLY_PREVIEW_DANGER preview_stamp={preview.Stamp} " +
+                            $"octant={earlyMixedOctants[octant]} scan_stamp={earlyMixedThisScan} loop={frame}/900 " +
+                            $"scan_physics={earlyMixedScanPhysics} scan_sequence={earlyMixedScanSequence} " +
+                            $"return_physics={returnedPhysics} return_sequence={returnedSequence} " +
+                            $"physics_age={(long)earlyMixedScanPhysics - (long)preview.Physics} " +
+                            $"sequence_age={(long)earlyMixedScanSequence - (long)preview.Sequence} " +
+                            $"same_physics={earlyMixedScanPhysics == preview.Physics} " +
+                            $"same_sequence={earlyMixedScanSequence == preview.Sequence} " +
+                            $"authority={earlyMixedScanAuthority} same_authority={earlyMixedScanAuthority == preview.Authority} " +
+                            $"pose={earlyMixedScanPose} same_pose={earlyMixedScanPose == preview.Pose} " +
+                            $"velocity={earlyMixedScanVelocity} same_velocity={earlyMixedScanVelocity == preview.Velocity} " +
+                            $"aim={earlyMixedScanAim} same_aim={earlyMixedScanAim == preview.Aim} " +
+                            $"threat={encounterDanger.Threat} source_actor={encounterDanger.SourceActorId} " +
+                            $"attack={encounterDanger.AttackId} phase={encounterDanger.Phase} " +
+                            $"remaining={encounterDanger.RemainingSeconds:R} safe_counter={encounterDanger.SafeCounterSeconds:R} " +
+                            $"guard_source={encounterDanger.GuardSource} has_ranged={encounterDanger.HasRanged} " +
+                            $"active_gap={encounterDanger.FromActiveGap} missing_guard_sources={encounterDanger.MissingGuardSourceCount} " +
+                            $"source_rows={earlyMixedSourceCounts[octant]} capped_source_rows={earlyMixedSourceCaps[octant]} " +
+                            "source=original_Task10ObserveEncounterDanger boundary=outer_route_pre_node " +
+                            "preview_same_call=false post_node_completed_claimed=false " +
+                            "freshness_scope=player_pose_input_authority enemy_pose_freshness=unmeasured extra_queries=0";
+                        earlyMixedAssociated |= bit;
+                    }
+                }
+                catch (Exception error)
+                {
+                    earlyMixedFaults++;
+                    earlyMixedFirstFault ??= error.GetType().Name + ": " + error.Message;
+                }
+            }
+            if (courtyardRearId != 0)
+            {
+                courtyardRearSamples++;
+                if (courtyardRearRows.Count >= 192) courtyardRearOmitted++;
+                else try
+                {
+                    RangedWeaponFrame rear = courtyardRear.CurrentFrame;
+                    MechanicalClawController claw = player.GetNode<MechanicalClawController>("MechanicalClaw");
+                    MechanicalClawTargetResolution preview = claw.KeyboardPreview;
+                    // This independent current-world query does NOT change aim or
+                    // stand in for the controller's production keyboard preview.
+                    MechanicalClawTargetResolution left = new MechanicalClawTargetResolver()
+                        .ResolveKeyboard(player, Vector2.Left);
+                    ThreadTarget2D rearTarget = courtyardRear.GetNode<ThreadTarget2D>("ThreadTarget");
+                    string front = actor is RustShellSquire rust
+                        ? $"{rust.GetInstanceId()}/{rust.GlobalPosition}/{rust.CurrentState}/" +
+                          $"{rust.CurrentFrame.AttackTimeline.AttackId}/{rust.CurrentFrame.AttackTimeline.Phase}/" +
+                          $"{rust.CurrentFrame.AttackTimeline.PhaseRemainingSeconds:R}"
+                        : $"{actor.GetInstanceId()}/{actor.GetType().Name}/{actor.GlobalPosition}";
+                    courtyardRearRows.Add($"COURTYARD_REAR_PLAN physics={Engine.GetPhysicsFrames()} loop={frame}/900 " +
+                        $"sample={input.CurrentFrameSequence} player={player.GlobalPosition} velocity={player.Velocity} " +
+                        $"floor={player.IsOnFloor()} hp={playerHealth.CurrentHealth} recovery={monitor.RecoveryRequested}/{monitor.RecoveryCompleted} " +
+                        $"rear={courtyardRearId}/{courtyardRear.GlobalPosition} target={rearTarget.GetInstanceId()} " +
+                        $"state={rear.State} attack={rear.AttackTimeline.AttackId} phase={rear.AttackTimeline.Phase} " +
+                        $"remaining={rear.AttackTimeline.PhaseRemainingSeconds:R} locked={rear.AttackTimeline.HasLockedTarget} " +
+                        $"beam_aim={rear.AimDirection} front={front} foreign={courtyardForeignSources}/{courtyardForeignSafe:R} " +
+                        $"danger={encounterDanger.SourceActorId}/{encounterDanger.AttackId}/{encounterDanger.Phase} " +
+                        $"aim={input.KeyboardAimDirection} L={input.Current.ShieldHeld}/{shield.IsActive} " +
+                        $"J={combat.IsAttacking} K={claw.CurrentFrame.State} can_K={modes.CanBeginGrapple} " +
+                        $"preview={preview.Snapshot.RuntimeId}/{preview.Snapshot.HasLineOfSight} " +
+                        $"independent_left_plan={left.Snapshot.RuntimeId}/{left.Snapshot.HasLineOfSight}/{left.Snapshot.WorldAnchor} " +
+                        "extra_resolver_queries=1 input_writes=0 pre_node_boundary=true not_cast_receipt=true");
+                }
+                catch (Exception error)
+                {
+                    courtyardRearFaults++;
+                    courtyardRearRows.Add($"COURTYARD_REAR_PLAN_FAULT physics={Engine.GetPhysicsFrames()} type={error.GetType().Name}");
+                }
+            }
+            gearPostLureCoverageComplete &= encounterDanger.MissingGuardSourceCount == 0 &&
+                encounterDanger.CandidateObserverFaults == 0;
+            if (lowerTraceEnabled)
+            {
+                lowerTraceFaults += encounterDanger.CandidateObserverFaults;
+                LowerTrace("decision", $"actor={encounterDanger.SourceActorId} attack={encounterDanger.AttackId} " +
+                    $"phase={encounterDanger.Phase} remaining={encounterDanger.RemainingSeconds:R} " +
+                    $"source={encounterDanger.GuardSource} threat={encounterDanger.Threat} " +
+                    $"safe_counter={encounterDanger.SafeCounterSeconds:R} " +
+                    "original_scan_only=true diagnostic_does_not_send_inputs=true");
+            }
+            if (courtyardRearControl != null && group.CurrentBatch == 0 &&
+                courtyardRearControl.Step(courtyardRear, actor, encounterDanger,
+                    courtyardForeignSafe, courtyardForeignSources,
+                    CourtyardJumpSupport(courtyardJumpStep, courtyardJumpStepShape), frame))
+            {
+                TestAssert.True(playerHealth.CurrentHealth == playerHealthAtStart &&
+                    monitor.Player == player && monitor.RecoveryRequested == courtyardControlRequests &&
+                    monitor.RecoveryCompleted == startingRecoveries &&
+                    courtyardJumpMotor.AcceptedJumpCount == courtyardControlJumps &&
+                    courtyardJumpMotor.AcceptedDashCount == courtyardControlDashes,
+                    "courtyard rear K owns only original grounded combat ticks, preserving HP/player/recovery/jump/dash");
+                await PhysicsFrames(tree, monitor, 1);
+                continue;
+            }
+            if (lowerTraceEnabled && lowerControlStage == 0 && actor is RustShellSquire lowerRust &&
+                lowerRust.SceneFilePath == "res://scenes/enemies/residents/v001/scrap-wanderer.tscn" &&
+                lowerRust.GetNodeOrNull<ThreadTarget2D>("ThreadTarget") is ThreadTarget2D lowerTarget &&
+                lowerTarget.GetNodeOrNull<LegacyThreadInteractionAdapter>("LegacyThreadInteractionAdapter") is LegacyThreadInteractionAdapter lowerAdapter &&
+                !combat.IsAttacking && player.IsOnFloor() && !player.GetNode<PlayerMotor>("Motor").IsDashing &&
+                lowerClaw.CurrentFrame.State == MechanicalClawState.Idle && playerHealth.CurrentHealth == playerHealthAtStart)
+            {
+                float lead = player.GlobalPosition.DistanceTo(lowerTarget.WorldAnchor) /
+                    MechanicalClawSettings.Default.ShuttleSpeed + 8f / Engine.PhysicsTicksPerSecond;
+                bool window = Task10LowerBellControlWindow(true, lowerRust.CurrentState, lowerRust.CurrentFrame.AttackTimeline,
+                    encounterDanger.SafeCounterSeconds, lead);
+                Task10KeyboardClawPlanSnapshot lowerPlan = default;
+                bool selectable = window && Task10KeyboardClawPlanSelects(player, lowerTarget, out lowerPlan);
+                if (frame == 0) LowerTrace("control_gate", $"actor={lowerRust.GetInstanceId()} state={lowerRust.CurrentState} " +
+                    $"safe={encounterDanger.SafeCounterSeconds:R} lead={lead:R} window={window} plan_attempted={window} " +
+                    $"target={lowerTarget.GetInstanceId()} anchor={lowerTarget.WorldAnchor} direction={lowerPlan.Direction} " +
+                    $"selected={lowerPlan.SelectedId} selected_anchor={lowerPlan.SelectedAnchor} selectable={selectable} player={player.GlobalPosition}");
+                if (frame == 0 && window && !selectable)
+                {
+                    foreach (Vector2 direction in new[] { Vector2.Right, new Vector2(1,1).Normalized(), Vector2.Down,
+                        new Vector2(-1,1).Normalized(), Vector2.Left, new Vector2(-1,-1).Normalized(), Vector2.Up,
+                        new Vector2(1,-1).Normalized() })
+                    {
+                        var choice = new MechanicalClawTargetResolver().ResolveKeyboard(player, direction);
+                        LowerTrace("octant_probe", $"direction={direction} target={lowerTarget.GetInstanceId()} " +
+                            $"selected={choice.Snapshot.RuntimeId} los={choice.Snapshot.HasLineOfSight} " +
+                            $"anchor={choice.Snapshot.WorldAnchor} queries=one_per_octant command=false");
+                    }
+                }
+                if (window && !selectable && lowerApproachSteps < 2 &&
+                    Mathf.Abs(lowerRust.GlobalPosition.X - player.GlobalPosition.X) is > 6f and < 20f)
+                {
+                    float side = Mathf.Sign(lowerRust.GlobalPosition.X - player.GlobalPosition.X);
+                    using var floorProbe = new KinematicCollision2D();
+                    bool supported = player.TestMove(player.GlobalTransform, Vector2.Down * .001f, floorProbe,
+                        player.SafeMargin, true) && floorProbe.GetNormal().Y < -.7f &&
+                        floorProbe.GetCollider() is StaticBody2D floor &&
+                        floor.ShapeOwnerGetOwner(floor.ShapeFindOwner(floorProbe.GetColliderShapeIndex())) is CollisionShape2D floorShape &&
+                        TryTask10CapsuleCorridor(player, floorShape, out float bodyLeft, out float bodyRight,
+                            out float floorLeft, out float floorRight) && bodyLeft - 12f >= floorLeft && bodyRight + 12f <= floorRight;
+                    if (supported && !player.TestMove(player.GlobalTransform, new Vector2(side * 12f, 0f)) &&
+                        Task10LowerBellControlWindow(true, lowerRust.CurrentState, lowerRust.CurrentFrame.AttackTimeline,
+                            encounterDanger.SafeCounterSeconds, lead + 4f / Engine.PhysicsTicksPerSecond))
+                    {
+                        foreach (StringName action in new[] { InputActions.PrimaryAction, InputActions.Claw,
+                            InputActions.MoveUp, InputActions.MoveDown, InputActions.Jump, InputActions.Dash }) SendAction(action, false);
+                        SendMouse(MouseButton.Right, false, player, lowerTarget.WorldAnchor);
+                        SendAction(InputActions.MoveLeft, side < 0f); SendAction(InputActions.MoveRight, side > 0f);
+                        lowerApproachSteps++;
+                        LowerTrace("control_approach_key", $"step={lowerApproachSteps}/2 side={side} player={player.GlobalPosition} " +
+                            "full_source=true clear12px=true no_pose_write=true original900_iteration=true");
+                        await PhysicsFrames(tree, monitor, 1);
+                        continue;
+                    }
+                }
+                if (selectable)
+                {
+                    lowerControlRust = lowerRust; lowerControlTarget = lowerTarget; lowerControlAdapter = lowerAdapter;
+                    lowerControlApplications = lowerAdapter.ApplicationCount;
+                    lowerControlEdges = KeyboardRouteInputDriver.Current.ClawEdges;
+                    lowerControlCast = lowerClaw.CurrentFrame.NextCastId; lowerControlTargetId = lowerTarget.GetInstanceId();
+                    lowerClaw.ClawFrameChanged += LowerControlPublication;
+                    lowerControlStage = 1;
+                    LowerTrace("control_armed", $"actor={lowerRust.GetInstanceId()} target={lowerControlTargetId} cast={lowerControlCast} " +
+                        $"selected={lowerPlan.SelectedId} los={lowerPlan.SelectedLos} safe={encounterDanger.SafeCounterSeconds:R} " +
+                        $"lead={lead:R} phase={lowerRust.CurrentFrame.AttackTimeline.Phase} real_keyboard=true original_cap=900");
+                }
+            }
+            if (lowerControlStage is 1 or 2)
+            {
+                TestAssert.True(GodotObject.IsInstanceValid(lowerControlRust) && lowerControlRust.IsInsideTree() &&
+                    !lowerControlRust.IsQueuedForDeletion() && lowerControlRust.GetNode<HealthComponent>("Health").CurrentHealth > 0 &&
+                    GodotObject.IsInstanceValid(lowerControlTarget) && lowerControlTarget.GetInstanceId() == lowerControlTargetId &&
+                    lowerControlAdapter.ApplicationCount <= lowerControlApplications + 1 && !lowerControlFault &&
+                    playerHealth.CurrentHealth == playerHealthAtStart,
+                    $"LowerBell control retains same live target/player HP and at most one real application; " +
+                    $"stage={lowerControlStage} cast={lowerControlCast} target={lowerControlTargetId} " +
+                    $"hp={playerHealthAtStart}/{playerHealth.CurrentHealth} apps={lowerControlAdapter.ApplicationCount-lowerControlApplications} " +
+                    $"edges={KeyboardRouteInputDriver.Current.ClawEdges-lowerControlEdges} latched={lowerLatched} released={lowerReleased} " +
+                    $"stunned={lowerStunned} fault={lowerControlFault}/{lowerControlFaultDetail}");
+                foreach (StringName action in new[] { InputActions.PrimaryAction, InputActions.Jump, InputActions.Dash })
+                    SendAction(action, false);
+                // PhysicsFrame resumes before the next Input node sample. Keep
+                // the existing K+WASD chord until real Aim publication ACKs it;
+                // one awaited signal alone does not mean the key was consumed.
+                bool awaitingKSample = lowerControlStage == 2 && !lowerKAccepted;
+                if (!awaitingKSample)
+                {
+                    SendAction(InputActions.Claw, false);
+                    foreach (StringName action in new[] { InputActions.MoveLeft, InputActions.MoveRight,
+                        InputActions.MoveUp, InputActions.MoveDown }) SendAction(action, false);
+                }
+                SendMouse(MouseButton.Right, false, player, lowerControlTarget.WorldAnchor);
+                MoveMouse(player, lowerControlTarget.WorldAnchor);
+                if (lowerControlStage == 1)
+                {
+                    float lead = player.GlobalPosition.DistanceTo(lowerControlTarget.WorldAnchor) /
+                        MechanicalClawSettings.Default.ShuttleSpeed + 8f / Engine.PhysicsTicksPerSecond;
+                    TestAssert.True(Task10LowerBellControlWindow(true, lowerControlRust.CurrentState,
+                        lowerControlRust.CurrentFrame.AttackTimeline, encounterDanger.SafeCounterSeconds, lead),
+                        "LowerBell real aim must finish while the original all-source control window remains open");
+                    bool planReady = Task10KeyboardClawPlanSelects(player, lowerControlTarget, out var livePlan);
+                    if (planReady)
+                    {
+                        // AimAt is planner metadata only. Direct K requires the
+                        // actual WASD chord to be sampled BEFORE its edge.
+                        SendAction(InputActions.MoveLeft, livePlan.Direction.X < -.5f);
+                        SendAction(InputActions.MoveRight, livePlan.Direction.X > .5f);
+                        SendAction(InputActions.MoveUp, livePlan.Direction.Y < -.5f);
+                        SendAction(InputActions.MoveDown, livePlan.Direction.Y > .5f);
+                    }
+                    if (!input.Current.ShieldHeld && modes.CanBeginGrapple && planReady &&
+                        input.KeyboardAimDirection.Dot(livePlan.Direction) > .99f)
+                    {
+                        SendAction(InputActions.Claw, true);
+                        lowerKCommandSequence = input.CurrentFrameSequence;
+                        lowerControlStage = 2; threadCasts++;
+                        LowerTrace("control_K", $"actor={lowerControlRust.GetInstanceId()} cast={lowerControlCast} " +
+                            $"selected={livePlan.SelectedId} los={livePlan.SelectedLos} actual_aim={input.KeyboardAimDirection}");
+                    }
+                }
+                else
+                {
+                    lowerStunned |= lowerControlRust.CurrentState == RustShellState.Stunned &&
+                        lowerControlRust.CurrentFrame.AttackTimeline.Phase == AttackPhase.None;
+                    if (lowerKAccepted && lowerLatched && lowerReleased && lowerStunned &&
+                        lowerControlAdapter.ApplicationCount == lowerControlApplications + 1 &&
+                        lowerClaw.CurrentFrame.State is MechanicalClawState.Retract or MechanicalClawState.Idle)
+                    {
+                        TestAssert.True(KeyboardRouteInputDriver.Current.ClawEdges == lowerControlEdges + 1,
+                            "LowerBell preemption owns exactly one real K edge");
+                        lowerControlStage = 3;
+                        SendAction(InputActions.Claw, false);
+                        LowerTrace("control_effect", $"actor={lowerControlRust.GetInstanceId()} cast={lowerControlCast} " +
+                            $"latched={lowerLatched} released={lowerReleased} stunned={lowerStunned} applications=1 edges=1 " +
+                            $"health={playerHealthAtStart}->{playerHealth.CurrentHealth} ticks={lowerControlTicks} " +
+                            $"actual_K_sample={lowerKAcceptedSequence}");
+                        GD.Print($"LOWER_BELL_PREEMPT_CONTROL_OK cast={lowerControlCast} application_delta=1 " +
+                            $"K_edges=1 actual_stunned=true latched_released=true hp_unchanged=true original_cap=900 whole_route=false");
+                    }
+                }
+                lowerControlTicks++;
+                await PhysicsFrames(tree, monitor, 1); // One original900 iteration, no inner wait.
+                continue;
+            }
+            mixedCandidateFaults += encounterDanger.CandidateObserverFaults;
+            TestAssert.True(mixedMothGeometryMismatch == null,
+                $"MIXED_MELEE_GEOMETRY_RED: same-attack published Moth circle must reach the same-pass danger comparison; {mixedMothGeometryMismatch}");
             bool enemyThreat = encounterDanger.Threat;
+            monitor.CombatDecisionObserved?.Invoke(actor.GetInstanceId(), encounterDanger, false);
             if (SteamBellWindow())
             {
                 steamBellLastDanger = encounterDanger;
@@ -12474,6 +18545,11 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             if (skitterEligible != skitterCounterEligible)
                 SkitterPolicyLog("counter_eligibility", $"eligible={skitterEligible} strike_range={strikeRange}");
             skitterCounterEligible = skitterEligible;
+            if (galleryCounterPending)
+            {
+                try { GalleryCounterStage("eligibility", $"selected_skitter_policy={skitterPolicy} selected_skitter_can_counter={skitterCanCounter} selected_skitter_eligible={skitterEligible} strike={strikeRange} gap={signedGap:R} next_j={nextAttackFrame} last_j_started_loop={lastAttackStartedFrame} attacking={combat.IsAttacking} shield={input.CurrentFrame.ShieldHeld}/{shield.IsActive} energy={energy.EnergyRatio * energy.Tuning.MaxEnergy:R}"); }
+                catch { galleryCounterFaults++; }
+            }
             if (strikeRange && !wasInStrikeRange)
             {
                 strikeBandEntries++;
@@ -12510,10 +18586,38 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     signedGap > 110f && desiredActorSide < 0f;
                 moveRight = signedGap < 100f ? desiredActorSide < 0f :
                     signedGap > 110f && desiredActorSide > 0f;
+                bool approaching = desiredActorSide < 0f ? moveLeft : moveRight;
+                if (skitterEarlyBrakeProbe && approaching && group.LiveActorCount == 1 &&
+                    player.IsOnFloor() && actor.GetNode<HealthComponent>("Health").CurrentHealth == 1 &&
+                    player.Velocity.X * desiredActorSide > 0f)
+                {
+                    var baitMotor = player.GetNode<PlayerMotor>("Motor");
+                    var stop = FreeMotionForecast.Neutral(player.Velocity.X, true, baitMotor.MotionSettings,
+                        baitMotor.ThrusterState.Module, 1d / Engine.PhysicsTicksPerSecond, 12, 2f);
+                    float stopGap = signedGap - stop.NetDistance * desiredActorSide;
+                    if (stop.SpeedThresholdReached && stopGap is >= 94f and <= 108f &&
+                        player.GetSlideCollisionCount() > 0 &&
+                        player.GetSlideCollision(0).GetCollider() is StaticBody2D baitFloor &&
+                        baitFloor.Name == "AscentGrip5" &&
+                        TryTask10CapsuleCorridor(player, baitFloor.GetNode<CollisionShape2D>("Collision"),
+                            out float capsuleLeft, out float capsuleRight, out float floorLeft, out float floorRight) &&
+                        capsuleLeft + stop.NetDistance >= floorLeft + 4f &&
+                        capsuleRight + stop.NetDistance <= floorRight - 4f)
+                    {
+                        moveLeft = moveRight = false;
+                        if (skitterEarlyBrakeRows++ < 32)
+                            GD.Print($"TASK10_PENDULUM_EARLY_BRAKE physics={Engine.GetPhysicsFrames()} loop={frame} " +
+                                $"gap={signedGap:R} stop_gap={stopGap:R} vx={player.Velocity.X:R} " +
+                                $"stop_dx={stop.NetDistance:R} floor={baitFloor.Name}");
+                    }
+                }
             }
-            bool cooldownRetreat = !steamMissileKeyboard && !sentryPolicy && !skitterPolicy && !frozenRustPolicy && !courtyardBellPolicy && !splitBellPolicy &&
+            bool continuedMixedCooldown = (mixedFinishIntent || mixedSetupIntent) && strikeRange && !combat.IsAttacking &&
+                frame < nextAttackFrame;
+            bool cooldownRetreat = !continuedMixedCooldown && !steamMissileKeyboard && !sentryPolicy && !skitterPolicy && !frozenRustPolicy && !courtyardBellPolicy && !splitBellPolicy &&
                                    strikeRange && !combat.IsAttacking &&
                                    frame < nextAttackFrame;
+            if (continuedMixedCooldown) moveLeft = moveRight = false;
             if (cooldownRetreat)
             {
                 moveLeft = desiredActorSide > 0f;
@@ -12532,8 +18636,69 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 moveLeft = !cooldownRetreat;
             }
             if (sentryGuardRequired || skitterThreat) moveLeft = moveRight = false;
-            bool generalDefendWindow = Task10GeneralDefendWindow(combat, energy,
-                enemyThreat, strikeRange, frame, nextAttackFrame);
+            if (skitterBaitStanceProbe && KeyboardRouteInputDriver.Current != null &&
+                skitterPolicy && group.LiveActorCount == 1 && !skitterGuardRequired &&
+                !combat.IsAttacking && !shield.IsActive && player.IsOnFloor() &&
+                actor is CanyonSkitter baitSkitter &&
+                baitSkitter.GetNode<HealthComponent>("Health").CurrentHealth == 1 &&
+                baitSkitter.CurrentFrame.AttackTimeline is
+                    { Phase: AttackPhase.Telegraph, PhaseRemainingSeconds: > .25f } baitWarning &&
+                player.GetSlideCollisionCount() > 0 &&
+                player.GetSlideCollision(0).GetCollider() is StaticBody2D stanceFloor &&
+                stanceFloor.Name == "AscentGrip5" &&
+                TryTask10CapsuleCorridor(player, stanceFloor.GetNode<CollisionShape2D>("Collision"),
+                    out float stanceLeft, out float stanceRight, out float stanceFloorLeft, out float stanceFloorRight))
+            {
+                var stanceMotor = player.GetNode<PlayerMotor>("Motor");
+                var stop = FreeMotionForecast.Neutral(player.Velocity.X, true, stanceMotor.MotionSettings,
+                    stanceMotor.ThrusterState.Module, 1d / Engine.PhysicsTicksPerSecond, 12, 2f);
+                float projectedGap = signedGap - stop.NetDistance * desiredActorSide;
+                Vector2 inward = Vector2.Right * desiredActorSide;
+                bool facing = input.KeyboardAimDirection.Dot(inward) > .99f;
+                int stanceDirection = projectedGap < 96f ? -(int)desiredActorSide :
+                    !facing && projectedGap <= 110f ? (int)desiredActorSide : 0;
+                float reserve = 8f;
+                bool clearance = stop.SpeedThresholdReached &&
+                    stanceLeft + Mathf.Min(0f, stop.NetDistance) - (stanceDirection < 0 ? reserve : 0) >= stanceFloorLeft + 4f &&
+                    stanceRight + Mathf.Max(0f, stop.NetDistance) + (stanceDirection > 0 ? reserve : 0) <= stanceFloorRight - 4f &&
+                    player.GlobalPosition.X + stop.NetDistance + stanceDirection * reserve >= arenaMinimumX &&
+                    player.GlobalPosition.X + stop.NetDistance + stanceDirection * reserve <= arenaMaximumX;
+                if (clearance)
+                {
+                    moveLeft = stanceDirection < 0;
+                    moveRight = stanceDirection > 0;
+                    if (skitterBaitStanceRows++ < 72)
+                        GD.Print($"TASK10_PENDULUM_BAIT_STANCE physics={Engine.GetPhysicsFrames()} loop={frame} " +
+                            $"attack={baitWarning.AttackId} remaining={baitWarning.PhaseRemainingSeconds:R} " +
+                            $"gap={signedGap:R} predicted={projectedGap:R} vx={player.Velocity.X:R} facing={facing} command={stanceDirection}");
+                }
+            }
+            if (skitterEarlyBrakeProbe && skitterPolicy && group.LiveActorCount == 1 &&
+                actor is CanyonSkitter lockedSkitter &&
+                lockedSkitter.CurrentFrame.AttackTimeline is
+                    { Phase: AttackPhase.Telegraph, HasLockedTarget: true } lockedWarning &&
+                lockedSkitter.GetNode<HealthComponent>("Health").CurrentHealth == 1 &&
+                skitterLockBrakeRows < 180)
+            {
+                skitterLockBrakeRows++;
+                var brakeMotor = player.GetNode<PlayerMotor>("Motor");
+                var stop = FreeMotionForecast.Neutral(player.Velocity.X, player.IsOnFloor(), brakeMotor.MotionSettings,
+                    brakeMotor.ThrusterState.Module, 1d / Engine.PhysicsTicksPerSecond, 12, 2f);
+                bool floorSafe = player.GetSlideCollisionCount() > 0 &&
+                    player.GetSlideCollision(0).GetCollider() is StaticBody2D lockedFloor &&
+                    lockedFloor.Name == "AscentGrip5" &&
+                    TryTask10CapsuleCorridor(player, lockedFloor.GetNode<CollisionShape2D>("Collision"),
+                        out float left, out float right, out float floorLeft, out float floorRight) &&
+                    left + stop.NetDistance >= floorLeft + 4f && right + stop.NetDistance <= floorRight - 4f;
+                Vector2 sourceOffset = skitterGuardSource - player.GetNode<Hurtbox>("Hurtbox").GlobalPosition;
+                Vector2 side = sourceOffset.X < 0 ? Vector2.Left : Vector2.Right;
+                GD.Print(FormattableString.Invariant(
+                    $"TASK10_PENDULUM_LOCK_BRAKE physics={Engine.GetPhysicsFrames()} loop={frame} sample={input.CurrentFrameSequence} attack={lockedWarning.AttackId} remaining={lockedWarning.PhaseRemainingSeconds:F4} guard_required={skitterGuardRequired} shield={input.CurrentFrame.ShieldHeld}/{shield.IsActive} gap={signedGap:F3} vx={player.Velocity.X:F3} axis={input.CurrentFrame.MoveAxis:F1} planned_move={moveLeft}/{moveRight} stop_valid={stop.SpeedThresholdReached} stop_gap={signedGap-stop.NetDistance*desiredActorSide:F3} floor_safe={floorSafe} cardinal_dot={side.Dot(sourceOffset.Normalized()):F4} aim_dot={input.KeyboardAimDirection.Dot(side):F4}"));
+            }
+            // Normal combat must use actual guard availability and an incoming
+            // attack window, not the old fixture's 35% reserve/idle-L cadence.
+            bool generalDefendWindow = !combat.IsAttacking && Task10MixedDefendWindow(shield, encounterDanger);
+            bool genericGuardBeforeSpecialization=generalDefendWindow;
             if (SteamBellWindow()) steamBellDecision = $"generic_guard={generalDefendWindow} strike={strikeRange} " +
                 $"move_LR={moveLeft}/{moveRight} next_J={nextAttackFrame} sample={input.CurrentFrameSequence}";
             if (steamMissileKeyboard) generalDefendWindow = steamDecision.Defend;
@@ -12581,6 +18746,10 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     (guardMoth.CurrentState == GraveLampMothState.Dive ||
                      guardMoth.CurrentState == GraveLampMothState.Telegraph &&
                      guardMoth.CurrentFrame.AttackTimeline.PhaseRemainingSeconds <= .12f);
+                // A selected moth's safe state cannot cancel another real
+                // attacker's already-computed demand. Same-actor timing stays unchanged.
+                generalDefendWindow |= encounterDanger.SourceActorId != 0 &&
+                    encounterDanger.SourceActorId != actor.GetInstanceId() && genericGuardBeforeSpecialization;
             }
             if (KeyboardRouteInputDriver.Current != null && !skitterPolicy && generalDefendWindow &&
                 !(steamMissileKeyboard && steamDecision.AllowShieldApproach))
@@ -12637,8 +18806,150 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             }
             bool gearBellPolicy = gearBellKeyboard && actor is BellBackLaborer;
             bool gearBellReady = false;
+            bool gearPostLureVerticalGuard = false;
+            Vector2 gearPostLureGuardPoint = Vector2.Zero;
             if (gearBellPolicy)
             {
+                if (gearLureBell != null && gearLureStage < 4)
+                {
+                    TestAssert.True(ReferenceEquals(actor, gearLureBell),
+                        "fixed-platform lure must not silently substitute a different selected Bell");
+                    if (gearLureStage == 0)
+                    {
+                        gearLureFloor = group.GetNode<StaticBody2D>("../../Collision/GearPistonTwo");
+                        gearLureFloorShape = gearLureFloor.GetNode<CollisionShape2D>("Collision");
+                        TestAssert.True(TryTask10CapsuleCorridor(player, gearLureFloorShape,
+                            out float left, out float right, out float floorLeft, out float floorRight),
+                            "Gear lure starts inside the unchanged fixed-platform capsule corridor");
+                        float playerHalf = (right - left) * .5f;
+                        var bellBody = gearLureBell.GetNode<CollisionShape2D>("BodyCollider");
+                        Rect2 bellBounds = bellBody.GlobalTransform * bellBody.Shape.GetRect();
+                        float bellHalf = bellBounds.Size.X * .5f;
+                        gearLureFullLeft = floorLeft + playerHalf; gearLureFullRight = floorRight - playerHalf;
+                        float nearRight = MathF.Min(gearLureFullRight,
+                            floorLeft - bellHalf - gearLureBell.SafeMargin + 60f);
+                        TestAssert.True(float.IsFinite(nearRight) && nearRight > gearLureFullLeft &&
+                            gearLureBell.Tuning.GuardRange > 60f,
+                            "saved capsule/wall geometry leaves a real fixed-platform 60px stance interval");
+                        gearLureNearX = (gearLureFullLeft + nearRight) * .5f;
+                        gearLureOutX = gearLureNearX + gearLureBell.Tuning.GuardRange - 60f;
+                        TestAssert.True(gearLureOutX > gearLureNearX && gearLureOutX <= gearLureFullRight,
+                            "authored GuardRange lure point stays inside the same fixed platform");
+                        gearLureInitialBellX = gearLureBell.GlobalPosition.X;
+                        gearLureInitiallyInBand = gearLureNearX - gearLureInitialBellX is >= 55f and <= 64f;
+                        gearLureSequence = input.CurrentFrameSequence; gearLureStage = 1;
+                        GearLureRecord("begin");
+                    }
+                    CheckGearLure();
+                    // The retained Bell can genuinely cross from the carriage
+                    // onto PistonTwo. The old left-of-platform stance is then
+                    // obsolete; derive the same 60px stance from its stopped,
+                    // fully supported native Guard position, never move it.
+                    if (gearLureStage == 2 && !gearLureSameFloorRebased &&
+                        gearLureBell.CurrentState == BellBackLaborerState.Guard &&
+                        MathF.Abs(gearLureBell.Velocity.X) <= 2f &&
+                        HasFloorContact(gearLureBell,gearLureFloor) &&
+                        TryTask10CapsuleCorridor(gearLureBell,gearLureFloorShape,out _,out _,out _,out _))
+                    {
+                        float sameFloorNear = gearLureBell.GlobalPosition.X + 60f;
+                        if (float.IsFinite(sameFloorNear) && sameFloorNear >= gearLureFullLeft && sameFloorNear <= gearLureFullRight)
+                        {
+                            gearLureNearX = sameFloorNear; gearLureSameFloorRebased = true;
+                            GearLureRecord("same_platform_stance_rebased");
+                        }
+                    }
+                    gearLureApproachSeen |= gearLureBell.CurrentState == BellBackLaborerState.Approach &&
+                        gearLureBell.CurrentFrame.MoveDirection > 0f && gearLureBell.Velocity.X > 0f &&
+                        gearLureBell.GlobalPosition.X > gearLureInitialBellX;
+                    bool lureNeutral = MathF.Abs(player.Velocity.X) <= 2f && MathF.Abs(input.Current.MoveAxis) <= .001f &&
+                        !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D);
+                    if (input.CurrentFrameSequence > gearLureSequence)
+                        gearLureNeutralSamples = lureNeutral ? gearLureNeutralSamples + 1 : 0;
+                    gearLureSequence = input.CurrentFrameSequence;
+                    if (gearLureStage == 1 && gearLureNeutralSamples >= 2 &&
+                        MathF.Abs(player.GlobalPosition.X - gearLureOutX) <= 1.5f)
+                    { gearLureStage = 2; gearLureNeutralSamples = 0; GearLureRecord("outward_stopped"); }
+                    if (gearLureStage == 2 && gearLureNeutralSamples >= 2 &&
+                        gearLureBell.CurrentState == BellBackLaborerState.Guard &&
+                        MathF.Abs(gearLureBell.Velocity.X) <= 2f &&
+                        gearLureNearX - gearLureBell.GlobalPosition.X is >= 55f and <= 64f &&
+                        MathF.Abs(gearLureBell.GlobalPosition.Y - player.GlobalPosition.Y) <= 46f &&
+                        (gearLureApproachSeen || gearLureInitiallyInBand))
+                    { gearLureStage = 3; gearLureNeutralSamples = 0; GearLureRecord("native_bell_guard"); }
+                    if (gearLureStage == 3 && gearLureNeutralSamples >= 2 && !enemyThreat &&
+                        !input.Current.ShieldHeld && !shield.IsActive && !combat.IsAttacking &&
+                        mixedClaw.CurrentFrame.State == MechanicalClawState.Idle &&
+                        MathF.Abs(player.GlobalPosition.X - gearLureNearX) <= 1.5f &&
+                        player.GlobalPosition.X - gearLureBell.GlobalPosition.X is >= 55f and <= 64f &&
+                        MathF.Abs(gearLureBell.GlobalPosition.Y - player.GlobalPosition.Y) <= 46f)
+                    {
+                        gearLureStage = 4; gearLureHandoffSequence = input.CurrentFrameSequence;
+                        GearLureRecord("handoff_command");
+                    }
+                    int lureRemaining = 900 - frame;
+                    var lureStopping = FreeMotionForecast.Neutral(player.Velocity.X, true,
+                        gearBellMotor.MotionSettings, gearBellMotor.ThrusterState.Module,
+                        1d / Engine.PhysicsTicksPerSecond, lureRemaining, 2f);
+                    TestAssert.True(lureStopping.SpeedThresholdReached, "Gear lure can neutral-stop inside the remaining budget");
+                    float lureDestination = gearLureStage < 3 ? gearLureOutX : gearLureNearX;
+                    float lurePredicted = player.GlobalPosition.X + lureStopping.NetDistance;
+                    int lureDirection = gearLureStage == 4 || MathF.Abs(lureDestination - lurePredicted) <= 1.5f
+                        ? 0 : MathF.Sign(lureDestination - lurePredicted);
+                    bool lureDefend = !combat.IsAttacking && shield.CanBeginGuard && enemyThreat;
+                    if (enemyThreat) lureDirection = 0;
+                    SendMouse(MouseButton.Right, false, player, target);
+                    SendMouse(MouseButton.Left, false, player, target);
+                    SendAction(InputActions.Attack, false); SendAction(InputActions.Claw, false);
+                    SendAction(InputActions.MoveUp, false); SendAction(InputActions.MoveDown, false);
+                    SendAction(InputActions.Jump, false); SendAction(InputActions.Dash, false);
+                    SendAction(InputActions.MoveLeft, lureDirection < 0); SendAction(InputActions.MoveRight, lureDirection > 0);
+                    SendMouse(MouseButton.Right, lureDefend, player, enemyThreat ? encounterDanger.GuardSource : target);
+                    float lureActualAxis = (Input.IsPhysicalKeyPressed(Key.D) ? 1f : 0f) -
+                        (Input.IsPhysicalKeyPressed(Key.A) ? 1f : 0f);
+                    var lureEnvelope = FreeMotionForecast.HeldThenNeutral(player.Velocity.X, lureActualAxis, true,
+                        gearBellMotor.MotionSettings, gearBellMotor.ThrusterState.Module,
+                        1d / Engine.PhysicsTicksPerSecond, Math.Min(2, lureRemaining), lureRemaining, 2f);
+                    float lureInitialSign = player.Velocity.X == 0f ? MathF.Sign(lureActualAxis) : MathF.Sign(player.Velocity.X);
+                    float lurePeak = lureInitialSign * lureEnvelope.ForwardDistance;
+                    float lureMinX = player.GlobalPosition.X + MathF.Min(0f, MathF.Min(lurePeak, lureEnvelope.NetDistance));
+                    float lureMaxX = player.GlobalPosition.X + MathF.Max(0f, MathF.Max(lurePeak, lureEnvelope.NetDistance));
+                    if (!lureDefend && lureDirection != 0 &&
+                        (lureMinX < gearLureFullLeft || lureMaxX > gearLureFullRight))
+                    {
+                        // A neutral endpoint can still be short of the stance while
+                        // two further held samples would overrun its small support
+                        // margin. Coast now, then take a smaller real-key step on a
+                        // later original iteration; never waive the full envelope.
+                        SendAction(InputActions.MoveLeft, false); SendAction(InputActions.MoveRight, false);
+                        lureActualAxis = (Input.IsPhysicalKeyPressed(Key.D) ? 1f : 0f) -
+                            (Input.IsPhysicalKeyPressed(Key.A) ? 1f : 0f);
+                        lureEnvelope = FreeMotionForecast.HeldThenNeutral(player.Velocity.X, lureActualAxis, true,
+                            gearBellMotor.MotionSettings, gearBellMotor.ThrusterState.Module,
+                            1d / Engine.PhysicsTicksPerSecond, Math.Min(2, lureRemaining), lureRemaining, 2f);
+                        lureInitialSign = player.Velocity.X == 0f ? MathF.Sign(lureActualAxis) : MathF.Sign(player.Velocity.X);
+                        lurePeak = lureInitialSign * lureEnvelope.ForwardDistance;
+                        lureMinX = player.GlobalPosition.X + MathF.Min(0f, MathF.Min(lurePeak, lureEnvelope.NetDistance));
+                        lureMaxX = player.GlobalPosition.X + MathF.Max(0f, MathF.Max(lurePeak, lureEnvelope.NetDistance));
+                        GearLureRecord("corridor_neutral_brake");
+                    }
+                    TestAssert.True(lureEnvelope.SpeedThresholdReached && lureMinX >= gearLureFullLeft && lureMaxX <= gearLureFullRight,
+                        $"Gear lure real-key envelope remains entirely on PistonTwo; stage={gearLureStage} " +
+                        $"span={lureMinX:R}/{lureMaxX:R} legal={gearLureFullLeft:R}/{gearLureFullRight:R} axis={lureActualAxis}");
+                    monitor.CombatDecisionObserved?.Invoke(actor.GetInstanceId(), encounterDanger, lureDefend);
+                    gearLureTicks++;
+                    if (frame % 60 == 0) GearLureRecord("tick");
+                    await PhysicsFrames(tree, monitor, 1);
+                    CheckGearLure(); // Preserve the original post-await recovery veto before this exclusive continue.
+                    if (gearLureStage == 4)
+                    {
+                        TestAssert.True(input.CurrentFrameSequence > gearLureHandoffSequence &&
+                            MathF.Abs(input.Current.MoveAxis) <= .001f && !input.Current.ShieldHeld && !shield.IsActive &&
+                            !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D),
+                            "Gear lure hands off only after actual fresh neutral/unguarded sampling");
+                        GearLureRecord("handoff_sampled");
+                    }
+                    continue;
+                }
                 float stanceX = target.X - desiredActorSide * 60f;
                 var stop = FreeMotionForecast.Neutral(player.Velocity.X, player.IsOnFloor(),
                     gearBellMotor.MotionSettings, gearBellMotor.ThrusterState.Module,
@@ -12661,12 +18972,61 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     direction = cooldownRetreat ? 0 : -1;
                 moveLeft = direction < 0;
                 moveRight = direction > 0;
-                generalDefendWindow = !combat.IsAttacking && energy.EnergyRatio > .35f && enemyThreat;
-                SendMouse(MouseButton.Right, generalDefendWindow, player,
-                    enemyThreat ? encounterDanger.GuardSource : target);
+                generalDefendWindow = !combat.IsAttacking && shield.CanBeginGuard && enemyThreat;
+                if(!gearBellGuardDifferenceObserved&&!combat.IsAttacking&&enemyThreat&&
+                    energy.EnergyRatio<=.35f&&shield.CanBeginGuard)
+                {
+                    gearBellGuardDifferenceObserved=true;
+                    GD.Print($"TASK10_GEAR_GUARD_DIFFERENCE physics={Engine.GetPhysicsFrames()} loop={frame}/900 " +
+                        $"sample={input.CurrentFrameSequence} actor={actor.GetInstanceId()} " +
+                        $"danger={encounterDanger.SourceActorId}/{encounterDanger.AttackId}/{encounterDanger.Phase}/" +
+                        $"{encounterDanger.RemainingSeconds:R} old_reserve_guard=False actual_can_guard={shield.CanBeginGuard} " +
+                        $"selected_policy={generalDefendWindow} shield={input.Current.ShieldHeld}/{shield.IsActive} " +
+                        $"energy={energy.EnergyRatio:R} heat={energy.HeatRatio:R} overheated={energy.IsOverheated} " +
+                        $"hp={playerHealth.CurrentHealth} observation_only=true");
+                }
+                gearPostLureGuardPoint = enemyThreat ? encounterDanger.GuardSource : target;
+                if (gearPostLureCollecting && generalDefendWindow)
+                {
+                    Vector2 chosen = BasinCounterweightRuntimeTests.StationaryGuardDirection(
+                        player.GlobalPosition, gearPostLureGuardPoint, gearPostLureSources, gearPostLureCoverageComplete);
+                    Vector2 original = PlayerKeyboardAimModel.ResolveDirection(gearPostLureGuardPoint-player.GlobalPosition, 1);
+                    if ((chosen == Vector2.Up || chosen == Vector2.Down) && !chosen.IsEqualApprox(original))
+                    {
+                        gearPostLureGuardPoint = player.GlobalPosition + chosen * 80;
+                        gearPostLureVerticalGuard = true;
+                        gearPostLureGuardSelections++;
+                        if (gearPostLureGuardSelections <= 8)
+                            GD.Print($"TASK10_GEAR_POSTLURE_GUARD loop={frame}/900 physics={Engine.GetPhysicsFrames()} " +
+                                $"source={encounterDanger.GuardSource} chosen={chosen} sources={gearPostLureSources.Count} " +
+                                $"complete={gearPostLureCoverageComplete} missing={encounterDanger.MissingGuardSourceCount} " +
+                                $"player={player.GlobalPosition} hp={playerHealthAtStart}->{playerHealth.CurrentHealth} " +
+                                "original_defend=true single_original_scan=true");
+                    }
+                }
+                SendMouse(MouseButton.Right, generalDefendWindow, player, gearPostLureGuardPoint);
                 gearBellReady = GearBellNeutralSupport((BellBackLaborer)actor) &&
                     direction == 0 && !enemyThreat && !combat.IsAttacking &&
                     MathF.Abs(target.X - stopX) is >= 55f and <= 64f;
+                try
+                {
+                    int failed = gearBellNeutralEvaluated & ~gearBellNeutralPassed;
+                    int outerMask = (direction != 0 ? 1 : 0) | (enemyThreat ? 2 : 0) |
+                        (combat.IsAttacking ? 4 : 0) | (MathF.Abs(target.X - stopX) is < 55f or > 64f ? 8 : 0);
+                    gearBellLastReadiness = $"loop={frame}/900 sample={input.CurrentFrameSequence} call={gearBellNeutralCalls} " +
+                        $"evaluated={gearBellNeutralEvaluated} passed={gearBellNeutralPassed} failed={failed} outer_values={outerMask} " +
+                        $"support={gearBellStanceFloor} neutral_samples={gearBellSupportSamples} player={player.GlobalPosition} " +
+                        $"velocity={player.Velocity} target={target} gap={signedGap:R} stop_x={stopX:R} " +
+                        $"direction={direction} desired_side={desiredActorSide:R} inward={inward} " +
+                        $"aim={input.KeyboardAimDirection} threat={enemyThreat} ready={gearBellReady}";
+                    if (gearBellReadinessRows < 24 && gearBellReadinessMasks.Add(failed | (outerMask << 12)))
+                    {
+                        gearBellReadinessRows++;
+                        GD.Print($"TASK10_GEAR_BELL_READY_MASK row={gearBellReadinessRows}/24 {gearBellLastReadiness} " +
+                            "observer_only=true extra_helper_calls=0 extra_queries=0");
+                    }
+                }
+                catch (Exception error) { gearBellReadinessFault ??= error.ToString(); }
                 if (gearBellLines < 16 && (frame % 12 == 0 || gearBellReady))
                 {
                     gearBellLines++;
@@ -12681,6 +19041,28 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                         $"recoveries={monitor.RecoveryRequested}/{monitor.RecoveryCompleted} encounter={encounterId} policy=shared_neutral_bell");
                 }
             }
+            if(frozenLowerKeyboard&&encounterDanger.Threat&&encounterDanger.Phase==AttackPhase.Active&&
+                encounterDanger.SourceActorId!=actor.GetInstanceId()&&frozenForeignGuardRows<12)
+            {
+                string decision=$"{actor.GetInstanceId()}/{encounterDanger.SourceActorId}/{encounterDanger.AttackId}/"+
+                    $"{genericGuardBeforeSpecialization}/{generalDefendWindow}/{shield.CanBeginGuard}/{combat.IsAttacking}";
+                if(decision!=frozenForeignGuardLast)
+                {
+                    frozenForeignGuardLast=decision;frozenForeignGuardRows++;
+                    string selectedState=actor is GraveLampMoth selectedMoth?selectedMoth.CurrentState.ToString():
+                        actor is RustShellSquire selectedRust?selectedRust.CurrentState.ToString():"other";
+                    GD.Print($"TASK10_FROZEN_FOREIGN_GUARD record={frozenForeignGuardRows}/12 " +
+                        $"physics={Engine.GetPhysicsFrames()} loop={frame}/900 sample={input.CurrentFrameSequence} " +
+                        $"selected={actor.GetInstanceId()}/{actor.GetType().Name}/{selectedState} " +
+                        $"danger={encounterDanger.SourceActorId}/{encounterDanger.AttackId}/{encounterDanger.Phase}/" +
+                        $"{encounterDanger.RemainingSeconds:R} generic_before={genericGuardBeforeSpecialization} " +
+                        $"after={generalDefendWindow} override={(frozenMothPolicy?"selected_moth":frozenRustPolicy?"selected_rust":"none")} " +
+                        $"can_guard={shield.CanBeginGuard} attacking={combat.IsAttacking} " +
+                        $"shield={input.Current.ShieldHeld}/{shield.IsActive} energy={energy.EnergyRatio:R} " +
+                        $"heat={energy.HeatRatio:R} hp={playerHealth.CurrentHealth} observation_only=true");
+                }
+            }
+            monitor.CombatDecisionObserved?.Invoke(actor.GetInstanceId(), encounterDanger, generalDefendWindow);
             if (splitMothDiagnostic && actor is GraveLampMoth)
                 ObserveSplitMoth(actor, moveLeft, moveRight,
                     strikeRange && !enemyThreat && frame >= nextAttackFrame && !combat.IsAttacking && modes.CanAffordAttack);
@@ -12688,17 +19070,1037 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             {
                 mixedDecisionId++;
                 mixedLastDanger = encounterDanger;
+                if (!mixedCounterSampled && strikeRange && !enemyThreat && frame >= nextAttackFrame &&
+                    !combat.IsAttacking && modes.CanBeginAttack && modes.CanAffordAttack &&
+                    encounterDanger.SafeCounterSeconds == 0f)
+                {
+                    mixedCounterSampled = true;
+                    MixedResourceSnapshot("counter_sources_before_original_gate",
+                        $"sources={mixedCounterSources.Count} [{string.Join(";", mixedCounterSources)}] observation_only=true");
+                }
                 MixedResourceSnapshot("decision_pre_command", $"energy_gate={energy.EnergyRatio > .35f} " +
                     $"strike_range={strikeRange} cooldown={frame < nextAttackFrame} next_attack={nextAttackFrame} " +
                     $"general_defend={generalDefendWindow} safe_counter_seconds={encounterDanger.SafeCounterSeconds:R} " +
                     $"mixed_counter_ready={Task10MixedCounterWindow(combat, energy, encounterDanger)} " +
-                    $"move_left={moveLeft} move_right={moveRight}");
+                    $"move_left={moveLeft} move_right={moveRight} required_priority={mixedRequiredPriority}" +
+                    (mixedRequiredPriority ? $" required_actor={actor.GetInstanceId()} required_owned={group.OwnsLiveActor(actor)} " +
+                        $"required_hp={enemyHealth?.CurrentHealth} required_body={actor.GlobalPosition} " +
+                        "same_original_scan=true extra_scan=false" : "") + ObserveWinningRustContact(encounterDanger) +
+                    DescribeContactCandidates(mixedLateCapsule));
             }
+            if (mixedLaneControl != null && mixedLiveEnrolled && mixedClawStage == 0 &&
+                mixedLaneControl.Step(actor as RustShellSquire, mixedClawEnemy, encounterDanger, frame))
+            {
+                await PhysicsFrames(tree, monitor, 1);
+                continue;
+            }
+            if (counterweightSuppressionKeyboard && mixedClawEnemy != null)
+            {
+                bool liveBurst = GodotObject.IsInstanceValid(mixedClawEnemy) &&
+                    !mixedClawEnemy.IsQueuedForDeletion() && mixedClawEnemy.IsInsideTree();
+                bool shortWindow = !encounterDanger.Threat ||
+                    encounterDanger.Phase == AttackPhase.Telegraph &&
+                    encounterDanger.RemainingSeconds > 8f / Engine.PhysicsTicksPerSecond;
+                // The shared minimum also covers non-selected Skitter clocks,
+                // old projectiles and unknown states absent from winner geometry.
+                shortWindow &= float.IsFinite(encounterDanger.SafeCounterSeconds) &&
+                    encounterDanger.SafeCounterSeconds > 0f;
+                bool publishedOwnPreview = mixedPreviewPhysics != 0 &&
+                    Engine.GetPhysicsFrames() - mixedPreviewPhysics <= 1 &&
+                    mixedPreviewSequence == input.CurrentFrameSequence &&
+                    mixedPreviewExists && mixedPreviewLos && mixedPreviewOwn;
+                if (mixedLiveEnrolled)
+                    publishedOwnPreview &= liveBurst && CourtyardRearClawControl.Live(mixedClawTarget) &&
+                        mixedPreviewAuthority == mixedClaw.AuthorityRevision &&
+                        mixedPreviewPose == player.GlobalTransform && mixedPreviewVelocity == player.Velocity &&
+                        mixedPreviewAim == input.KeyboardAimDirection &&
+                        mixedPreviewAnchor.IsEqualApprox(mixedClawTarget.WorldAnchor);
+                // A real Left guard already holds the good lane stance. When
+                // its original demand ends, do not let stale D pursuit displace
+                // it before Input/Claw can publish a NEW unguarded preview.
+                if (mixedLaneControl?.Completed == true && mixedPostShotSchedule &&
+                    mixedClawStage == 0 && mixedClawWindowPhysics == 0 && !mixedOwnPrepReady)
+                {
+                    bool liveOwner = CourtyardRearClawControl.Live(mixedClawEnemy) &&
+                        CourtyardRearClawControl.Live(mixedClawTarget) && group.OwnsLiveActor(mixedClawEnemy) &&
+                        mixedClawEnemy.GetParent() == actorRoot && mixedClawEnemy.GetInstanceId() == mixedClawActorId &&
+                        mixedClawEnemy.GetNodeOrNull<ThreadTarget2D>("ThreadTarget") == mixedClawTarget &&
+                        mixedClawTarget.GetInstanceId() == mixedClawTargetId;
+                    double delta = player.GetPhysicsProcessDeltaTime();
+                    double castLead = liveOwner && double.IsFinite(delta) && delta > 0
+                        ? (Math.Ceiling(player.GlobalPosition.DistanceTo(mixedClawTarget.WorldAnchor) /
+                            (MechanicalClawSettings.Default.ShuttleSpeed * delta)) + 6) * delta
+                        : double.PositiveInfinity;
+                    bool safe = liveOwner && shortWindow && !generalDefendWindow &&
+                        encounterDanger.CandidateObserverFaults == 0 && encounterDanger.MissingGuardSourceCount == 0 &&
+                        !encounterDanger.NearContactUnknownActive && !encounterDanger.NearContactOverlappingActive &&
+                        encounterDanger.SafeCounterSeconds > 8d / Engine.PhysicsTicksPerSecond + castLead;
+                    bool supported = CourtyardRearClawControl.Live(stepLanding) && HasFloorContact(player, stepLanding) &&
+                        TryTask10CapsuleCorridor(player, stepLanding.GetNode<CollisionShape2D>("Collision"), out _, out _, out _, out _);
+                    bool quiet = !combat.IsAttacking && !mixedClawMotor.IsDashing &&
+                        mixedClaw.CurrentFrame.State == MechanicalClawState.Idle &&
+                        mixedClaw.CurrentFrame.Failure == MechanicalClawFailure.None &&
+                        input.Current.MoveAxis == 0 && input.RawFrame.MoveAxis == 0 &&
+                        input.KeyboardAimDirection.Dot(Vector2.Left) > .999f &&
+                        Mathf.Abs(player.Velocity.X) <= .5f && Mathf.Abs(player.Velocity.Y) <= .5f;
+                    if (!mixedOwnPrepStarted && mixedClawShotSeen && safe && supported && quiet &&
+                        encounterDanger.SafeCounterSeconds > 8d / Engine.PhysicsTicksPerSecond + castLead + 8 * delta)
+                    {
+                        mixedOwnPrepStarted = true; mixedOwnPrepLoop = frame;
+                        mixedOwnPrepSequence = input.CurrentFrameSequence;
+                        mixedOwnPrepHp = playerHealth.CurrentHealth; mixedOwnPrepPosition = player.GlobalPosition;
+                        mixedOwnPrepRequests = monitor.RecoveryRequested; mixedOwnPrepRecoveries = monitor.RecoveryCompleted;
+                        mixedOwnPrepJumps = mixedClawMotor.AcceptedJumpCount; mixedOwnPrepDashes = mixedClawMotor.AcceptedDashCount;
+                        mixedOwnPrepEdges = KeyboardRouteInputDriver.Current.ClawEdges;
+                        mixedOwnPrepAttackEdges = KeyboardRouteInputDriver.Current.AttackEdges;
+                        mixedOwnPrepCast = mixedClaw.CurrentFrame.NextCastId;
+                        TestAssert.True(Task10MixedReleaseGuardToNeutral(player, true),
+                            "MIXED_OWN_PREVIEW_RELEASE_RED: actual supported Left preparation must release its own stale plan and L");
+                        MixedResourceSnapshot("owned_preview_neutral_start", $"release_sequence={mixedOwnPrepSequence} " +
+                            $"cast_lead={castLead:R} original_outer_only=true no_K=true");
+                        await PhysicsFrames(tree, monitor, 1);
+                        continue;
+                    }
+                    if (mixedOwnPrepStarted)
+                    {
+                        TestAssert.True(safe && supported && quiet && frame - mixedOwnPrepLoop <= 8 &&
+                            player.GlobalPosition.DistanceTo(mixedOwnPrepPosition) <= .1f &&
+                            playerHealth.CurrentHealth == mixedOwnPrepHp && monitor.RecoveryRequested == mixedOwnPrepRequests &&
+                            monitor.RecoveryCompleted == mixedOwnPrepRecoveries &&
+                            mixedClawMotor.AcceptedJumpCount == mixedOwnPrepJumps && mixedClawMotor.AcceptedDashCount == mixedOwnPrepDashes &&
+                            KeyboardRouteInputDriver.Current.ClawEdges == mixedOwnPrepEdges &&
+                            KeyboardRouteInputDriver.Current.AttackEdges == mixedOwnPrepAttackEdges &&
+                            mixedClaw.CurrentFrame.NextCastId == mixedOwnPrepCast,
+                            $"MIXED_OWN_PREVIEW_RETAINED_RED loop={frame}/900 elapsed={frame-mixedOwnPrepLoop}/8 " +
+                            $"safe={safe} supported={supported} quiet={quiet} preview={publishedOwnPreview}");
+                        bool released = input.CurrentFrameSequence > mixedOwnPrepSequence &&
+                            !input.Current.ShieldHeld && !input.RawFrame.ShieldHeld && !shield.IsActive &&
+                            !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D) && !Input.IsPhysicalKeyPressed(Key.L);
+                        bool readyForHandoff = released && publishedOwnPreview && modes.CanBeginGrapple;
+                        TestAssert.True(Task10MixedPreviewPreparationBudgetAccepted(frame - mixedOwnPrepLoop, readyForHandoff),
+                            "MIXED_PREVIEW_DEADLINE_RED: elapsed8 may hand off a ready preview, never take a ninth preparation wait");
+                        if (readyForHandoff)
+                        {
+                            mixedOwnPrepReady = true;
+                            MixedResourceSnapshot("owned_preview_neutral_ready", $"release_sequence={mixedOwnPrepSequence} " +
+                                $"producer_sequence={mixedPreviewSequence} target={mixedPreviewSelected} original_K_gate_next=true");
+                        }
+                        else
+                        {
+                            TestAssert.True(Task10MixedReleaseGuardToNeutral(player, true),
+                                "owned preview pending retains its existing actual Left/neutral input without a new action");
+                            MixedResourceSnapshot("owned_preview_neutral_wait", $"elapsed={frame-mixedOwnPrepLoop}/8 " +
+                                $"released={released} own_preview={publishedOwnPreview}");
+                            await PhysicsFrames(tree, monitor, 1);
+                            continue;
+                        }
+                    }
+                }
+                // Observe this same original pre-node decision only. No alternate
+                // resolver, target/aim command, wait or relaxed admission is added.
+                if (mixedLiveEnrolled && liveBurst && mixedClawShotSeen && shortWindow &&
+                    !input.Current.ShieldHeld && !shield.IsActive && !combat.IsAttacking &&
+                    mixedClaw.CurrentFrame.State == MechanicalClawState.Idle && modes.CanBeginGrapple)
+                {
+                    mixedLiveAdmissionSamples++;
+                    if (mixedLiveAdmissionRows.Count >= 64) mixedLiveAdmissionOmitted++;
+                    else try
+                    {
+                        bool targetLive = CourtyardRearClawControl.Live(mixedClawTarget);
+                        Vector2 currentAnchor = targetLive ? mixedClawTarget.WorldAnchor : default;
+                        var currentSelection = mixedClaw.KeyboardPreview.Snapshot;
+                        mixedLiveAdmissionRows.Add($"MIXED_LIVE_K_ADMISSION physics={Engine.GetPhysicsFrames()} " +
+                            $"loop={frame}/900 sequence={input.CurrentFrameSequence} actor={mixedClawActorId} " +
+                            $"expected_target={mixedClawTargetId} target_live={targetLive} expected_anchor={currentAnchor} " +
+                            $"producer_physics={mixedPreviewPhysics} producer_sequence={mixedPreviewSequence} " +
+                            $"age={(long)Engine.GetPhysicsFrames()-(long)mixedPreviewPhysics} " +
+                            $"same_sequence={mixedPreviewSequence == input.CurrentFrameSequence} " +
+                            $"same_authority={mixedPreviewAuthority == mixedClaw.AuthorityRevision} " +
+                            $"same_pose={mixedPreviewPose == player.GlobalTransform} " +
+                            $"same_velocity={mixedPreviewVelocity == player.Velocity} " +
+                            $"same_aim={mixedPreviewAim == input.KeyboardAimDirection} " +
+                            $"same_anchor={targetLive && mixedPreviewAnchor.IsEqualApprox(currentAnchor)} " +
+                            $"exists={mixedPreviewExists} los={mixedPreviewLos} own={mixedPreviewOwn} " +
+                            $"producer_selected={mixedPreviewSelected} current_selected={currentSelection.RuntimeId} " +
+                            $"current_material={currentSelection.Material} current_anchor={currentSelection.WorldAnchor} " +
+                            $"preview_admitted={publishedOwnPreview} player={player.GlobalPosition} velocity={player.Velocity} " +
+                            $"aim={input.KeyboardAimDirection} axis={input.Current.MoveAxis:R} " +
+                            $"safe_counter={encounterDanger.SafeCounterSeconds:R} danger_phase={encounterDanger.Phase} " +
+                            $"danger_remaining={encounterDanger.RemainingSeconds:R} energy={energy.EnergyRatio:R} " +
+                            "own_shot=true post_node_completed_claimed=false unchosen_los=unmeasured " +
+                            "extra_resolver=false input_writes=0 extra_waits=0");
+                    }
+                    catch (Exception) { mixedLiveAdmissionFaults++; }
+                }
+                if (mixedEarlyWindowPhysics == 0 && !mixedClawShotSeen && liveBurst && shortWindow &&
+                    !input.Current.ShieldHeld && !shield.IsActive && !combat.IsAttacking &&
+                    mixedClaw.CurrentFrame.State == MechanicalClawState.Idle && modes.CanBeginGrapple &&
+                    publishedOwnPreview)
+                {
+                    mixedEarlyWindowPhysics = Engine.GetPhysicsFrames();
+                    MixedResourceSnapshot("owned_burst_pre_shot_published_opportunity", $"preview_physics={mixedPreviewPhysics} " +
+                        $"preview_sample={mixedPreviewSequence} selected={mixedPreviewSelected} exists={mixedPreviewExists} " +
+                        $"los={mixedPreviewLos} pre_motor=true");
+                }
+                if (mixedClawWindowPhysics == 0 && liveBurst && shortWindow &&
+                    !input.Current.ShieldHeld && !shield.IsActive && !combat.IsAttacking &&
+                    mixedClaw.CurrentFrame.State == MechanicalClawState.Idle && modes.CanBeginGrapple &&
+                    (mixedPostShotSchedule ? mixedClawShotSeen && (!mixedLiveEnrolled || publishedOwnPreview)
+                        : mixedClawShotSeen || publishedOwnPreview))
+                {
+                    mixedClawWindowPhysics = Engine.GetPhysicsFrames();
+                    MixedResourceSnapshot("owned_burst_short_window", $"actor={mixedClawEnemy.GetInstanceId()} " +
+                        $"shot_seen={mixedClawShotSeen}");
+                }
+                // Opportunity observation is independent of issuing its command;
+                // skipping this block cannot erase the terminal obligation.
+                if (mixedClawWindowPhysics != 0 && mixedClawStage == 0 && liveBurst && shortWindow)
+                {
+                    // Arrival may include legitimate traversal before the cast.
+                    // The unchanged K checks begin at this actual command, never
+                    // by resetting any edge/cast/application or recovery ledger.
+                    if (mixedLiveEnrolled) CaptureMixedClawBaseline();
+                    mixedClawEdges = KeyboardRouteInputDriver.Current.ClawEdges;
+                    mixedClawSequence = input.CurrentFrameSequence;
+                    mixedClawCastId = mixedClaw.CurrentFrame.NextCastId;
+                    mixedClawStage = 1;
+                    SendMouse(MouseButton.Left, false, player, mixedClawTarget.WorldAnchor);
+                    SendMouse(MouseButton.Right, false, player, mixedClawTarget.WorldAnchor);
+                    foreach (StringName action in new[] { InputActions.MoveLeft, InputActions.MoveRight,
+                        InputActions.MoveUp, InputActions.MoveDown, InputActions.Jump, InputActions.Dash })
+                        SendAction(action, false);
+                    SendAction(InputActions.SelectGrappleMode, true);
+                    SendAction(InputActions.SelectGrappleMode, false);
+                    SendMouse(MouseButton.Left, true, player, mixedClawTarget.WorldAnchor);
+                    MixedResourceSnapshot("owned_burst_single_K_issued", $"cast={mixedClawCastId}");
+                }
+                if (mixedClawStage is >= 1 and <= 3)
+                {
+                    TestAssert.True(liveBurst && playerHealth.CurrentHealth == mixedClawHp &&
+                        monitor.Player == player && monitor.RecoveryRequested == mixedClawRequests &&
+                        monitor.RecoveryCompleted == startingRecoveries &&
+                        mixedClawMotor.AcceptedJumpCount == mixedClawJumps && mixedClawMotor.AcceptedDashCount == mixedClawDashes &&
+                        player.IsOnFloor() && player.GlobalPosition.IsFinite() && player.Velocity.IsFinite(),
+                        "mixed post-shot K keeps original player HP/support and zero extra jump/dash/recovery");
+                    if (input.CurrentFrameSequence != mixedClawSequence)
+                    {
+                        mixedClawSequence = input.CurrentFrameSequence;
+                        if (input.Current.ClawPressed)
+                        {
+                            mixedClawSamples++;
+                            mixedFirstPress = input.CurrentFrameSequence;
+                            TestAssert.True(mixedClawSamples == 1 && input.Current.KeyboardActions &&
+                                !input.Current.AttackPressed && !input.Current.PrimaryPressed && !input.Current.ShieldHeld,
+                                "mixed K uses exactly one real keyboard edge without J/legacy-primary/L competition");
+                            mixedClawStage = 2;
+                            SendMouse(MouseButton.Left, false, player, mixedClawTarget.WorldAnchor);
+                        }
+                    }
+                    TestAssert.True(mixedClawFailure == MechanicalClawFailure.None,
+                        $"real mixed K fails honestly: {mixedClawFailure}");
+                    var boundary = Task10MixedClawCompletionBoundary(mixedEarlyWindowPhysics != 0,
+                        mixedClawCompleted, mixedClawShotSeen, shortWindow,
+                        mixedClawAdapter.ApplicationCount - mixedClawApplications,
+                        mixedClawStunned, mixedClawLatched, mixedClawSamples,
+                        KeyboardRouteInputDriver.Current.ClawEdges - mixedClawEdges, mixedClawAborted);
+                    if (!mixedClawCompleted && boundary.Completed)
+                    {
+                        TestAssert.True(!mixedClawAborted && mixedClawSamples == 1 &&
+                            KeyboardRouteInputDriver.Current.ClawEdges == mixedClawEdges + 1,
+                            "mixed owned Burst interruption is one actual same-target cast/application/Stunned");
+                        mixedClawCompleted = true;
+                        mixedClawStage = 3;
+                        threadCasts++;
+                        MixedResourceSnapshot("owned_burst_keyboard_K_application_stunned_OK", $"cast={mixedClawCastId}");
+                    }
+                    TestAssert.True(mixedPostShotSchedule
+                            ? Task10MixedPostShotOpportunityAccepted(
+                                mixedEarlyWindowPhysics != 0 || mixedClawWindowPhysics != 0,
+                                mixedClawShotSeen, mixedClawWindowPhysics != 0, mixedClawCompleted,
+                                shortWindow, mixedClawAborted)
+                            : boundary.OpportunityAccepted,
+                        "MIXED_K_WINDOW_RED: explicit schedule expired without its actual one-K interruption");
+                    // Application is synchronous, but the enemy publishes Stunned
+                    // on its next model tick. Capture that success before the
+                    // conservative unknown-zero allowance can be read as abort.
+                    bool urgentDanger = encounterDanger.Threat &&
+                        (encounterDanger.Phase == AttackPhase.Active ||
+                         encounterDanger.Phase == AttackPhase.Telegraph &&
+                         encounterDanger.RemainingSeconds <= 8f / Engine.PhysicsTicksPerSecond);
+                    if (!shortWindow && !mixedClawCompleted || urgentDanger)
+                    {
+                        mixedClawAborted |= !mixedClawCompleted;
+                        SendMouse(MouseButton.Left, false, player, mixedClawTarget.WorldAnchor);
+                        SendMouse(MouseButton.Right, shield.CanBeginGuard, player, encounterDanger.GuardSource);
+                        MixedResourceSnapshot("owned_burst_K_guard_handoff", $"aborted={mixedClawAborted}");
+                    }
+                    if (mixedClawStage == 3 && mixedClaw.CurrentFrame.State == MechanicalClawState.Idle)
+                    {
+                        mixedFirstEdgeEnd = KeyboardRouteInputDriver.Current.ClawEdges;
+                        mixedFirstHandoff = input.CurrentFrameSequence;
+                        TestAssert.True(mixedFirstEdgeEnd == mixedClawEdges + 1 && mixedFirstPress != 0 &&
+                            mixedFirstHandoff >= mixedFirstPress,
+                            "MIXED_FIRST_K_FREEZE_RED: freeze the first actual edge and Idle before any later K");
+                        mixedClawStage = 4;
+                        mixedSetupRequired |= MixedSetupEngagement();
+                        MixedResourceSnapshot("first_K_frozen", $"edge_start={mixedClawEdges} " +
+                            $"edge_end={mixedFirstEdgeEnd} press={mixedFirstPress} handoff={mixedFirstHandoff} cast={mixedClawCastId}");
+                        SendAction(InputActions.SelectAttackMode, true);
+                        SendAction(InputActions.SelectAttackMode, false);
+                    }
+                    else
+                    {
+                        // Exactly the original outer tick; no CastAt wait pool.
+                        await PhysicsFrames(tree, monitor, 1);
+                        TestAssert.True(monitor.RecoveryCompleted == startingRecoveries,
+                            "mixed K outer tick preserves original zero-recovery veto");
+                        TestAssert.True(!mixedClawAborted,
+                            "MIXED_POST_SHOT_K_ABORT: actual danger resumed before the one K application; guard commanded, no retry");
+                        continue;
+                    }
+                }
+                TestAssert.True(mixedPostShotSchedule
+                        ? Task10MixedPostShotOpportunityAccepted(
+                            mixedEarlyWindowPhysics != 0 || mixedClawWindowPhysics != 0,
+                            mixedClawShotSeen, mixedClawWindowPhysics != 0, mixedClawCompleted,
+                            shortWindow, mixedClawAborted)
+                        : mixedEarlyWindowPhysics == 0 || mixedClawCompleted || !mixedClawShotSeen && shortWindow,
+                    "MIXED_K_DEBT_RED: an observed K obligation cannot disappear while its explicit schedule waits or expires");
+                if (mixedClawWindowPhysics != 0 && !shortWindow)
+                    TestAssert.True(mixedClawCompleted,
+                        "MIXED_POST_SHOT_K_RED: real owned Burst must receive one keyboard K interruption in the observed short window before guard demand resumes");
+            }
+            // One normal keyboard dodge after the completed K handoff. The
+            // actual Motor still owns force, collisions and reverse cancellation.
+            // Do not import the free-floor fixture's fixed coasting wait here.
+            if (counterweightSuppressionKeyboard && mixedClawStage == 4 &&
+                mixedClawEnemy != null && ReferenceEquals(actor, mixedClawEnemy) &&
+                !mixedNeutralPending && !mixedJetCompleted)
+            {
+                double jetDelta = 1d / Engine.PhysicsTicksPerSecond;
+                bool fullSupport = TryTask10FullFloorSupport(player, out ulong floorId);
+                var jetFloor = GodotObject.InstanceFromId(floorId) as StaticBody2D;
+                var supportShape = GodotObject.IsInstanceValid(jetFloor)
+                    ? jetFloor.GetNodeOrNull<CollisionShape2D>("Collision") : null;
+                bool corridor = TryTask10CapsuleCorridor(player, supportShape,
+                    out float capsuleLeft, out float capsuleRight, out float supportLeft, out float supportRight);
+                float minimumCenter = supportLeft + player.GlobalPosition.X - capsuleLeft;
+                float maximumCenter = supportRight - capsuleRight + player.GlobalPosition.X;
+                var module = mixedClawMotor.ThrusterState.Module;
+                bool setupHandedOff = !mixedSetupRequired || mixedSetupIssued && !mixedSetupAwaitContact &&
+                    mixedSetupAccepted == 1 && mixedSetupContacts == 1 && mixedFirstJObserved &&
+                    mixedClawEnemy.GetNode<HealthComponent>("Health").CurrentHealth == 1 &&
+                    mixedNeutralSamples == 1 && !mixedNeutralPending;
+                if (!mixedJetOpportunity && setupHandedOff && fullSupport && corridor && !generalDefendWindow &&
+                    !input.Current.ShieldHeld && !shield.IsActive && !combat.IsAttacking &&
+                    !mixedClawMotor.IsDashing && Mathf.Abs(player.Velocity.X) <= .5f)
+                {
+                    float sign = Mathf.Sign(actor.GlobalPosition.X - player.GlobalPosition.X);
+                    float stopX = Mathf.Clamp(actor.GlobalPosition.X - sign * 8f,
+                        Mathf.Max(minimumCenter, arenaMinimumX), Mathf.Min(maximumCenter, arenaMaximumX));
+                    if (sign != 0f && sign * (stopX - player.GlobalPosition.X) > 0f)
+                    {
+                        var first = ThrusterDynamics.Step(new(new Vector2(player.Velocity.X, 0f), sign,
+                            true, new Vector2(sign, 0f), module.BurnDuration, ApplyGravity: false),
+                            module, mixedClawMotor.MotionSettings, jetDelta);
+                        var reverse = FreeMotionForecast.Reverse(first.Velocity.X, true,
+                            mixedClawMotor.MotionSettings, module, jetDelta, 900 - frame, .5f);
+                        float firstStop = player.GlobalPosition.X + first.Velocity.X * (float)jetDelta +
+                            sign * reverse.ForwardDistance;
+                        if ((reverse.BrakeReachedZero || reverse.SpeedThresholdReached) &&
+                            sign * (firstStop - stopX) <= 0f)
+                        {
+                            // Observation is independent of the command below.
+                            mixedJetOpportunity = true;
+                            mixedJetSign = sign;
+                            mixedJetStopX = stopX;
+                            mixedJetFloor = floorId;
+                            mixedJetDashBaseline = mixedClawMotor.AcceptedDashCount;
+                            mixedJetRejectedBaseline = mixedClawMotor.RejectedDashCount;
+                            MixedResourceSnapshot("owned_burst_jet_opportunity", $"floor={floorId} " +
+                                $"support={minimumCenter:R}..{maximumCenter:R} stop_x={stopX:R} " +
+                                $"module={module.ModuleId} predicted_first_stop={firstStop:R}");
+                        }
+                    }
+                }
+                if (mixedJetOpportunity && mixedJetStage == 0)
+                {
+                    SendMouse(MouseButton.Right, false, player, player.GlobalPosition);
+                    SendMouse(MouseButton.Left, false, player, player.GlobalPosition);
+                    foreach (StringName action in new[] { InputActions.MoveLeft, InputActions.MoveRight,
+                        InputActions.MoveUp, InputActions.MoveDown, InputActions.Jump, InputActions.Dash })
+                        SendAction(action, false);
+                    SendAction(mixedJetSign > 0f ? InputActions.MoveRight : InputActions.MoveLeft, true);
+                    mixedJetSequence = input.CurrentFrameSequence;
+                    mixedJetStage = 1;
+                    SendAction(InputActions.Dash, true);
+                    MixedResourceSnapshot("owned_burst_jet_Shift_command", $"physical_shift={Input.IsPhysicalKeyPressed(Key.Shift)} " +
+                        $"action_held={Input.IsActionPressed(InputActions.Dash)} action_edge={Input.IsActionJustPressed(InputActions.Dash)} " +
+                        $"raw_dash={input.RawFrame.DashPressed} sampled_dash={input.Current.DashPressed} " +
+                        $"accepted={mixedClawMotor.AcceptedDashCount} rejected={mixedClawMotor.RejectedDashCount} " +
+                        $"committed_sample={mixedClawMotor.ThrusterState.LastCommittedSample}");
+                    await PhysicsFrames(tree, monitor, 1); // One original outer tick only.
+                    continue;
+                }
+                if (mixedJetStage is >= 1 and <= 4)
+                {
+                    TestAssert.True(fullSupport && corridor && floorId == mixedJetFloor &&
+                        playerHealth.CurrentHealth == mixedClawHp && monitor.Player == player &&
+                        monitor.RecoveryRequested == mixedClawRequests && monitor.RecoveryCompleted == startingRecoveries &&
+                        mixedClawMotor.AcceptedJumpCount == mixedClawJumps &&
+                        player.GlobalPosition.IsFinite() && player.Velocity.IsFinite() &&
+                        player.GlobalPosition.X >= arenaMinimumX && player.GlobalPosition.X <= arenaMaximumX,
+                        "MIXED_JET_SUPPORT_RED: actual dodge keeps HP, same full floor, arena and zero jump/recovery");
+                    if (mixedJetStage == 1 && input.CurrentFrameSequence != mixedJetSequence)
+                    {
+                        // The real Main RED observed the native action edge one
+                        // pre-reader boundary before RawFrame. Hold the SAME key;
+                        // never replay Shift or equate a new sequence with sampling it.
+                        if (!input.RawFrame.DashPressed)
+                        {
+                            TestAssert.True(mixedJetBeforeReaderSamples == 0 && input.Current.KeyboardActions &&
+                                Input.IsPhysicalKeyPressed(Key.Shift) && Input.IsActionPressed(InputActions.Dash) &&
+                                Input.IsActionJustPressed(InputActions.Dash) && !input.Current.ShieldHeld &&
+                                mixedClawMotor.AcceptedDashCount == mixedJetDashBaseline &&
+                                mixedClawMotor.RejectedDashCount == mixedJetRejectedBaseline,
+                                "MIXED_JET_PENDING_RED: only the observed before-reader native edge may precede its real sample, without key replay");
+                            mixedJetBeforeReaderSamples++;
+                            MixedResourceSnapshot("owned_burst_jet_before_reader_edge", $"sequence={mixedJetSequence}->{input.CurrentFrameSequence}");
+                            await PhysicsFrames(tree, monitor, 1); // Existing outer tick, no new wait pool.
+                            continue;
+                        }
+                        TestAssert.True(input.Current.KeyboardActions && input.RawFrame.DashPressed &&
+                            !input.RawFrame.JumpPressed && !input.Current.ShieldHeld && !shield.IsActive &&
+                            input.Current.MoveAxis == mixedJetSign &&
+                            mixedClawMotor.AcceptedDashCount == mixedJetDashBaseline + 1 &&
+                            mixedClawMotor.ThrusterState.LastCommittedSample == input.CurrentFrameSequence &&
+                            mixedClawMotor.ThrusterState.BurnDirection == new Vector2(mixedJetSign, 0f),
+                            $"MIXED_JET_SAMPLE_RED: one fresh real Shift sample starts the actual horizontal jet; " +
+                            $"sequence={mixedJetSequence}->{input.CurrentFrameSequence} keyboard={input.Current.KeyboardActions} " +
+                            $"physical_shift={Input.IsPhysicalKeyPressed(Key.Shift)} action_held={Input.IsActionPressed(InputActions.Dash)} " +
+                            $"action_edge={Input.IsActionJustPressed(InputActions.Dash)} raw_dash={input.RawFrame.DashPressed} " +
+                            $"sampled_dash={input.Current.DashPressed} raw_jump={input.RawFrame.JumpPressed} " +
+                            $"shield={input.Current.ShieldHeld}/{shield.IsActive} axis={input.Current.MoveAxis:R} sign={mixedJetSign:R} " +
+                            $"accepted={mixedJetDashBaseline}->{mixedClawMotor.AcceptedDashCount} rejected={mixedClawMotor.RejectedDashCount} " +
+                            $"committed_sample={mixedClawMotor.ThrusterState.LastCommittedSample} " +
+                            $"burn_direction={mixedClawMotor.ThrusterState.BurnDirection} burn_remaining={mixedClawMotor.ThrusterState.BurnRemaining:R}");
+                        mixedJetSamples++;
+                        mixedJetStage = 2;
+                        SendAction(InputActions.Dash, false);
+                        MixedResourceSnapshot("owned_burst_jet_accepted_sample", $"count={mixedClawMotor.AcceptedDashCount}");
+                    }
+                    if (mixedJetStage >= 2)
+                        TestAssert.True(mixedClawMotor.AcceptedDashCount == mixedJetDashBaseline + 1 && mixedJetSamples == 1,
+                            "mixed jet cannot duplicate or replay Shift");
+                    if (mixedJetStage == 2)
+                    {
+                        var pulse = mixedClawMotor.ThrusterState;
+                        var next = ThrusterDynamics.Step(new(new Vector2(player.Velocity.X, 0f), mixedJetSign,
+                            true, pulse.BurnDirection, pulse.BurnRemaining, ApplyGravity: false),
+                            module, mixedClawMotor.MotionSettings, jetDelta);
+                        var reverse = FreeMotionForecast.Reverse(next.Velocity.X, true,
+                            mixedClawMotor.MotionSettings, module, jetDelta, 900 - frame, .5f);
+                        float stoppedX = player.GlobalPosition.X + next.Velocity.X * (float)jetDelta +
+                            mixedJetSign * reverse.ForwardDistance;
+                        if (!mixedClawMotor.IsDashing ||
+                            !(reverse.BrakeReachedZero || reverse.SpeedThresholdReached) ||
+                            mixedJetSign * (stoppedX - mixedJetStopX) > 0f)
+                        {
+                            mixedJetStage = 3;
+                            SendAction(mixedJetSign > 0f ? InputActions.MoveRight : InputActions.MoveLeft, false);
+                            SendAction(mixedJetSign > 0f ? InputActions.MoveLeft : InputActions.MoveRight, true);
+                            MixedResourceSnapshot("owned_burst_jet_reverse_command", $"next_stop_x={stoppedX:R} limit={mixedJetStopX:R}");
+                        }
+                    }
+                    if (mixedJetStage == 3 && mixedJetSign * player.Velocity.X <= .5f)
+                    {
+                        mixedJetStage = 4;
+                        SendAction(InputActions.MoveLeft, false);
+                        SendAction(InputActions.MoveRight, false);
+                    }
+                    if (mixedJetStage == 4 && input.Current.MoveAxis == 0f &&
+                        Mathf.Abs(player.Velocity.X) <= .5f && !mixedClawMotor.IsDashing &&
+                        !Input.IsPhysicalKeyPressed(Key.Shift) && !Input.IsPhysicalKeyPressed(Key.A) &&
+                        !Input.IsPhysicalKeyPressed(Key.D))
+                    {
+                        mixedJetStage = 5;
+                        mixedJetCompleted = true;
+                        MixedResourceSnapshot("owned_burst_jet_brake_neutral_OK", $"floor={floorId} " +
+                            $"samples={mixedJetSamples} accepted_dash_delta={mixedClawMotor.AcceptedDashCount-mixedJetDashBaseline}");
+                    }
+                    else
+                    {
+                        // Every threat was still observed above. This finite
+                        // physical dodge replaces L, not the danger or J gates.
+                        await PhysicsFrames(tree, monitor, 1);
+                        continue;
+                    }
+                }
+            }
+            if (mixedPostShotSchedule && mixedFirstEdgeEnd >= 0)
+            {
+                TestAssert.True(mixedLaterFaults == 0,
+                    $"MIXED_LATER_K_OBSERVER_RED: {mixedLaterFault}");
+                if (mixedLaterPending)
+                {
+                    // Real generic casts can return before Idle. Keep the same
+                    // outer budget and all-owner danger scan until actual handoff.
+                    if (mixedLaterPress != 0)
+                    {
+                        if (mixedPostHopKStage == 2)
+                        { SendAction(InputActions.Claw, false); SendAction(InputActions.MoveUp, false); }
+                        else SendMouse(MouseButton.Left, false, player, mixedLaterTarget.WorldAnchor);
+                    }
+                    bool urgent = encounterDanger.Threat &&
+                        (encounterDanger.Phase == AttackPhase.Active || encounterDanger.Phase == AttackPhase.Telegraph &&
+                         encounterDanger.RemainingSeconds <= 8f / Engine.PhysicsTicksPerSecond);
+                    if (urgent)
+                    {
+                        mixedLaterAborted |= !mixedLaterEffect;
+                        if (mixedPostHopKStage == 2) SendAction(InputActions.Claw, false);
+                        else SendMouse(MouseButton.Left, false, player, mixedLaterTarget.WorldAnchor);
+                        SendMouse(MouseButton.Right, shield.CanBeginGuard, player, encounterDanger.GuardSource);
+                    }
+                    TestAssert.True(playerHealth.CurrentHealth == mixedLaterHp && monitor.Player == player &&
+                        monitor.RecoveryRequested == mixedLaterRequests && monitor.RecoveryCompleted == mixedLaterCompleted &&
+                        (!mixedLaterForeign || TryTask10FullFloorSupport(player, out _)),
+                        "MIXED_LATER_K_LIFETIME_RED: no death, recovery, extra movement or foreign support loss during handoff");
+                    await PhysicsFrames(tree, monitor, 1);
+                    continue;
+                }
+                TestAssert.True(Task10MixedLaterClawLedgerAccepted(mixedFirstEdgeEnd,
+                    KeyboardRouteInputDriver.Current.ClawEdges, mixedClawCastId, mixedFirstHandoff,
+                    player.GetInstanceId(), actorRoot.GetInstanceId(), mixedLaterReceipts, false, mixedLaterFaults),
+                    "MIXED_LATER_K_RECEIPT_RED: every later actual K needs its own complete conserved receipt");
+                if (!mixedGuardKAccepted && mixedGuardActorId != 0 &&
+                    mixedLaterReceipts.Any(receipt => receipt.ActorId == mixedGuardActorId))
+                {
+                    mixedGuardKAccepted = true;
+                    mixedFirstRustReceiptIndex = mixedLaterReceipts.FindIndex(receipt => receipt.ActorId == mixedGuardActorId);
+                    mixedFirstRustReceipt = mixedLaterReceipts[mixedFirstRustReceiptIndex];
+                    if (mixedForeignPreludeRequired)
+                        MixedResourceSnapshot("foreign_Rust_before_fatal_receipt_OK",
+                            $"rust_actor={mixedGuardActorId} ledger_count={mixedLaterReceipts.Count} " +
+                            "whole_ledger_validated=true guard_contact_claim=false");
+                }
+                if (mixedPostHopKStage == 2)
+                {
+                    SendAction(InputActions.Claw, false); SendAction(InputActions.MoveUp, false);
+                    TestAssert.True(mixedLaterReceipts.Count == mixedPostHopReceiptStart + 1 &&
+                        mixedLaterReceipts[^1].TargetId == mixedPostHopTarget,
+                        "post-hop direct K has its own conserved normal later-cast receipt");
+                    mixedPostHopAcceptedReceipt = mixedLaterReceipts[mixedPostHopReceiptStart];
+                    TestAssert.True(MixedGuardRetained() && mixedGuardRust.GetNode<HealthComponent>("Health").CurrentHealth == mixedPostHopRustHp &&
+                        mixedPostHopRustHp == 2 && mixedPostHopAcceptedReceipt.ActorId == mixedGuardActorId &&
+                        Task10PostHopReceiptRetained(mixedFirstRustReceiptIndex,mixedFirstRustReceipt,mixedLaterReceipts),
+                        "post-hop Rust K conserves its HP2 and the original first Rust receipt");
+                    mixedPostHopKStage = 3;
+                    MixedResourceSnapshot("posthop_K_returned", $"target={mixedPostHopTarget} ledger={mixedLaterReceipts.Count}");
+                }
+                if (mixedLaterAttackHandoffPending)
+                {
+                    Task10MixedLaterClawAttackIntentHandoff();
+                    mixedLaterAttackHandoffPending = false;
+                    threadCasts++;
+                    MixedResourceSnapshot("later_K_attack_intent_handoff", $"ledger={mixedLaterReceipts.Count} " +
+                        $"raw_edges={KeyboardRouteInputDriver.Current.ClawEdges} state={mixedClaw.CurrentFrame.State} event_input=false");
+                }
+            }
+            if (mixedHopStage == 0 && mixedPostShotSchedule && mixedClawStage == 4 &&
+                mixedFirstEdgeEnd >= 0 && mixedJetCompleted && mixedDefeated && mixedFatalConnected &&
+                !mixedNeutralPending && !mixedLaterPending && mixedClaw.CurrentFrame.State == MechanicalClawState.Idle)
+                BindHopSource();
+            if (mixedHopStage is >= 1 and < 5)
+            {
+                TestAssert.True(mixedHopFaults == 0 && HopRetained(),
+                    $"MIXED_RECOVERY_HOP_RED: passive source/geometry/input observation failed: {mixedHopFault}");
+                bool pairedCurrent = Task10RustGuardReceiptCurrent(mixedGuardReceipt, mixedGuardActorId,
+                    mixedGuardHitboxId, mixedGuardHurtboxId, mixedGuardEpoch, Engine.GetPhysicsFrames(),
+                    playerHealth.CurrentHealth, MixedGuardRetained());
+                bool sampledLeft = input.CurrentFrame.KeyboardActions && !input.CurrentFrame.LegacyShieldHeld &&
+                    input.CurrentFrame.ShieldHeld && shield.IsActive && Input.IsPhysicalKeyPressed(Key.L) &&
+                    shield.GuardDirection.Dot(Vector2.Left) > .99f && input.KeyboardAimDirection.Dot(Vector2.Left) > .99f;
+                bool completedReturn = Task10CompletedRustReturnValid(mixedHopCompletedReturn,
+                    mixedGuardActorId, mixedGuardHitboxId, mixedGuardHurtboxId, Engine.GetPhysicsFrames(),
+                    input.CurrentFrameSequence, playerHealth.CurrentHealth, MixedGuardRetained());
+                bool ready = mixedHopCycle > 0 && mixedHopBurst.CurrentFrame.AttackTimeline.AttackId == mixedHopCycle &&
+                    mixedHopBurst.CurrentFrame.AttackTimeline.HasLockedTarget &&
+                    mixedHopBurst.CurrentFrame.AimDirection.IsEqualApprox(mixedHopAim) &&
+                    MixedGuardFullSupport() && !combat.IsAttacking && !mixedClawMotor.IsDashing &&
+                    mixedClaw.CurrentFrame.State == MechanicalClawState.Idle && !mixedNeutralPending && !mixedLaterPending &&
+                    encounterDanger.CandidateObserverFaults == 0 && !encounterDanger.NearContactUnknownActive &&
+                    !encounterDanger.NearContactOverlappingActive &&
+                    MathF.Abs(player.Velocity.X) <= .5f && MathF.Abs(player.Velocity.Y) <= .5f;
+                var firstHopShot = mixedHopShots.Count == 1 ? mixedHopShots.Keys.First() : null;
+                bool firstLive = GodotObject.IsInstanceValid(firstHopShot) && firstHopShot.IsInsideTree() &&
+                    !firstHopShot.IsRetired && firstHopShot.GetInstanceId() == mixedHopFirstProjectileId &&
+                    firstHopShot.GlobalPosition.DistanceTo(mixedHopCue.Origin) < .01f;
+                var warningCapsule = Task10CurrentGuardCapsule(player);
+                bool cueReady = firstLive && warningCapsule.HasValue && Task10IncomingHopCueAccepted(mixedHopCue,
+                    warningCapsule.Value, mixedHopAim, mixedHopBurst.GetInstanceId(), mixedHopCycle,
+                    mixedHopFirstProjectileId, mixedHopFirstOrdinal, Engine.GetPhysicsFrames(),
+                    input.CurrentFrameSequence, mixedHopShots.Count == 1 && mixedHopAcknowledged == 1);
+                int readyMask = (pairedCurrent ? 1 : 0) | (sampledLeft ? 2 : 0) | (ready ? 4 : 0) |
+                    (mixedHopCycle > 0 ? 8 : 0) | (completedReturn ? 16 : 0) | (cueReady ? 32 : 0);
+                if (readyMask != mixedHopReadyLastMask)
+                {
+                    mixedHopReadyLastMask = readyMask;
+                    MixedResourceSnapshot("Hop_ready_state", $"ready_mask={readyMask} paired_current={pairedCurrent} " +
+                        $"sampled_left={sampledLeft} ready={ready} cycle={mixedHopCycle} " +
+                        $"completed_return={completedReturn} cue_ready={cueReady} cue_physics={mixedHopCue.Physics} " +
+                        $"receipt_sequence={mixedGuardReceipt.Sequence} epoch={mixedGuardEpoch.Epoch} " +
+                        $"consumed={mixedGuardConsumedTransition} returned={mixedGuardReturnedTransition} extra_queries=0");
+                }
+                if (Task10MixedWarningHopTrigger(completedReturn, cueReady, ready, mixedHopIssued))
+                {
+                    mixedHopIssued = true; mixedHopStage = 2;
+                    mixedHopJumps = mixedClawMotor.AcceptedJumpCount; mixedHopDashes = mixedClawMotor.AcceptedDashCount;
+                    mixedHopLanding = mixedClawMotor.LandingCount; mixedHopCasts = mixedClaw.CurrentFrame.NextCastId;
+                    mixedHopCommandSequence = input.CurrentFrameSequence; mixedHopCommandPhysics = Engine.GetPhysicsFrames();
+                    mixedHopLastSequence = input.CurrentFrameSequence;
+                    mixedHopLastEnergy = mixedEnergyState.Energy;
+                    HopRow("Space_command", $"cycle={mixedHopCycle} receipt={mixedGuardReceipt} " +
+                        $"old_jumps={mixedHopJumps} old_landings={mixedHopLanding} " +
+                        $"completed_return={mixedHopCompletedReturn} current_receipt_now={pairedCurrent} " +
+                        $"cue={mixedHopCue} all_dangers_retained=true safety_not_predicted=true");
+                }
+                if (mixedHopStage is >= 2 and < 5)
+                {
+                    foreach (StringName action in new[] { InputActions.MoveLeft, InputActions.MoveRight, InputActions.MoveUp,
+                        InputActions.MoveDown, InputActions.PrimaryAction, InputActions.Claw, InputActions.Dash })
+                        SendAction(action, false);
+                    SendMouse(MouseButton.Right, false, player, encounterDanger.GuardSource);
+                    SendAction(InputActions.Jump, !mixedHopApex);
+                    await PhysicsFrames(tree, monitor, 1); // The original 900-tick outer budget, no nested wait pool.
+                    continue;
+                }
+                if (mixedHopStage == 1 && completedReturn)
+                {
+                    // Approved wait owns this local stage, so generic J/K/jump
+                    // planning cannot mutate the completed prerequisite or spend Space.
+                    foreach (StringName action in new[] { InputActions.MoveLeft, InputActions.MoveRight, InputActions.MoveUp,
+                        InputActions.MoveDown, InputActions.PrimaryAction, InputActions.Claw, InputActions.Jump, InputActions.Dash })
+                        SendAction(action, false);
+                    SendMouse(MouseButton.Right, generalDefendWindow, player, encounterDanger.GuardSource);
+                    await PhysicsFrames(tree, monitor, 1);
+                    continue;
+                }
+            }
+            if (mixedPostShotSchedule && mixedHopStage == 5 && mixedClawStage == 4 &&
+                mixedJetCompleted && !mixedLaterPending && !mixedNeutralPending)
+            {
+                var rustTarget = GodotObject.IsInstanceValid(mixedGuardRust)
+                    ? mixedGuardRust.GetNodeOrNull<ThreadTarget2D>("ThreadTarget") : null;
+                bool retained = MixedGuardRetained() && ReferenceEquals(actor,mixedGuardRust) &&
+                    playerHealth.CurrentHealth == 2 && monitor.RecoveryRequested == 0 && monitor.RecoveryCompleted == 0 &&
+                    mixedGuardRust.GetNode<HealthComponent>("Health").CurrentHealth == 2 &&
+                    GodotObject.IsInstanceValid(rustTarget) && rustTarget.IsInsideTree() && !rustTarget.IsQueuedForDeletion() &&
+                    rustTarget.GetParent() == mixedGuardRust && rustTarget.IsAvailable &&
+                    mixedGuardRust.SceneFilePath == CanyonEncounterCatalog.RustShellScene;
+                bool firstRetained = Task10PostHopReceiptRetained(mixedFirstRustReceiptIndex,mixedFirstRustReceipt,mixedLaterReceipts) &&
+                    mixedFirstRustReceipt.ActorId == mixedGuardActorId && mixedFirstRustReceipt.TargetId == rustTarget?.GetInstanceId();
+                float lead = retained ? player.GlobalPosition.DistanceTo(rustTarget.WorldAnchor) /
+                    MechanicalClawSettings.Default.ShuttleSpeed + 8f / Engine.PhysicsTicksPerSecond : float.NaN;
+                var window = new Task10PostHopRustWindow(mixedDefeated && mixedFatalConnected && mixedGuardKAccepted,
+                    mixedHopStage,!mixedPostHopIssued && mixedPostHopKStage < 2,retained,firstRetained,
+                    !combat.IsAttacking && !mixedClawMotor.IsDashing && mixedClaw.CurrentFrame.State == MechanicalClawState.Idle && modes.CanBeginGrapple,
+                    retained && MixedGuardFullSupport() && MathF.Abs(player.Velocity.X) <= .5f && MathF.Abs(player.Velocity.Y) <= .5f,
+                    mixedGuardActorId,energy.EnergyRatio * energy.Tuning.MaxEnergy,2f * energy.Tuning.AttackCost,energy.IsOverheated,
+                    retained ? mixedGuardRust.CurrentState : RustShellState.Idle,
+                    retained ? mixedGuardRust.CurrentFrame.AttackTimeline : default,encounterDanger,lead);
+                bool ready = Task10PostHopRustRepeatAccepted(window);
+                // Early positioning may only walk before the energy reserve.
+                // The untouched ready predicate below still owns neutral preview/K.
+                bool positioningReady = ready || mixedPostHopEarlyPositioning &&
+                    float.IsFinite(window.Energy) && window.Energy > 0f &&
+                    float.IsFinite(window.Reserve) && window.Reserve > 0f && Task10PostHopRustPositionWindow(window);
+                if (mixedPostHopCrossEnabled && mixedPostHopCrossPlan.Count == 0 && !mixedPostHopAttempted && positioningReady &&
+                    !shield.IsActive && Task10PostHopNeutralInput(input.CurrentFrame,input.RawFrame,Task10PostHopHeldMask()) &&
+                    input.KeyboardAimDirection.IsEqualApprox(Vector2.Left) && player.Velocity == Vector2.Zero &&
+                    Engine.TimeScale == 1d && Engine.PhysicsTicksPerSecond == 60 &&
+                    !mixedClawMotor.HasEnvironmentalLaunchMomentum && !mixedClawMotor.HasGrappleReleaseMomentum &&
+                    mixedClawMotor.EffectiveMovementScale == 1f && 900-frame > 14 &&
+                    TryTask10CapsuleCorridor(player, mixedGuardFloor, out _, out float crossRight, out _, out float crossFloorRight))
+                {
+                    const double dt = 1d / 60d;
+                    float x = player.GlobalPosition.X, vx = 0f;
+                    for (int i = 0; i < 13; i++)
+                    {
+                        float axis = i < 8 ? 1f : i < 11 ? -1f : 0f;
+                        vx = ThrusterDynamics.Step(new(new Vector2(vx, 0f), axis, true,
+                            Vector2.Zero, 0f, ApplyGravity: false), mixedClawMotor.ThrusterState.Module,
+                            mixedClawMotor.MotionSettings, dt).Velocity.X;
+                        x += vx * (float)dt;
+                        mixedPostHopCrossPlan.Add((axis, x, vx));
+                    }
+                    var offset = rustTarget.WorldAnchor - new Vector2(x, player.GlobalPosition.Y);
+                    if (mixedPostHopCrossPlan.Any(step => !float.IsFinite(step.X) || !float.IsFinite(step.Vx) ||
+                            step.Vx < 0f || crossRight + step.X - player.GlobalPosition.X + .1f >= crossFloorRight) ||
+                        vx != 0f || !offset.IsFinite() || offset.X >= 0f ||
+                        MathF.Abs(Vector2.Left.AngleTo(offset)) >= Mathf.Pi / 8f ||
+                        encounterDanger.SafeCounterSeconds <= lead + 14f / 60f ||
+                        encounterDanger.RemainingSeconds <= lead + 14f / 60f)
+                        mixedPostHopCrossPlan.Clear();
+                    else
+                    {
+                        mixedPostHopCrossWarning = window.Timeline.AttackId;
+                        mixedPostHopCrossStartY = player.GlobalPosition.Y;
+                        mixedPostHopCrossStartEnergy = window.Energy;
+                        MixedResourceSnapshot("posthop_cross_begin", $"stop_x={x:R} target_offset={offset} outer_budget=14 " +
+                            $"early={mixedPostHopEarlyPositioning} cast_ready={ready} energy={window.Energy:R} reserve={window.Reserve:R} " +
+                            $"default_positioning={mixedPostHopDefaultCross}");
+                    }
+                }
+                if (mixedPostHopCrossIndex < mixedPostHopCrossPlan.Count)
+                {
+                    int remaining = mixedPostHopCrossPlan.Count - mixedPostHopCrossIndex;
+                    TestAssert.True(retained && firstRetained && MixedGuardFullSupport() && !shield.IsActive &&
+                        !combat.IsAttacking && !mixedClawMotor.IsDashing && !mixedClawMotor.HasEnvironmentalLaunchMomentum &&
+                        !mixedClawMotor.HasGrappleReleaseMomentum && mixedClaw.CurrentFrame.State == MechanicalClawState.Idle &&
+                        mixedClawMotor.EffectiveMovementScale == 1f &&
+                        window.Energy >= (mixedPostHopEarlyPositioning ? mixedPostHopCrossStartEnergy : window.Reserve) && !window.Overheated &&
+                        window.Timeline.AttackId == mixedPostHopCrossWarning && encounterDanger.SourceActorId == mixedGuardActorId &&
+                        encounterDanger.AttackId == mixedPostHopCrossWarning && encounterDanger.Phase == AttackPhase.Telegraph &&
+                        encounterDanger.SafeCounterSeconds > lead + (remaining + 1) / 60f &&
+                        encounterDanger.RemainingSeconds > lead + (remaining + 1) / 60f &&
+                        encounterDanger.MissingGuardSourceCount == 0 && encounterDanger.CandidateObserverFaults == 0 &&
+                        !encounterDanger.NearContactUnknownActive && !encounterDanger.NearContactOverlappingActive,
+                        "POSTHOP_CROSS_RED: moving to the opposite side lost the original support or threat window");
+                    var next = mixedPostHopCrossPlan[mixedPostHopCrossIndex++];
+                    SendAction(InputActions.MoveLeft, next.Axis < 0f);
+                    SendAction(InputActions.MoveRight, next.Axis > 0f);
+                    await PhysicsFrames(tree, monitor, 1);
+                    MixedResourceSnapshot("posthop_cross_step", $"step={mixedPostHopCrossIndex} axis={input.RawFrame.MoveAxis:R} " +
+                        $"expected_x={next.X:R} expected_vx={next.Vx:R} actual_x={player.GlobalPosition.X:R} actual_vx={player.Velocity.X:R}");
+                    TestAssert.True(input.RawFrame.MoveAxis == next.Axis && MixedGuardFullSupport() &&
+                        MathF.Abs(player.GlobalPosition.X - next.X) < .01f && MathF.Abs(player.Velocity.X - next.Vx) < .01f &&
+                        MathF.Abs(player.GlobalPosition.Y - mixedPostHopCrossStartY) < .01f && playerHealth.CurrentHealth == 2,
+                        "POSTHOP_CROSS_RED: real keyboard motion departed from the admitted step");
+                    continue;
+                }
+                if (mixedPostHopRightSettle > 0)
+                {
+                    TestAssert.True(retained && firstRetained && MixedGuardFullSupport() && !shield.IsActive &&
+                        !combat.IsAttacking && !mixedClawMotor.IsDashing && !mixedClawMotor.HasEnvironmentalLaunchMomentum &&
+                        !mixedClawMotor.HasGrappleReleaseMomentum && mixedClaw.CurrentFrame.State == MechanicalClawState.Idle &&
+                        mixedClawMotor.EffectiveMovementScale == 1f && input.KeyboardAimDirection.IsEqualApprox(Vector2.Right) &&
+                        player.GlobalPosition.X >= mixedPostHopRightOrigin.X && player.GlobalPosition.X <= mixedPostHopRightMaximumX &&
+                        MathF.Abs(player.GlobalPosition.Y - mixedPostHopRightOrigin.Y) < .01f &&
+                        window.Timeline.AttackId == mixedPostHopRightWarning && encounterDanger.SourceActorId == mixedGuardActorId &&
+                        encounterDanger.AttackId == mixedPostHopRightWarning && encounterDanger.Phase == AttackPhase.Telegraph &&
+                        encounterDanger.SafeCounterSeconds > lead + (mixedPostHopRightSettle + 1) / 60f &&
+                        encounterDanger.MissingGuardSourceCount == 0 && encounterDanger.CandidateObserverFaults == 0 &&
+                        !encounterDanger.NearContactUnknownActive && !encounterDanger.NearContactOverlappingActive &&
+                        window.Energy >= window.Reserve && !window.Overheated,
+                        "POSTHOP_RIGHT_PROBE_RED: aim step must retain support, true right aim and original threat/energy window");
+                    KeyboardRouteInputDriver.Current.ReleaseAll();
+                    mixedPostHopRightSettle--;
+                    MixedResourceSnapshot("posthop_right_neutral", $"remaining={mixedPostHopRightSettle} aim={input.KeyboardAimDirection} motion={player.Velocity}");
+                    await PhysicsFrames(tree, monitor, 1);
+                    continue;
+                }
+                if (mixedPostHopRightProbe && !mixedPostHopRightStarted && !mixedPostHopAttempted && ready &&
+                    !shield.IsActive && Task10PostHopNeutralInput(input.CurrentFrame,input.RawFrame,Task10PostHopHeldMask()) &&
+                    input.KeyboardAimDirection.IsEqualApprox(Vector2.Left) && Engine.TimeScale == 1d &&
+                    Engine.PhysicsTicksPerSecond == 60 && player.Velocity == Vector2.Zero &&
+                    !mixedClawMotor.HasEnvironmentalLaunchMomentum && !mixedClawMotor.HasGrappleReleaseMomentum &&
+                    mixedClawMotor.EffectiveMovementScale == 1f &&
+                    TryTask10CapsuleCorridor(player, mixedGuardFloor, out _, out float rightEdge, out _, out float floorRight))
+                {
+                    Vector2 offset = rustTarget.WorldAnchor - player.GlobalPosition;
+                    var stop = FreeMotionForecast.HeldThenNeutral(0f, 1f, true, mixedClawMotor.MotionSettings,
+                        mixedClawMotor.ThrusterState.Module, player.GetPhysicsProcessDeltaTime(), 1, 3, 0f);
+                    if (offset.IsFinite() && stop.SpeedThresholdReached && stop.Steps is >= 2 and <= 3 &&
+                        rightEdge + stop.ForwardDistance + .1f < floorRight &&
+                        offset.X > stop.ForwardDistance &&
+                        MathF.Abs(Vector2.Right.AngleTo(offset - Vector2.Right * stop.ForwardDistance)) < Mathf.Pi / 8f &&
+                        encounterDanger.SafeCounterSeconds > lead + (stop.Steps + 1) / 60f &&
+                        encounterDanger.RemainingSeconds > lead + (stop.Steps + 1) / 60f)
+                    {
+                        mixedPostHopRightStarted = true;
+                        mixedPostHopRightSettle = stop.Steps - 1;
+                        mixedPostHopRightWarning = window.Timeline.AttackId;
+                        mixedPostHopRightOrigin = player.GlobalPosition;
+                        mixedPostHopRightMaximumX = player.GlobalPosition.X + stop.ForwardDistance + .01f;
+                        MixedResourceSnapshot("posthop_right_aim", $"offset={offset} displacement={stop.NetDistance:R} steps={stop.Steps} outer_budget=true");
+                        SendAction(InputActions.MoveRight, true);
+                        await PhysicsFrames(tree, monitor, 1);
+                        continue;
+                    }
+                }
+                if (!mixedPostHopAttempted && ready)
+                {
+                    if (mixedPostHopCrossPlan.Count > 0)
+                        TestAssert.True(input.KeyboardAimDirection.IsEqualApprox(Vector2.Left) && player.Velocity == Vector2.Zero &&
+                            window.Timeline.AttackId == mixedPostHopCrossWarning,
+                            "POSTHOP_CROSS_RED: must settle with left aim before the original neutral preview");
+                    if (mixedPostHopRightStarted)
+                        TestAssert.True(input.KeyboardAimDirection.IsEqualApprox(Vector2.Right) && player.Velocity == Vector2.Zero &&
+                            player.GlobalPosition.X <= mixedPostHopRightMaximumX && window.Timeline.AttackId == mixedPostHopRightWarning,
+                            "POSTHOP_RIGHT_PROBE_RED: actual right aim must settle before the original neutral preview");
+                    mixedPostHopAttempted = true; mixedPostHopKStage = 1;
+                    mixedPostHopCommandSequence = input.CurrentFrameSequence;
+                    mixedPostHopRememberedAim = input.KeyboardAimDirection;
+                    mixedPostHopRustWarning = window.Timeline.AttackId;
+                    mixedPostHopTrace = new MechanicalClawKeyboardTrace(128, rustTarget.GetInstanceId());
+                    mixedClaw.NextKeyboardPreviewTrace = mixedPostHopTrace;
+                    KeyboardRouteInputDriver.Current.ReleaseAll();
+                    MixedResourceSnapshot("posthop_Rust_neutral_command", $"one_preparation_tick=true safety_not_predicted=true " +
+                        $"actor={mixedGuardActorId} warning={mixedPostHopRustWarning} aim={mixedPostHopRememberedAim} energy_now={window.Energy:R} lead={lead:R}");
+                    await PhysicsFrames(tree, monitor, 1);
+                    continue;
+                }
+                if (mixedPostHopKStage == 1)
+                {
+                    bool fresh = Task10PostHopNeutralPreviewFresh(mixedPostHopPreview, Engine.GetPhysicsFrames(),
+                        input.CurrentFrameSequence,mixedPostHopCommandSequence,mixedClaw.AuthorityRevision,player.GlobalTransform,mixedPostHopRememberedAim) &&
+                        Task10PostHopNeutralInput(input.CurrentFrame,input.RawFrame,Task10PostHopHeldMask()) && !shield.IsActive;
+                    var postTarget = mixedPostHopSelection.Surface as ThreadTarget2D;
+                    var owner = GodotObject.IsInstanceValid(postTarget) ? postTarget.GetParent() as RustShellSquire : null;
+                    bool selected = ready && fresh && GodotObject.IsInstanceValid(postTarget) && postTarget.IsInsideTree() &&
+                        !postTarget.IsQueuedForDeletion() && postTarget.IsAvailable && GodotObject.IsInstanceValid(owner) &&
+                        ReferenceEquals(owner,mixedGuardRust) && ReferenceEquals(postTarget,rustTarget) &&
+                        window.Timeline.AttackId == mixedPostHopRustWarning &&
+                        owner.IsInsideTree() && !owner.IsQueuedForDeletion() && owner.GetParent() == actorRoot && group.OwnsLiveActor(owner) &&
+                        owner.GetWorld2D() == player.GetWorld2D() && !LaterEffect(owner) &&
+                        owner.GetNode<HealthComponent>("Health").CurrentHealth == 2 &&
+                        mixedPostHopSelection.Snapshot.RuntimeId == postTarget.GetInstanceId() &&
+                        mixedPostHopSelection.Snapshot.Exists && mixedPostHopSelection.Snapshot.HasLineOfSight &&
+                        mixedPostHopSelection.Snapshot.IsLegacyInteraction;
+                    MixedResourceSnapshot("posthop_Rust_decision", $"ready={ready} fresh={fresh} selected_rust={selected} " +
+                        $"preview={mixedPostHopPreview} selected={mixedPostHopSelection.Snapshot.RuntimeId} " +
+                        $"owner_state={(GodotObject.IsInstanceValid(owner) ? owner.CurrentState.ToString() : "none")} extra_resolver=false");
+                    if (selected)
+                    {
+                        mixedPostHopTarget = postTarget.GetInstanceId(); mixedPostHopReceiptStart = mixedLaterReceipts.Count;
+                        mixedPostHopRustHp = owner.GetNode<HealthComponent>("Health").CurrentHealth;
+                        BeginLaterClaw(owner, postTarget, foreign: true);
+                        mixedPostHopIssued = true; mixedPostHopKStage = 2;
+                        SendAction(InputActions.Claw, true); // Direct K preserves actual remembered aim; no resolver re-run.
+                        await PhysicsFrames(tree, monitor, 1);
+                        continue;
+                    }
+                    mixedPostHopKStage = 3; // One attempt only, no repeated aim/wait pool.
+                    SendAction(InputActions.MoveUp, false);
+                }
+            }
+            // One finite original-floor retreat after the actual second Rust K.
+            // This boundary is after attack-intent handoff, but before the old
+            // generic A/D command can start an unbounded retreat on this tick.
+            if (mixedPostHopIssued && mixedPostHopKStage==3 && mixedHopStage==5 &&
+                !mixedLaterPending && !mixedLaterAttackHandoffPending && ReferenceEquals(actor,mixedGuardRust))
+            {
+                var driver=KeyboardRouteInputDriver.Current;
+                bool receipts=Task10PostHopReceiptRetained(mixedFirstRustReceiptIndex,mixedFirstRustReceipt,mixedLaterReceipts) &&
+                    Task10PostHopReceiptRetained(mixedPostHopReceiptStart,mixedPostHopAcceptedReceipt,mixedLaterReceipts);
+                bool supported=MixedGuardFullSupport();
+                bool retained=MixedGuardRetained() && receipts && supported &&
+                    mixedGuardRust.GetNode<HealthComponent>("Health").CurrentHealth==2 &&
+                    mixedClaw.CurrentFrame.State==MechanicalClawState.Idle && !combat.IsAttacking &&
+                    !mixedClawMotor.IsDashing && !mixedClawMotor.HasEnvironmentalLaunchMomentum &&
+                    !mixedClawMotor.HasGrappleReleaseMomentum && mixedClawMotor.EffectiveMovementScale==1f;
+                bool threat=generalDefendWindow || encounterDanger.CandidateObserverFaults!=0 ||
+                    encounterDanger.MissingGuardSourceCount!=0 || encounterDanger.NearContactUnknownActive ||
+                    encounterDanger.NearContactOverlappingActive;
+                bool geometryAvailable=TryTask10PostHopGeometry(player,mixedGuardFloor,out var currentGeometry);
+                if (mixedBrakeStage==0)
+                {
+                    bool corridor=TryTask10CapsuleCorridor(player,mixedGuardFloor,out float bodyLeft,
+                        out float bodyRight,out float floorLeft,out float floorRight);
+                    bool ready=retained && !threat && corridor && geometryAvailable && driver!=null &&
+                        !shield.IsActive && !input.Current.ShieldHeld && input.Current.MoveAxis==0 &&
+                        !input.RawFrame.JumpHeld && !input.RawFrame.DashPressed &&
+                        TryTask10PostHopSupportedPlan(player.GlobalPosition.X,player.Velocity.X,actor.GlobalPosition.X,
+                            floorLeft+player.GlobalPosition.X-bodyLeft,floorRight-bodyRight+player.GlobalPosition.X,
+                            mixedClawMotor.EffectiveMovementScale,player.GetPhysicsProcessDeltaTime(),900-frame,
+                            encounterDanger.SafeCounterSeconds,mixedClawMotor.MotionSettings,
+                            mixedClawMotor.ThrusterState.Module,mixedGuardRust.CurrentState==RustShellState.Stunned,out mixedBrakePlan);
+                    mixedBrakeStage=ready ? 1 : 5; // One attempt, never reacquire after rejection.
+                    if (ready)
+                    {
+                        mixedBrakeSequence=input.CurrentFrameSequence;
+                        mixedBrakeDeadline=frame+mixedBrakePlan.ForceSamples+mixedBrakePlan.StopSamples+8;
+                        mixedBrakeJumps=mixedClawMotor.AcceptedJumpCount;
+                        mixedBrakeDashes=mixedClawMotor.AcceptedDashCount;
+                        mixedBrakeRejected=mixedClawMotor.RejectedDashCount;
+                        mixedBrakeAttacks=driver.AttackEdges; mixedBrakeClaws=driver.ClawEdges;
+                        mixedBrakeNextCast=mixedClaw.CurrentFrame.NextCastId;
+                        mixedBrakeFloor=mixedGuardFloor.GetInstanceId();
+                        mixedBrakeShape=mixedGuardFloor.Shape.GetInstanceId();
+                        mixedBrakeFloorTransform=mixedGuardFloor.GlobalTransform;
+                        mixedBrakeMotion=mixedClawMotor.MotionSettings;
+                        mixedBrakeModule=mixedClawMotor.ThrusterState.Module;
+                        mixedBrakeGeometry=currentGeometry;
+                        driver.ReleaseAll();
+                    }
+                    MixedResourceSnapshot(ready ? "posthop_brake_acquired" : "posthop_brake_rejected",
+                        $"retained={retained} threat={threat} support={supported} plan={mixedBrakePlan} " +
+                        $"safe={encounterDanger.SafeCounterSeconds:R} scale={mixedClawMotor.EffectiveMovementScale:R} " +
+                        $"corridor={corridor} x={player.GlobalPosition.X:R} actorX={actor.GlobalPosition.X:R} " +
+                        $"center_min={floorLeft+player.GlobalPosition.X-bodyLeft:R} center_max={floorRight-bodyRight+player.GlobalPosition.X:R} " +
+                        $"dt={player.GetPhysicsProcessDeltaTime():R} motion={mixedClawMotor.MotionSettings} module={mixedClawMotor.ThrusterState.Module} " +
+                        $"rawJump={input.RawFrame.JumpHeld} rawDash={input.RawFrame.DashPressed} currentAxis={input.Current.MoveAxis:R}");
+                }
+                bool geometryRetained=geometryAvailable && Task10PostHopGeometryRetained(mixedBrakeGeometry,currentGeometry);
+                if (mixedBrakeStage is >=1 and <=3)
+                {
+                    TestAssert.True(supported,"MIXED_SUPPORTED_BRAKE_SUPPORT_RED: cannot hand off on a different/lost original floor");
+                    bool conserved=retained && geometryRetained && frame<=mixedBrakeDeadline &&
+                        mixedGuardFloor.GetInstanceId()==mixedBrakeFloor && mixedGuardFloor.Shape.GetInstanceId()==mixedBrakeShape &&
+                        mixedGuardFloor.GlobalTransform==mixedBrakeFloorTransform && mixedClawMotor.MotionSettings==mixedBrakeMotion &&
+                        mixedClawMotor.ThrusterState.Module==mixedBrakeModule &&
+                        mixedClawMotor.AcceptedJumpCount==mixedBrakeJumps && mixedClawMotor.AcceptedDashCount==mixedBrakeDashes &&
+                        mixedClawMotor.RejectedDashCount==mixedBrakeRejected && driver.AttackEdges==mixedBrakeAttacks &&
+                        driver.ClawEdges==mixedBrakeClaws && mixedClaw.CurrentFrame.NextCastId==mixedBrakeNextCast;
+                    if (mixedBrakeStage==1 && input.CurrentFrameSequence>mixedBrakeSequence &&
+                        input.Current.MoveAxis==mixedBrakePlan.Axis)
+                    { mixedBrakeForceSamples++; mixedBrakeSequence=input.CurrentFrameSequence; }
+                    bool neutral=Task10PostHopNeutralInput(input.Current,input.RawFrame,Task10PostHopHeldMask()) &&
+                        input.CurrentFrameSequence>mixedBrakeSequence && MathF.Abs(player.Velocity.X)<=.5f &&
+                        MathF.Abs(player.Velocity.Y)<=.5f;
+                    int prior=mixedBrakeStage;
+                    mixedBrakeStage=Task10PostHopBrakeNext(mixedBrakeStage,conserved,threat,
+                        mixedBrakeForceSamples>=mixedBrakePlan.ForceSamples,
+                        mixedBrakePlan.Axis*player.Velocity.X<=.5f,neutral);
+                    float axis=mixedBrakeStage==1 ? mixedBrakePlan.Axis : mixedBrakeStage==2 ? -mixedBrakePlan.Axis : 0f;
+                    if (prior!=mixedBrakeStage || mixedBrakeStage is 1 or 2)
+                        MixedResourceSnapshot("posthop_brake_step",$"stage={prior}->{mixedBrakeStage} force={mixedBrakeForceSamples}/"+
+                            $"{mixedBrakePlan.ForceSamples} axis={axis:R} full_support={supported} conserved={conserved} threat={threat}");
+                    SendAction(InputActions.MoveLeft,axis<0); SendAction(InputActions.MoveRight,axis>0);
+                    if (mixedBrakeStage is >=1 and <=3)
+                    {
+                        await PhysicsFrames(tree,monitor,1); // The original outer tick only.
+                        continue;
+                    }
+                    moveLeft=moveRight=false;
+                    if (mixedBrakeStage==4)
+                    {
+                        mixedBrakeStartedBase=attacksStarted;
+                        mixedBrakeConnectedBase=attacksConnected;
+                        MixedResourceSnapshot("posthop_brake_neutral_OK",$"floor={mixedBrakeFloor} shape={mixedBrakeShape} " +
+                            $"force_samples={mixedBrakeForceSamples} actorX={actor.GlobalPosition.X:R} extra_actions=0 " +
+                            $"started_base={mixedBrakeStartedBase} connected_base={mixedBrakeConnectedBase} " +
+                            "original_budget=true handoff=next_original_tick");
+                        // Strike geometry was computed before neutral completed
+                        // this loop. Use a fresh original decision, not stale dx.
+                        await PhysicsFrames(tree,monitor,1);
+                        continue;
+                    }
+                    // Stage5 releases movement ownership; original guard below
+                    // still sees all sources and may command its real aim keys.
+                }
+                // The one brake lease cannot restart. Its neutral hold ends only
+                // after a newer accepted J really connects to this same Rust.
+                if (Task10PostHopHoldNeutral(true,mixedBrakeStage,supported,mixedBrakeReleasedByJ,signedGap))
+                    moveLeft=moveRight=false;
+                if (mixedBrakeStage==4 && mixedBrakeReleasedByJ && (moveLeft || moveRight))
+                {
+                    float axis=moveLeft ? -1f : 1f;
+                    bool originalFloor=MixedGuardRetained() && receipts && supported && geometryRetained && driver!=null &&
+                        mixedGuardFloor.GetInstanceId()==mixedBrakeFloor && mixedGuardFloor.Shape.GetInstanceId()==mixedBrakeShape &&
+                        mixedGuardFloor.GlobalTransform==mixedBrakeFloorTransform && mixedClawMotor.MotionSettings==mixedBrakeMotion &&
+                        mixedClawMotor.ThrusterState.Module==mixedBrakeModule && mixedClawMotor.EffectiveMovementScale==1f &&
+                        !mixedClawMotor.IsDashing && !mixedClawMotor.HasEnvironmentalLaunchMomentum &&
+                        !mixedClawMotor.HasGrappleReleaseMomentum && mixedClaw.CurrentFrame.State==MechanicalClawState.Idle &&
+                        MathF.Abs(player.Velocity.Y)<=.5f &&
+                        mixedClawMotor.AcceptedJumpCount==mixedBrakeJumps && mixedClawMotor.AcceptedDashCount==mixedBrakeDashes &&
+                        mixedClawMotor.RejectedDashCount==mixedBrakeRejected && driver.ClawEdges==mixedBrakeClaws &&
+                        mixedClaw.CurrentFrame.NextCastId==mixedBrakeNextCast;
+                    bool corridor=TryTask10CapsuleCorridor(player,mixedGuardFloor,out float bodyLeft,
+                        out float bodyRight,out float floorLeft,out float floorRight);
+                    bool admitted=originalFloor && corridor && Task10PostHopBackoffSupported(player.Velocity.X,axis,
+                        mixedClawMotor.EffectiveMovementScale,mixedClawMotor.MotionSettings,mixedClawMotor.ThrusterState.Module,
+                        player.GetPhysicsProcessDeltaTime(),900-frame,bodyLeft,bodyRight,floorLeft,floorRight);
+                    mixedBrakeBackoffAttempts++;
+                    if (!admitted) { moveLeft=moveRight=false; mixedBrakeBackoffDenied++; }
+                    if (mixedBrakeBackoffAttempts<=4 || (!admitted && mixedBrakeBackoffDenied<=4))
+                        MixedResourceSnapshot("posthop_original_floor_backoff",$"attempt={mixedBrakeBackoffAttempts} " +
+                            $"admitted={admitted} denied={mixedBrakeBackoffDenied} requested_axis={axis:R} " +
+                            $"original_floor={originalFloor} geometry_retained={geometryRetained} corridor={corridor} body={bodyLeft:R},{bodyRight:R} " +
+                            $"floor={floorLeft:R},{floorRight:R} held_samples=2 full_stop=true remaining={900-frame} " +
+                            "command_not_sample=true defense_owner_unchanged=true");
+                }
+            }
+            if (counterweightSuppressionKeyboard && Task10OrdinaryBackoffSupportRequired(cooldownRetreat,verticalStrike,signedGap) &&
+                ReferenceEquals(actor,mixedGuardRust) &&
+                (moveLeft || moveRight))
+            {
+                // The old optional retreat checked only current arena X. Real
+                // neutral still coasts: reserve both original held samples and
+                // its full stop on the original platform before issuing A/D.
+                // L owns its actual aim keys separately; never certify diagonal
+                // guard motion as this unshielded two-sample release sequence.
+                float axis=moveLeft ? -1f : 1f;
+                bool free=MixedGuardRetained() && MixedGuardFullSupport() && KeyboardRouteInputDriver.Current!=null &&
+                    !generalDefendWindow && !input.Current.ShieldHeld && !shield.IsActive &&
+                    (!combat.IsAttacking || lastAttackDirection==(int)AttackDirection.Horizontal) &&
+                    !mixedClawMotor.IsDashing && !mixedClawMotor.HasEnvironmentalLaunchMomentum &&
+                    !mixedClawMotor.HasGrappleReleaseMomentum && mixedClaw.CurrentFrame.State==MechanicalClawState.Idle &&
+                    MathF.Abs(player.Velocity.Y)<=.5f;
+                bool corridor=TryTask10CapsuleCorridor(player,mixedGuardFloor,out float bodyLeft,
+                    out float bodyRight,out float floorLeft,out float floorRight);
+                bool admitted=free && corridor && Task10PostHopBackoffSupported(player.Velocity.X,axis,
+                    mixedClawMotor.EffectiveMovementScale,mixedClawMotor.MotionSettings,mixedClawMotor.ThrusterState.Module,
+                    player.GetPhysicsProcessDeltaTime(),900-frame,bodyLeft,bodyRight,floorLeft,floorRight);
+                mixedCooldownSupportAttempts++;
+                if(!admitted){moveLeft=moveRight=false;mixedCooldownSupportDenied++;}
+                if(mixedCooldownSupportAttempts<=4 || !admitted && mixedCooldownSupportDenied<=4)
+                    MixedResourceSnapshot("ordinary_backoff_full_stop",$"attempt={mixedCooldownSupportAttempts} " +
+                        $"admitted={admitted} denied={mixedCooldownSupportDenied} requested_axis={axis:R} free={free} " +
+                        $"corridor={corridor} body={bodyLeft:R},{bodyRight:R} floor={floorLeft:R},{floorRight:R} " +
+                        $"held_samples=2 full_stop=true remaining={900-frame} attacking={combat.IsAttacking} " +
+                        $"attack_direction={lastAttackDirection} cooldown={cooldownRetreat} actual_guard_motion_not_certified=true");
+            }
+            // WASD also aims L. During this one observed defensive lease,
+            // release movement intent so each sampled turn is only a real
+            // direction pulse followed by the driver's normal neutral hold.
+            if (mixedRustPolicy.HasValue && mixedGuardRequestedAttack == mixedGuardEpoch.AttackId &&
+                mixedGuardEpoch.Phase is AttackPhase.Telegraph or AttackPhase.Active && generalDefendWindow)
+                moveLeft = moveRight = false;
             SendAction(InputActions.MoveLeft, moveLeft);
             SendAction(InputActions.MoveRight, moveRight);
+            Task10KeyboardClawPlanSnapshot mothPlan = default;
             bool safeMothCast = actor is GraveLampMoth castMoth && dy < -74f &&
                 ((splitMothPolicy || frozenMothPolicy) ? SplitMothCastWindow(castMoth) : frame % 60 == 0) &&
-                Task10KeyboardClawPlanSelects(player, actor.GetNode<ThreadTarget2D>("ThreadTarget"));
+                Task10KeyboardClawPlanSelects(player, actor.GetNode<ThreadTarget2D>("ThreadTarget"), out mothPlan);
+            if (frozenLowerKeyboard)
+            {
+                // Observe the original decision, including K/continue branches.
+                // This is not a new admission gate or a per-physics danger rescan.
+                try
+                {
+                    frozenCounterActor = actor.GetInstanceId();
+                    frozenCounterPhysics = Engine.GetPhysicsFrames();
+                    frozenCounterSequence = input.CurrentFrameSequence;
+                    frozenCounterDanger = encounterDanger;
+                    frozenCounterMask = (verticalStrike ? 1 : 0) | (horizontalStrike ? 2 : 0) |
+                        (!enemyThreat ? 4 : 0) | (frame >= nextAttackFrame ? 8 : 0) |
+                        (!combat.IsAttacking ? 16 : 0) | (modes.CanAffordAttack ? 32 : 0) |
+                        (!frozenRustPolicy || frozenRustReady ? 64 : 0) | (safeMothCast ? 128 : 0) |
+                        (modes.CanBeginAttack ? 256 : 0) | (input.Current.ShieldHeld ? 512 : 0) |
+                        (generalDefendWindow ? 1024 : 0);
+                    string decision = $"{frozenCounterActor}/{frozenCounterMask}/{encounterDanger.SourceActorId}/" +
+                        $"{encounterDanger.AttackId}/{encounterDanger.Phase}";
+                    if (decision != frozenCounterLastDecision)
+                    {
+                        frozenCounterLastDecision = decision;
+                        FrozenCounterRecord($"TASK10_FROZEN_COUNTER_DECISION physics={frozenCounterPhysics} " +
+                            $"sample={frozenCounterSequence} loop={frame}/900 selected={frozenCounterActor} " +
+                            $"mask={frozenCounterMask} vertical={verticalStrike} horizontal={horizontalStrike} " +
+                            $"enemy_threat={enemyThreat} cooldown_ready={frame>=nextAttackFrame} next_attack={nextAttackFrame} " +
+                            $"attacking={combat.IsAttacking} afford={modes.CanAffordAttack} rust_ready={!frozenRustPolicy||frozenRustReady} " +
+                            $"can_begin={modes.CanBeginAttack} shield={input.Current.ShieldHeld}/{shield.IsActive} " +
+                            $"safe_moth_K={safeMothCast} general_defend={generalDefendWindow} " +
+                            $"dx={dx:R} dy={dy:R} energy={energy.EnergyRatio:R} heat={energy.HeatRatio:R} " +
+                            $"danger_actor={encounterDanger.SourceActorId} danger_attack={encounterDanger.AttackId} " +
+                            $"danger_phase={encounterDanger.Phase} remaining={encounterDanger.RemainingSeconds:R} " +
+                            $"safe_counter_seconds={encounterDanger.SafeCounterSeconds:R} guard_source={encounterDanger.GuardSource} " +
+                            $"started={attacksStarted} connected={attacksConnected} thread_casts={threadCasts} observer_only=true");
+                    }
+                }
+                catch (Exception) { frozenCounterFaults++; }
+            }
+            bool counterweightClimbJumpPlanned=false;
             if (sentryGuardRequired || skitterPolicy || frozenRustPolicy || gearBellPolicy || courtyardBellPolicy || splitMothPolicy ||
                 frozenMothPolicy && (safeMothCast || generalDefendWindow))
             {
@@ -12706,17 +20108,93 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 SendAction(InputActions.PrimaryAction, false);
                 SendAction(InputActions.MoveUp, false);
             }
-            else if (!strikeRange && dy < -42f && player.IsOnFloor() && frame % 45 == 0)
-                SendAction(InputActions.Jump, true);
-            else if (!player.IsOnFloor() || frame % 45 == 7)
-                SendAction(InputActions.Jump, false);
-            MoveMouse(player, skitterGuardRequired ? skitterGuardSource : target);
-
-            if (!courtyardBellPolicy && !splitBellPolicy && actor is BellBackLaborer laborer &&
-                laborer.CurrentState != BellBackLaborerState.Exposed && frame % 75 == 0 &&
-                (!gearBellPolicy || gearBellReady) &&
-                Task10KeyboardClawPlanSelects(player, actor.GetNode<ThreadTarget2D>("ThreadTarget")))
+            else
             {
+                bool stepContact = counterweightSuppressionKeyboard && !counterweightStepJumpIssued &&
+                    frame % 45 == 0 && !strikeRange && !combat.IsAttacking && !generalDefendWindow &&
+                    !shield.IsActive && !input.Current.ShieldHeld && !input.RawFrame.JumpHeld &&
+                    mixedClaw.CurrentFrame.State == MechanicalClawState.Idle &&
+                    !player.GetNode<PlayerMotor>("Motor").IsDashing &&
+                    Task10CounterweightStepContact(player, stepSource, stepLanding, actor.GlobalPosition);
+                if (Task10EncounterJumpRequested(strikeRange, dy, player.IsOnFloor(), stepContact, frame,
+                    allowStep: stepContact, Math.Max(counterweightStepJumpFrame,counterweightWallJumpFrame)))
+                {
+                    counterweightClimbJumpPlanned=true;
+                    if(counterweightSuppressionKeyboard && counterweightWallJumpFrame<0 &&
+                        actor is RustShellSquire && dy < -42 && player.IsOnFloor() && player.IsOnWall() &&
+                        GodotObject.IsInstanceValid(stepLanding))
+                    {
+                        var bodyShape=player.GetNode<CollisionShape2D>("BodyCollider");
+                        var landingShape=stepLanding.GetNode<CollisionShape2D>("Collision");
+                        Rect2 bodyBounds=bodyShape.GlobalTransform*bodyShape.Shape.GetRect();
+                        Rect2 landingBounds=landingShape.GlobalTransform*landingShape.Shape.GetRect();
+                        float rise=bodyBounds.End.Y-landingBounds.Position.Y;
+                        float sideGap=bodyBounds.Position.X-landingBounds.End.X;
+                        bool actualSide=false;
+                        for(int index=0;index<player.GetSlideCollisionCount();index++)
+                        {
+                            using KinematicCollision2D contact=player.GetSlideCollision(index);
+                            if(contact.GetCollider()==stepLanding && contact.GetNormal().X>.9f)actualSide=true;
+                        }
+                        if(actualSide && rise>42 && rise<=72 && sideGap>=-.1f && sideGap<=2)
+                        {
+                            counterweightWallJumpFrame=frame;
+                            counterweightWallAcceptedBefore=player.GetNode<PlayerMotor>("Motor").AcceptedJumpCount;
+                            GD.Print($"TASK10_COUNTERWEIGHT_WALL_JUMP physics={Engine.GetPhysicsFrames()} loop={frame}/900 " +
+                                $"rise={rise:R} side_gap={sideGap:R} landing={stepLanding.GetInstanceId()} " +
+                                $"accepted_before={counterweightWallAcceptedBefore} same_space_hold=7 " +
+                                "native_side_contact=true native_floor=true ordinary_jump=true extra_frames=0");
+                        }
+                    }
+                    SendAction(InputActions.Jump, true);
+                    if (stepContact)
+                    {
+                        counterweightStepJumpIssued = true;
+                        counterweightStepJumpFrame = frame;
+                        GD.Print($"TASK10_COUNTERWEIGHT_STEP_JUMP physics={Engine.GetPhysicsFrames()} loop={frame}/900 " +
+                            $"player={player.GlobalPosition} target={actor.GlobalPosition} source={stepSource.GetInstanceId()} " +
+                            $"landing={stepLanding.GetInstanceId()} accepted_before={player.GetNode<PlayerMotor>("Motor").AcceptedJumpCount} " +
+                            "native_contact=true ordinary_space=true hold_ticks=7 original45_cadence=true extra_frames=0");
+                    }
+                }
+                else if (!player.IsOnFloor() || frame % 45 == 7)
+                    SendAction(InputActions.Jump, false);
+            }
+            ObserveCounterweightClimb(actor,counterweightClimbJumpPlanned);
+            MoveMouse(player, gearPostLureVerticalGuard ? gearPostLureGuardPoint :
+                skitterGuardRequired ? skitterGuardSource : target);
+
+            Task10KeyboardClawPlanSnapshot bellCastPlan = default;
+            bool bellReadyCadence = gearLureBell != null && gearLureStage == 4 ||
+                steamSentryDiagnostic && gearBellPolicy;
+            bool bellCastCadence = bellReadyCadence
+                ? gearBellReady : frame % 75 == 0;
+            bool safeBellCast = !courtyardBellPolicy && !splitBellPolicy && actor is BellBackLaborer bellCastCandidate &&
+                bellCastCandidate.CurrentState != BellBackLaborerState.Exposed && bellCastCadence &&
+                (!gearBellPolicy || gearBellReady) &&
+                Task10KeyboardClawPlanSelects(player, actor.GetNode<ThreadTarget2D>("ThreadTarget"), out bellCastPlan);
+            if (steamSentryDiagnostic && gearBellPolicy && steamKOpportunityRows < 16 &&
+                (safeBellCast || frame % 75 == 0))
+            {
+                steamKOpportunityRows++;
+                GD.Print($"TASK10_STEAM_K_OPPORTUNITY row={steamKOpportunityRows}/16 loop={frame}/900 " +
+                    $"physics={Engine.GetPhysicsFrames()} sample={input.CurrentFrameSequence} " +
+                    $"bell={actor.GetInstanceId()} ready={gearBellReady} accepted={safeBellCast} " +
+                    $"plan_captured={bellCastPlan.Captured} selected={bellCastPlan.SelectedId} target={bellCastPlan.TargetId} " +
+                    $"los={bellCastPlan.SelectedLos} energy={energy.EnergyRatio:R} hp={playerHealth.CurrentHealth} " +
+                    "cadence=actual_ready snapshot_from_same_plan_query=true original_admission=true");
+            }
+            if (gearLureBell != null && gearLureStage == 4 && (frame % 75 == 0 || safeBellCast))
+                GD.Print($"TASK10_GEAR_ORIGINAL_K_GATE loop={frame}/900 sample={input.CurrentFrameSequence} " +
+                    $"player={player.GlobalPosition} velocity={player.Velocity} bell={actor.GetInstanceId()}/{target} " +
+                    $"bell_state={((BellBackLaborer)actor).CurrentState} ready={gearBellReady} threat={enemyThreat} " +
+                    $"plan_captured={bellCastPlan.Captured} selected={bellCastPlan.SelectedId} target={bellCastPlan.TargetId} " +
+                    $"planned={bellCastPlan.Direction} selected_anchor={bellCastPlan.SelectedAnchor} los={bellCastPlan.SelectedLos} " +
+                    $"accepted={safeBellCast} hp={playerHealth.CurrentHealth} energy={energy.EnergyRatio:R} " +
+                    "original_admission=true cadence=actual_ready_window snapshot_from_same_plan_query=true");
+            if (safeBellCast)
+            {
+                var laborer = (BellBackLaborer)actor;
                 SendMouse(MouseButton.Right, false, player, target);
                 ThreadTarget2D threadTarget = actor.GetNode<ThreadTarget2D>("ThreadTarget");
                 LegacyThreadInteractionAdapter gearAdapter = gearBellPolicy
@@ -12724,6 +20202,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 int gearApplications = gearAdapter?.ApplicationCount ?? 0;
                 int gearHealth = playerHealth.CurrentHealth;
                 ObserveSplitBell("before-CastAt");
+                BeginLaterClaw(laborer, threadTarget, foreign: false);
                 bool issued = await CastAt(tree, monitor, player, threadTarget,
                     () => gearBellPolicy
                         ? GodotObject.IsInstanceValid(laborer) && laborer.CurrentState == BellBackLaborerState.Exposed
@@ -12732,6 +20211,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     gearBellAdmission: gearBellPolicy ? () => GearBellNeutralSupport(laborer) &&
                         !Task10ObserveEncounterDanger(actorRoot, encounterId, laborer, false, rangedThreatLeaves).Threat : null);
                 ObserveSplitBell("after-CastAt");
+                if (!issued) CancelUnissuedLaterClaw();
                 if (issued)
                 {
                     if (gearBellPolicy)
@@ -12768,11 +20248,14 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 ulong mothCastId = airborneMoth.GetInstanceId();
                 int mothCastHealth = playerHealth.CurrentHealth;
                 SplitMothEdge(airborneMoth, returned: false);
-                await CastAt(tree, monitor, player, threadTarget,
+                BeginLaterClaw(airborneMoth, threadTarget, foreign: false);
+                bool issuedMoth = await CastAt(tree, monitor, player, threadTarget,
                     () => (!splitMothPolicy && !GodotObject.IsInstanceValid(airborneMoth)) ||
                           GodotObject.IsInstanceValid(airborneMoth) &&
                           airborneMoth.CurrentState == GraveLampMothState.ThreadStunned, 45,
-                    requireSafeFrozenMoth: frozenMothPolicy);
+                    requireSafeFrozenMoth: frozenMothPolicy,
+                    frozenPlan: frozenMothPolicy ? mothPlan : null);
+                if (!issuedMoth) CancelUnissuedLaterClaw();
                 if (splitMothPolicy || frozenMothPolicy)
                     TestAssert.True(GodotObject.IsInstanceValid(airborneMoth) &&
                         airborneMoth.GetInstanceId() == mothCastId &&
@@ -12784,7 +20267,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     GD.Print($"TASK10_FROZEN_MOTH_SAFE_CAST_OK actor={mothCastId} " +
                         $"applications={mothApplications}->{mothAdapter.ApplicationCount} state={airborneMoth.CurrentState} " +
                         $"health={mothCastHealth}->{playerHealth.CurrentHealth} original_wait_budget=45 " +
-                        "fresh_neutral_Space_prefix=true");
+                        "fresh_neutral_Space_before_K=true");
                 SplitMothEdge(airborneMoth, returned: true);
                 threadCasts++;
                 SendAction(InputActions.SelectAttackMode, true);
@@ -12793,22 +20276,158 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 continue;
             }
 
-            if (strikeRange && (!enemyThreat || steamMissileKeyboard && steamDecision.CanCounter ||
+            bool foreignPreludeBlocksFatal = Task10MixedForeignPreludeBlocksFatal(
+                mixedPostShotSchedule && mixedSetupRequired, ReferenceEquals(actor, mixedClawEnemy),
+                enemyHealth?.CurrentHealth ?? 0, mixedJetCompleted, mixedGuardKAccepted);
+            if (foreignPreludeBlocksFatal && !mixedForeignPreludeRequired)
+            {
+                mixedForeignPreludeRequired = true;
+                MixedResourceSnapshot("foreign_Rust_before_fatal_wait",
+                    "captured_enemy_hp=1 original_else_K_gates=true new_wait_pool=false guard_policy_unchanged=true");
+            }
+            mixedLateEvaluated=0; mixedLatePassed=0;
+            ulong galleryLaserRecovery = galleryLaserCounterProbe && actor is PrismLaserGunner originalLaser &&
+                originalLaser.HasPresentationAuthority && originalLaser.CurrentFrame.AttackTimeline is
+                    { Phase: AttackPhase.Recovery } laserRecovery
+                ? laserRecovery.AttackId : 0UL;
+            bool GalleryOwnedRecovery() =>
+                group.OwnsLiveActor(actor) &&
+                (skitterEligible && actor is CanyonSkitter galleryTarget && group.CurrentBatch == 1 &&
+                    galleryTarget.CurrentFrame is
+                        { State: CanyonSkitterState.Recover, AttackTimeline: { Phase: AttackPhase.Recovery, AttackId: > 0 } } ||
+                 galleryLaserRecovery != 0 && group.CurrentBatch == 2 && group.LiveActorCount == 1 &&
+                    actor is PrismLaserGunner laser && laser.SceneFilePath == CanyonEncounterCatalog.LaserScene &&
+                    laser.HasPresentationAuthority && laser.CurrentFrame.AttackTimeline is
+                        { Phase: AttackPhase.Recovery } currentLaserRecovery &&
+                    currentLaserRecovery.AttackId == galleryLaserRecovery);
+            bool GalleryEarlyCounterRouteSelected()
+            {
+                bool keyboard = KeyboardRouteInputDriver.Current != null;
+                if (!keyboard || !skitterDiagnostic) return false;
+                bool owned = group.OwnsLiveActor(actor);
+                bool skitter = actor is CanyonSkitter;
+                bool recoveryScope = skitterEligible && group.CurrentBatch == 1 &&
+                    actor is CanyonSkitter currentSkitter && currentSkitter.CurrentFrame is
+                        { State: CanyonSkitterState.Recover,
+                          AttackTimeline: { Phase: AttackPhase.Recovery, AttackId: > 0 } };
+                return Task10GalleryEarlyCounterRoute(keyboard, skitterDiagnostic, headlessNormalPlan,
+                    galleryEarlyCounterProbe, owned, skitter, recoveryScope);
+            }
+            bool GalleryEarlyCounter(Task10EncounterDanger danger) =>
+                GalleryEarlyCounterRouteSelected() && KeyboardRouteInputDriver.Current != null &&
+                enemyHealth?.CurrentHealth is > 0 && GalleryOwnedRecovery() &&
+                danger.Threat && danger.Phase == AttackPhase.Telegraph && danger.AttackId > 0 &&
+                GodotObject.InstanceFromId(danger.SourceActorId) is GraveLampMoth earlyDiver &&
+                DiagnosticLive(earlyDiver) && earlyDiver.SceneFilePath == "res://scenes/enemies/residents/v001/bone-diver.tscn" &&
+                earlyDiver.CurrentFrame.AttackTimeline is { Phase: AttackPhase.Telegraph } diverWarning &&
+                diverWarning.AttackId == danger.AttackId && float.IsFinite(danger.SafeCounterSeconds) &&
+                danger.MissingGuardSourceCount == 0 && !danger.NearContactUnknownActive &&
+                !danger.NearContactOverlappingActive && !danger.IncomingGuardVeto &&
+                Task10MixedCounterWindow(combat, energy, danger) &&
+                !input.CurrentFrame.ShieldHeld && !shield.IsActive && player.IsOnFloor() &&
+                Mathf.Abs(player.Velocity.X) <= 261f &&
+                player.GetSlideCollisionCount() > 0 &&
+                player.GetSlideCollision(0).GetCollider() is StaticBody2D counterFloor &&
+                counterFloor.Name == "AscentGrip5" &&
+                TryTask10CapsuleCorridor(player, counterFloor.GetNode<CollisionShape2D>("Collision"),
+                    out float bodyLeft, out float bodyRight, out float floorLeft, out float floorRight) &&
+                bodyLeft - floorLeft >= 30f && floorRight - bodyRight >= 30f;
+            bool galleryEarlyCounter = GalleryEarlyCounter(encounterDanger);
+            bool issueJ = ObserveLateJGate(0x0001, strikeRange) && ObserveLateJGate(0x0002, (!enemyThreat || galleryEarlyCounter || steamMissileKeyboard && steamDecision.CanCounter ||
                     counterweightSuppressionKeyboard && encounterDanger.HasRanged &&
-                    Task10MixedCounterWindow(combat, energy, encounterDanger)) &&
-                (!steamMissileKeyboard || steamDecision.CanCounter) &&
-                frame >= nextAttackFrame && !combat.IsAttacking &&
-                (!counterweightSuppressionKeyboard || !encounterDanger.HasRanged ||
-                    Task10MixedCounterWindow(combat, energy, encounterDanger)) &&
-                (!splitBellPolicy || ((BellBackLaborer)actor).CurrentState == BellBackLaborerState.Exposed &&
-                    actor.GetNode<Hurtbox>("Hurtbox").DamageReceiverPath == new NodePath("../Health")) &&
-                (!courtyardBellPolicy || courtyardBellExposed) &&
-                (!gearBellPolicy || ((BellBackLaborer)actor).CurrentState == BellBackLaborerState.Exposed && gearBellReady) &&
-                (!frozenRustPolicy || frozenRustReady) &&
-                (!sentryPolicy || (!sentryGuardRequired && sentryReleaseSampled &&
-                    !sentryAttackWouldOverlapGuard && sentryCounterEnergyReady)) &&
-                (!skitterPolicy || skitterEligible) &&
-                modes.CanAffordAttack)
+                    Task10MixedCounterWindow(combat, energy, encounterDanger))) &&
+                ObserveLateJGate(0x0004, (!steamMissileKeyboard || steamDecision.CanCounter)) &&
+                ObserveLateJGate(0x0008, frame >= nextAttackFrame) && ObserveLateJGate(0x0010, !combat.IsAttacking) &&
+                ObserveLateJGate(0x0020, Task10MixedPostShotLethalAllowed(ReferenceEquals(actor, mixedClawEnemy),
+                    mixedClawShotSeen, mixedPostShotSchedule &&
+                        (mixedEarlyWindowPhysics != 0 || mixedClawWindowPhysics != 0),
+                    mixedClawCompleted, mixedClawStage == 4)) &&
+                ObserveLateJGate(0x0040, (!counterweightSuppressionKeyboard || !encounterDanger.HasRanged ||
+                    Task10MixedCounterWindow(combat, energy, encounterDanger))) &&
+                ObserveLateJGate(0x0080, (!splitBellPolicy || ((BellBackLaborer)actor).CurrentState == BellBackLaborerState.Exposed &&
+                    actor.GetNode<Hurtbox>("Hurtbox").DamageReceiverPath == new NodePath("../Health"))) &&
+                ObserveLateJGate(0x0100, (!courtyardBellPolicy || courtyardBellExposed)) &&
+                ObserveLateJGate(0x0200, (!gearBellPolicy || ((BellBackLaborer)actor).CurrentState == BellBackLaborerState.Exposed && gearBellReady)) &&
+                ObserveLateJGate(0x0400, (!frozenRustPolicy || frozenRustReady)) &&
+                ObserveLateJGate(0x0800, (!sentryPolicy || (!sentryGuardRequired && sentryReleaseSampled &&
+                    !sentryAttackWouldOverlapGuard && sentryCounterEnergyReady))) &&
+                ObserveLateJGate(0x1000, (!skitterPolicy || skitterEligible)) &&
+                ObserveLateJGate(0x2000, modes.CanAffordAttack) &&
+                GalleryCounterGate(0x04000, GalleryForeignCounterBudgetReady(actor, "outer")) &&
+                GalleryCounterGate(0x08000, (!ReferenceEquals(actor, mixedClawEnemy) || !mixedSetupRequired ||
+                    enemyHealth?.CurrentHealth == 2 && !mixedSetupIssued ||
+                    enemyHealth?.CurrentHealth == 1 && mixedJetCompleted && mixedJetStage == 5)) &&
+                GalleryCounterGate(0x10000, !foreignPreludeBlocksFatal);
+            if (galleryHp2Enabled && galleryHp2Prefix.Count < 24)
+            {
+                try
+                {
+                    if (group.CurrentBatch == 1 && skitterEligible && actor is CanyonSkitter &&
+                        enemyHealth?.CurrentHealth == 2)
+                    {
+                        ulong readStartPhysics = Engine.GetPhysicsFrames(), readStartProcess = Engine.GetProcessFrames();
+                        ulong readStartInput = input.CurrentFrameSequence;
+                        CanyonSkitterFrame selected = ((CanyonSkitter)actor).CurrentFrame;
+                        float energyUnits = energy.EnergyRatio * energy.Tuning.MaxEnergy;
+                        float fullAttack = combat.Tuning.AttackStartupSeconds + combat.Tuning.AttackActiveSeconds +
+                            combat.Tuning.AttackRecoverySeconds;
+                        float margin = 8f / Engine.PhysicsTicksPerSecond;
+                        bool fullCounterWindow = !combat.IsAttacking && float.IsFinite(fullAttack) && fullAttack > 0f &&
+                            encounterDanger.SafeCounterSeconds >= fullAttack + 6f / Engine.PhysicsTicksPerSecond +
+                                2f / Engine.PhysicsTicksPerSecond && energyUnits >= 2f * energy.Tuning.AttackCost;
+                        string completedRow = System.Text.Json.JsonSerializer.Serialize(new {
+                            schema="gallery_hp2_outer_j_v254", loop=frame, batch=group.CurrentBatch,
+                            readStartPhysics, readStartProcess, readStartInput,
+                            actor=trackedActorId, health=enemyHealth.CurrentHealth, selectedSkitter=true,
+                            state=selected.State.ToString(), phase=selected.AttackTimeline.Phase.ToString(),
+                            attack=selected.AttackTimeline.AttackId, remaining=selected.AttackTimeline.PhaseRemainingSeconds,
+                            issueJ, skitterPolicy, skitterCanCounter, skitterEligible, strikeRange,
+                            dx, dy, signedGap, nextAttackFrame, lastAttackStartedFrame,
+                            enemyThreat, galleryEarlyCounter, fullCounterWindow, fullAttack, margin,
+                            safeCounterFinite=float.IsFinite(encounterDanger.SafeCounterSeconds),
+                            foreignBudgetKnown=galleryHp2OuterBudget.HasValue, foreignBudget=galleryHp2OuterBudget,
+                            mode=modes.CurrentMode.ToString(), slot=modes.ActiveSlot.ToString(),
+                            canBeginAttack=modes.CanBeginAttack, canAffordAttack=modes.CanAffordAttack,
+                            attacking=combat.IsAttacking, energyUnits, attackCost=energy.Tuning.AttackCost,
+                            shieldHeld=input.CurrentFrame.ShieldHeld, shieldActive=shield.IsActive,
+                            velocityX=player.Velocity.X, velocityY=player.Velocity.Y,
+                            danger=new {
+                                encounterDanger.Threat, encounterDanger.SourceActorId, encounterDanger.AttackId,
+                                phase=encounterDanger.Phase.ToString(), encounterDanger.RemainingSeconds,
+                                encounterDanger.HasRanged, guardSourceX=encounterDanger.GuardSource.X,
+                                guardSourceY=encounterDanger.GuardSource.Y, encounterDanger.FromActiveGap,
+                                encounterDanger.SafeCounterSeconds, encounterDanger.CounterSources,
+                                encounterDanger.CandidateObserverFaults, encounterDanger.MissingGuardSourceCount,
+                                encounterDanger.NearContactGuard, encounterDanger.NearContactUnknownActive,
+                                encounterDanger.NearContactOverlappingActive, encounterDanger.IncomingGuardVeto,
+                                encounterDanger.IncomingGuardUnknown, encounterDanger.IncomingGuardPredicted
+                            },
+                            readEndPhysics=Engine.GetPhysicsFrames(), readEndProcess=Engine.GetProcessFrames(),
+                            readEndInput=input.CurrentFrameSequence, extraQueries=0, extraFrames=0,
+                            sameOriginalDanger=true, safetyAuthorization=false
+                        }, galleryHp2JsonOptions);
+                        Task10CaptureGalleryHp2Decision(galleryHp2Prefix, galleryHp2Enabled, skitterEligible,
+                            enemyHealth.CurrentHealth, completedRow);
+                    }
+                }
+                catch { galleryHp2Faults++; }
+            }
+            if (galleryCounterPending)
+            {
+                try { GalleryCounterStage("outer-J", $"issue_j={issueJ} selected_skitter_policy={skitterPolicy} selected_skitter_can_counter={skitterCanCounter} selected_skitter_eligible={skitterEligible} strike={strikeRange} gap={signedGap:R} next_j={nextAttackFrame} last_j_started_loop={lastAttackStartedFrame} enemy_threat={enemyThreat} danger_source={encounterDanger.SourceActorId} danger_attack={encounterDanger.AttackId} danger_phase={encounterDanger.Phase} danger_remaining={encounterDanger.RemainingSeconds:R} danger_safe_counter={encounterDanger.SafeCounterSeconds:R} danger_threat={encounterDanger.Threat} danger_ranged={encounterDanger.HasRanged} danger_missing_guard={encounterDanger.MissingGuardSourceCount} danger_unknown_active={encounterDanger.NearContactUnknownActive} danger_overlap={encounterDanger.NearContactOverlappingActive} danger_incoming_veto={encounterDanger.IncomingGuardVeto}"); }
+                catch { galleryCounterFaults++; }
+            }
+            CaptureLateDecision(issueJ ? "outer_admitted" : "outer_rejected", encounterDanger,
+                mixedPostHopIssued && mixedPostHopKStage == 3 && mixedHopStage == 5);
+            if (skitterBaitStanceProbe && galleryDecisionRows < 180 &&
+                (group.CurrentBatch == 2 && actor is PrismLaserGunner ||
+                    skitterPolicy && skitterCanCounter && (strikeRange || issueJ)))
+            {
+                galleryDecisionRows++;
+                GD.Print(FormattableString.Invariant(
+                    $"TASK10_GALLERY_J_GATE physics={Engine.GetPhysicsFrames()} loop={frame} batch={group.CurrentBatch} actor={actor.GetInstanceId()} type={actor.GetType().Name} hp={enemyHealth?.CurrentHealth} player={player.GlobalPosition} velocity={player.Velocity} target={target} gap={signedGap:F3} dy={dy:F3} strike={strikeRange} issue={issueJ} threat={enemyThreat} danger_owner={encounterDanger.SourceActorId} danger_attack={encounterDanger.AttackId} danger_phase={encounterDanger.Phase} danger_remaining={encounterDanger.RemainingSeconds:F4} safe_counter={encounterDanger.SafeCounterSeconds:F4} early={galleryEarlyCounter} next_j={nextAttackFrame} attacking={combat.IsAttacking} begin={modes.CanBeginAttack} afford={modes.CanAffordAttack} shield={shield.IsActive} energy={energy.EnergyRatio:F4}"));
+            }
+            if (issueJ)
             {
                 if (counterweightSuppressionKeyboard) MixedResourceSnapshot("J_release_request");
                 SendMouse(MouseButton.Right, false, player, target);
@@ -12819,20 +20438,56 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     await PhysicsFrames(tree, monitor, 1);
                 }
                 shieldReleaseSamples++;
+                if (galleryCounterPending)
+                {
+                    try { GalleryCounterStage("original-release-waits-returned", $"waits={releaseWaits} shield={input.CurrentFrame.ShieldHeld}/{shield.IsActive} attacking={combat.IsAttacking} energy={energy.EnergyRatio * energy.Tuning.MaxEnergy:R}"); }
+                    catch { galleryCounterFaults++; }
+                }
                 if (counterweightSuppressionKeyboard)
                     MixedResourceSnapshot("J_release_sample", $"waits={releaseWaits}");
                 GD.Print($"TASK10_ATTACK_RELEASE_SAMPLE id={encounterId} frame={frame} " +
                     $"sample={input.CurrentFrameSequence} shield_held={input.Current.ShieldHeld} " +
                     $"shield_active={shield.IsActive} can_attack={modes.CanBeginAttack} " +
                     $"energy={energy.EnergyRatio:0.000}");
-                if (input.Current.ShieldHeld || !modes.CanBeginAttack)
+                if (input.Current.ShieldHeld || !modes.CanBeginAttack || !GalleryCounterEndpoint("original-release-budget", GalleryForeignCounterBudgetReady(actor, "release")))
                 {
                     if (counterweightSuppressionKeyboard) MixedResourceSnapshot("J_release_not_ready");
                     await PhysicsFrames(tree, monitor, 1);
                     continue;
                 }
+                if (!Task10PostHopJReleaseFresh(postHopCurrentSide,releaseWaits))
+                {
+                    // The completed transfer's actual dx/side/strike band may
+                    // have changed during L release. No stale-position J; the
+                    // next original decision re-reads everything normally.
+                    MixedResourceSnapshot("posthop_J_release_defer",$"waits={releaseWaits} extra_J=0 fresh_next_original_tick=true");
+                    await PhysicsFrames(tree,monitor,1);
+                    continue;
+                }
+                if (mixedLateActive) { mixedLatePass++; mixedLateFacts.Clear(); mixedLateFactDropped=0; }
+                mixedEarlyCandidates=false; mixedEarlyCounters=false;
                 Task10EncounterDanger freshDanger = Task10ObserveEncounterDanger(actorRoot, encounterId,
-                    actor, false, rangedThreatLeaves);
+                    actor, false, rangedThreatLeaves, counterObserver: mixedLateActive ? ObserveLateCounter : null,
+                    passiveRearmObserved: WatchSkitterRearm, candidateObserver: mixedLateActive ? ObserveLateCandidate : null,
+                    guardCapsule: counterweightSuppressionKeyboard ? (mixedLateCapsule = Task10CurrentGuardCapsule(player)) : null,
+                    rustGuardPolicy: MixedRustOrientationPolicy(), departurePolicy: MixedDeparturePolicy(),
+                    incomingGuard: IncomingContext(mixedPostHopIssued && mixedPostHopKStage == 3 && mixedHopStage == 5));
+                CaptureLateDecision("fresh_scan_before_original_recheck", freshDanger,
+                    mixedPostHopIssued && mixedPostHopKStage == 3 && mixedHopStage == 5);
+                monitor.CombatDecisionObserved?.Invoke(actor.GetInstanceId(), freshDanger, false);
+                bool galleryFreshCounter = galleryEarlyCounter && releaseWaits == 0 &&
+                    freshDanger.SourceActorId == encounterDanger.SourceActorId &&
+                    freshDanger.AttackId == encounterDanger.AttackId && GalleryEarlyCounter(freshDanger);
+                if (galleryEarlyCounter)
+                    GD.Print($"TASK10_GALLERY_J_RECHECK physics={Engine.GetPhysicsFrames()} loop={frame} " +
+                        $"actor={actor.GetInstanceId()} waits={releaseWaits} fresh={galleryFreshCounter} " +
+                        $"owner={freshDanger.SourceActorId} attack={freshDanger.AttackId} phase={freshDanger.Phase} " +
+                        $"ranged={freshDanger.HasRanged} threat={freshDanger.Threat} safe={freshDanger.SafeCounterSeconds:R}");
+                if (galleryEarlyCounter && !galleryFreshCounter)
+                {
+                    await PhysicsFrames(tree, monitor, 1);
+                    continue;
+                }
                 if (steamMissileKeyboard)
                 {
                     if (!GodotObject.IsInstanceValid(actor) || actor.IsQueuedForDeletion() ||
@@ -12863,11 +20518,27 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 {
                     mixedLastDanger = freshDanger;
                     MixedResourceSnapshot("J_fresh_danger");
+                    // L release can advance the scene. Revalidate the captured
+                    // actor and real Shot receipt at the actual J boundary.
+                    if (ReferenceEquals(actor, mixedClawEnemy) &&
+                        (!group.OwnsLiveActor(actor) ||
+                         !(enemyHealth?.CurrentHealth == 1 && (!mixedSetupRequired || mixedJetCompleted && mixedJetStage == 5) ||
+                           enemyHealth?.CurrentHealth == 2 && !mixedSetupIssued && MixedSetupEngagement()) ||
+                         Task10MixedForeignPreludeBlocksFatal(mixedPostShotSchedule && mixedSetupRequired,
+                             true, enemyHealth?.CurrentHealth ?? 0, mixedJetCompleted, mixedGuardKAccepted) ||
+                         !Task10MixedPostShotLethalAllowed(true, mixedClawShotSeen,
+                             mixedPostShotSchedule && (mixedEarlyWindowPhysics != 0 || mixedClawWindowPhysics != 0),
+                             mixedClawCompleted, mixedClawStage == 4) || mixedClawShotOrdinal == 0))
+                    {
+                        MixedResourceSnapshot("owned_burst_lethal_J_waits_for_real_shot");
+                        await PhysicsFrames(tree, monitor, 1);
+                        continue;
+                    }
                 }
                 if ((actor is RangedWeaponEnemy || freshDanger.HasRanged) &&
                     (!GodotObject.IsInstanceValid(actor) || actor.IsQueuedForDeletion() ||
                      !actor.IsInsideTree() || enemyHealth?.CurrentHealth <= 0 ||
-                     freshDanger.Threat && !(steamMissileKeyboard && freshSteamDecision.CanCounter ||
+                     freshDanger.Threat && !(galleryFreshCounter || steamMissileKeyboard && freshSteamDecision.CanCounter ||
                         counterweightSuppressionKeyboard && freshDanger.HasRanged &&
                         Task10MixedCounterWindow(combat, energy, freshDanger)) ||
                      steamMissileKeyboard && !freshSteamDecision.CanCounter ||
@@ -12938,36 +20609,311 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 if (verticalStrike) SendAction(InputActions.MoveUp, true);
                 else SendAction(facingAction, true);
                 if (skitterPolicy) SkitterPolicyLog("counter_attempt");
+                if (galleryFreshCounter)
+                    GD.Print($"TASK10_GALLERY_EARLY_J_COMMAND physics={Engine.GetPhysicsFrames()} loop={frame} " +
+                        $"target={actor.GetInstanceId()} hp={enemyHealth?.CurrentHealth} safe={freshDanger.SafeCounterSeconds:R}");
                 CourtyardBellSnapshot("J-request");
                 ObserveSplitBell("J-request");
                 if (counterweightSuppressionKeyboard) MixedResourceSnapshot("J_command");
+                bool issuingMixedSetup = ReferenceEquals(actor, mixedClawEnemy) && enemyHealth?.CurrentHealth == 2;
+                if (issuingMixedSetup)
+                {
+                    TestAssert.True(!mixedSetupIssued && MixedSetupEngagement() &&
+                        observedEnemyHealth == mixedClawEnemy.GetNode<HealthComponent>("Health"),
+                        "MIXED_SETUP_J_COMMAND_RED: exact post-K HP2 actor admits at most one original J attempt");
+                    mixedSetupHurtboxId = mixedClawEnemy.GetNode<Hurtbox>("Hurtbox").GetInstanceId();
+                    mixedSetupPlayerId = player.GetInstanceId();
+                    mixedSetupEdgeStart = KeyboardRouteInputDriver.Current.AttackEdges;
+                    mixedSetupDamageBefore = healthDamageEvents;
+                    mixedSetupIssued = mixedSetupAwaitContact = mixedSetupAttackOpen = true;
+                }
+                if (!GalleryCounterEndpoint("original-final-budget", GalleryForeignCounterBudgetReady(actor, "final")))
+                {
+                    SendAction(InputActions.MoveUp, false);
+                    SendAction(facingAction, false);
+                    await PhysicsFrames(tree, monitor, 1);
+                    continue;
+                }
+                if (galleryCounterPending)
+                {
+                    try { GalleryCounterStage("original-J-command-boundary", $"selected_id={actor.GetInstanceId()} selected_type={actor.GetType().Name} selected_hp={enemyHealth?.CurrentHealth} energy={energy.EnergyRatio * energy.Tuning.MaxEnergy:R} shield={input.CurrentFrame.ShieldHeld}/{shield.IsActive}"); }
+                    catch { galleryCounterFaults++; }
+                }
                 SendAction(InputActions.PrimaryAction, true);
+                galleryCounterLastJCommand = frame;
                 await PhysicsFrames(tree, monitor, 2);
+                if (galleryCounterPending) GalleryCounterStage("original-J-two-frames-returned", $"last_j_started_loop={lastAttackStartedFrame} last_j_command_loop={galleryCounterLastJCommand}");
                 SendAction(InputActions.PrimaryAction, false);
                 SendAction(InputActions.MoveUp, false);
                 if (horizontalStrike)
                     SendAction(facingAction, false);
+                if (issuingMixedSetup)
+                    TestAssert.True(mixedSetupFault == null && mixedSetupAccepted == 1 &&
+                        KeyboardRouteInputDriver.Current.AttackEdges == mixedSetupEdgeStart + 1,
+                        $"MIXED_SETUP_J_ACCEPT_RED: command is not success; one real AttackStarted required: {mixedSetupFault}");
                 attacks++;
                 nextAttackFrame = frame + 24;
             }
             else
             {
+                // One suppression per actual foreign owner, only after the
+                // first proof/jet and a rejected original J. No new wait pool,
+                // force target, resource gift, danger omission or retry cast.
+                if (mixedPostShotSchedule && mixedFirstEdgeEnd >= 0 && mixedJetCompleted &&
+                    ReferenceEquals(actor, mixedClawEnemy) && !mixedLaterPending &&
+                    !input.Current.ShieldHeld && !shield.IsActive && !combat.IsAttacking &&
+                    mixedClaw.CurrentFrame.State == MechanicalClawState.Idle && modes.CanBeginGrapple &&
+                    energy.EnergyRatio * energy.Tuning.MaxEnergy >= 2f * energy.Tuning.AttackCost &&
+                    TryTask10FullFloorSupport(player, out _) && MathF.Abs(player.Velocity.X) <= 1f &&
+                    encounterDanger.Threat && encounterDanger.Phase == AttackPhase.Telegraph &&
+                    encounterDanger.RemainingSeconds > 8f / Engine.PhysicsTicksPerSecond &&
+                    float.IsFinite(encounterDanger.SafeCounterSeconds) && encounterDanger.SafeCounterSeconds > 0f &&
+                    GodotObject.InstanceFromId(encounterDanger.SourceActorId) is RustShellSquire pressure &&
+                    pressure.GetParent() == actorRoot && pressure.IsInsideTree() && !pressure.IsQueuedForDeletion() &&
+                    group.OwnsLiveActor(pressure) && pressure.SceneFilePath == CanyonEncounterCatalog.RustShellScene &&
+                    pressure.GetNode<HealthComponent>("Health").CurrentHealth > 0 &&
+                    pressure.CurrentState == RustShellState.Telegraph &&
+                    pressure.CurrentFrame.AttackTimeline.AttackId == encounterDanger.AttackId &&
+                    !mixedSuppressedOwners.Contains(pressure.GetInstanceId()) &&
+                    (!mixedForeignPreludeRequired || Task10MixedRustLateWindow(
+                        pressure.CurrentFrame.AttackTimeline.PhaseRemainingSeconds, 8f / Engine.PhysicsTicksPerSecond,
+                        new RustShellSettings().AttackSeconds)))
+                {
+                    ThreadTarget2D pressureTarget = pressure.GetNode<ThreadTarget2D>("ThreadTarget");
+                    bool selectable = Task10KeyboardClawPlanSelects(player, pressureTarget, out var pressurePlan);
+                    MixedResourceSnapshot("foreign_Rust_K_plan", $"actor={pressure.GetInstanceId()} " +
+                        $"target={pressureTarget.GetInstanceId()} selected={pressurePlan.SelectedId} los={pressurePlan.SelectedLos} " +
+                        $"anchor={pressurePlan.TargetAnchor} accepted={selectable} query_count=1 same_plan=true");
+                    if (selectable)
+                    {
+                        BeginLaterClaw(pressure, pressureTarget, foreign: true);
+                        BindMixedRustGuard(pressure);
+                        mixedSuppressedOwners.Add(pressure.GetInstanceId());
+                        foreach (StringName action in new[] { InputActions.MoveLeft, InputActions.MoveRight,
+                            InputActions.MoveUp, InputActions.MoveDown, InputActions.Jump, InputActions.Dash })
+                            SendAction(action, false);
+                        SendMouse(MouseButton.Left, false, player, pressureTarget.WorldAnchor);
+                        SendMouse(MouseButton.Right, false, player, pressureTarget.WorldAnchor);
+                        SendAction(InputActions.SelectGrappleMode, true);
+                        SendAction(InputActions.SelectGrappleMode, false);
+                        SendMouse(MouseButton.Left, true, player, pressureTarget.WorldAnchor);
+                        MixedResourceSnapshot("foreign_Rust_single_K_issued", $"actor={mixedLaterActorId} " +
+                            $"cast={mixedLaterCast} reserve={2f * energy.Tuning.AttackCost:R}");
+                        await PhysicsFrames(tree, monitor, 1);
+                        continue;
+                    }
+                }
                 if (skitterPolicy)
-                    SendMouse(MouseButton.Right, skitterGuardRequired && energy.EnergyRatio > 0f &&
-                        !energy.IsOverheated, player, skitterGuardRequired ? skitterGuardSource : target);
+                {
+                    bool guard = skitterGuardRequired && energy.EnergyRatio > 0f && !energy.IsOverheated;
+                    var playerHurt = player.GetNode<Hurtbox>("Hurtbox");
+                    // An early Skitter warning stops movement but does not yet
+                    // demand its shield direction. Yield to its actual guard window.
+                    bool foreignUp = galleryForeignGuardEnabled && !skitterGuardRequired && !guard &&
+                        genericGuardBeforeSpecialization && KeyboardRouteInputDriver.Current != null &&
+                        encounterDanger.SourceActorId != 0 && encounterDanger.SourceActorId != actor.GetInstanceId() &&
+                        GodotObject.InstanceFromId(encounterDanger.SourceActorId) is GraveLampMoth diver &&
+                        DiagnosticLive(diver) && diver.SceneFilePath == "res://scenes/enemies/residents/v001/bone-diver.tscn" &&
+                        diver.CurrentFrame.AttackTimeline.AttackId == encounterDanger.AttackId &&
+                        diver.GetNodeOrNull<Hitbox>("AttackHitbox") is { } diverHitbox &&
+                        Vector2.Up.Dot((diverHitbox.GlobalPosition - playerHurt.GlobalPosition).Normalized()) >= .92f &&
+                        Mathf.Abs(player.Velocity.X) <= 2f && player.IsOnFloor() &&
+                        player.GetSlideCollisionCount() > 0 &&
+                        player.GetSlideCollision(0).GetCollider() is StaticBody2D foreignGuardFloor &&
+                        foreignGuardFloor.Name == "AscentGrip5" &&
+                        TryTask10CapsuleCorridor(player, foreignGuardFloor.GetNode<CollisionShape2D>("Collision"),
+                            out _, out _, out _, out _);
+                    if (foreignUp)
+                    {
+                        galleryForeignActor = encounterDanger.SourceActorId;
+                    }
+                    float foreignContactGap = float.NaN;
+                    if (foreignUp && galleryForeignContactProbe &&
+                        GodotObject.InstanceFromId(galleryForeignActor) is GraveLampMoth contactDiver &&
+                        contactDiver.GetNodeOrNull<CollisionShape2D>("AttackHitbox/AttackCollider") is
+                            { Disabled: false, Shape: CircleShape2D circle } circleNode &&
+                        playerHurt.GetNodeOrNull<CollisionShape2D>("HurtboxCollider") is
+                            { Disabled: false, Shape: CapsuleShape2D capsule } capsuleNode &&
+                        circleNode.GlobalScale.IsEqualApprox(Vector2.One) &&
+                        capsuleNode.GlobalScale.IsEqualApprox(Vector2.One) &&
+                        Mathf.IsZeroApprox(capsuleNode.GlobalRotation) &&
+                        Mathf.Abs(player.Velocity.Y) <= 2f)
+                    {
+                        Vector2 centerOffset = circleNode.GlobalPosition - capsuleNode.GlobalPosition;
+                        float halfAxis = Mathf.Max(0f, capsule.Height * .5f - capsule.Radius);
+                        Vector2 toAxis = centerOffset - new Vector2(0f, Mathf.Clamp(centerOffset.Y, -halfAxis, halfAxis));
+                        foreignContactGap = toAxis.Length() - (circle.Radius + capsule.Radius);
+                        if (float.IsFinite(foreignContactGap))
+                        {
+                            // A stationary supported target is beyond contact until
+                            // the live dive closes two ticks plus a 4px margin.
+                            float lead = 2f / Engine.PhysicsTicksPerSecond;
+                            float reach = (Mathf.Max(contactDiver.Velocity.Length(), contactDiver.Tuning.DiveSpeed) + 2f) *
+                                lead + 4f;
+                            if (float.IsFinite(reach))
+                                foreignUp = (encounterDanger.Phase == AttackPhase.Active ||
+                                    encounterDanger.RemainingSeconds <= lead) && foreignContactGap <= reach;
+                        }
+                    }
+                    if (foreignUp)
+                    {
+                        SendMouse(MouseButton.Right, true, player, player.GlobalPosition + Vector2.Up * 100f);
+                        if (lastGalleryForeignAttack != encounterDanger.AttackId)
+                        {
+                            lastGalleryForeignAttack = encounterDanger.AttackId;
+                            GD.Print($"TASK10_PENDULUM_FOREIGN_GUARD physics={Engine.GetPhysicsFrames()} loop={frame} " +
+                                $"source={encounterDanger.SourceActorId} attack={encounterDanger.AttackId} " +
+                                $"phase={encounterDanger.Phase} remaining={encounterDanger.RemainingSeconds:R} gap={foreignContactGap:R} hp={playerHealth.CurrentHealth}");
+                        }
+                    }
+                    if (galleryForeignActor != 0 && galleryForeignRows < 60 &&
+                        GodotObject.InstanceFromId(galleryForeignActor) is GraveLampMoth observedDiver &&
+                        DiagnosticLive(observedDiver) && observedDiver.GetNodeOrNull<Hitbox>("AttackHitbox") is { } observedHitbox)
+                    {
+                        galleryForeignRows++;
+                        var liveAttack = observedDiver.CurrentFrame.AttackTimeline;
+                        Vector2 delta = observedHitbox.GlobalPosition - playerHurt.GlobalPosition;
+                        GD.Print(FormattableString.Invariant(
+                            $"TASK10_PENDULUM_FOREIGN_SAMPLE physics={Engine.GetPhysicsFrames()} loop={frame} input={input.CurrentFrameSequence} actor={galleryForeignActor} observed_attack={liveAttack.AttackId} observed_phase={liveAttack.Phase} remaining={liveAttack.PhaseRemainingSeconds:F4} winner={encounterDanger.SourceActorId} winner_attack={encounterDanger.AttackId} generic={genericGuardBeforeSpecialization} own_threat={skitterThreat} own_guard_required={skitterGuardRequired} admitted={foreignUp} sampled={input.CurrentFrame.ShieldHeld}/{shield.IsActive} direction={shield.GuardDirection} up_dot={Vector2.Up.Dot(delta.Normalized()):F4} offset={delta} vx={player.Velocity.X:F3} axis={input.CurrentFrame.MoveAxis:F1} grounded={player.IsOnFloor()} floor={DescribeFloorCollider(player)} energy={energy.EnergyRatio:F4} hp={playerHealth.CurrentHealth}"));
+                    }
+                    if (!foreignUp)
+                    {
+                    var guardSkitter = (CanyonSkitter)actor;
+                    var timeline = guardSkitter.CurrentFrame.AttackTimeline;
+                    Vector2 offset = skitterGuardSource - playerHurt.GlobalPosition;
+                    Vector2 cardinal = offset.X < 0 ? Vector2.Left : Vector2.Right;
+                    bool neutral = skitterNeutralGuardProbe && guard && group.LiveActorCount == 1 &&
+                        KeyboardRouteInputDriver.Current != null && actor.GetNode<HealthComponent>("Health").CurrentHealth == 1 &&
+                        player.IsOnFloor() && Mathf.Abs(player.Velocity.X) <= 2f &&
+                        Mathf.IsZeroApprox(input.CurrentFrame.MoveAxis) && offset.LengthSquared() > 1f &&
+                        cardinal.Dot(offset.Normalized()) >= .92f && input.KeyboardAimDirection.Dot(cardinal) > .99f &&
+                        (encounterDanger.SourceActorId == 0 || encounterDanger.SourceActorId == actor.GetInstanceId());
+                    if (neutral)
+                    {
+                        KeyboardRouteInputDriver.Current.PointerButton(MouseButton.Right, true, player,
+                            player.GlobalPosition + cardinal * 100f, stopForGuard: true);
+                        if (lastNeutralSkitterAttack != timeline.AttackId)
+                        {
+                            lastNeutralSkitterAttack = timeline.AttackId;
+                            GD.Print($"TASK10_PENDULUM_NEUTRAL_GUARD physics={Engine.GetPhysicsFrames()} loop={frame} " +
+                                $"actor={actor.GetInstanceId()} attack={timeline.AttackId} gap={signedGap:R} dot={cardinal.Dot(offset.Normalized()):R} floor={DescribeFloorCollider(player)}");
+                        }
+                    }
+                    else SendMouse(MouseButton.Right, guard, player, skitterGuardRequired ? skitterGuardSource : target);
+                    }
+                }
                 else if (sentryPolicy)
-                    SendMouse(MouseButton.Right, sentryGuardRequired, player,
-                        sentryGuardRequired ? sentryGuardSource : target);
+                {
+                    bool foreignGuard = encounterDanger.SourceActorId != 0 &&
+                        encounterDanger.SourceActorId != actor.GetInstanceId() && genericGuardBeforeSpecialization;
+                    SendMouse(MouseButton.Right, sentryGuardRequired || foreignGuard, player,
+                        foreignGuard ? encounterDanger.GuardSource : sentryGuardRequired ? sentryGuardSource : target);
+                }
                 else
                 {
                     if (counterweightSuppressionKeyboard)
                         MixedResourceSnapshot("fallback_shield_command", $"guard_command={generalDefendWindow}");
-                    SendMouse(MouseButton.Right, generalDefendWindow, player,
-                        enemyThreat ? encounterDanger.GuardSource : target);
+                    if (mixedRustPolicy.HasValue && generalDefendWindow &&
+                        encounterDanger.SourceActorId == mixedGuardActorId &&
+                        encounterDanger.AttackId != 0 && mixedGuardRequestedAttack != encounterDanger.AttackId)
+                    {
+                        mixedGuardRequestedAttack = encounterDanger.AttackId;
+                        mixedGuardRequestedSequence = input.CurrentFrameSequence;
+                        SendAction(InputActions.MoveLeft, false); SendAction(InputActions.MoveRight, false);
+                        MixedResourceSnapshot("Rust_guard_direction_request", $"actor={mixedGuardActorId} " +
+                            $"attack={mixedGuardRequestedAttack} near_warning={encounterDanger.NearContactGuard} " +
+                            $"phase={encounterDanger.Phase} remaining={encounterDanger.RemainingSeconds:R} " +
+                            $"source={encounterDanger.GuardSource} request_sequence={mixedGuardRequestedSequence} no_extra_wait=true");
+                    }
+                    bool returnCurrent = Task10RustGuardReceiptCurrent(mixedGuardReceipt, mixedGuardActorId,
+                        mixedGuardHitboxId, mixedGuardHurtboxId, mixedGuardEpoch, Engine.GetPhysicsFrames(),
+                        playerHealth.CurrentHealth, MixedGuardRetained());
+                    bool returnEnabled = mixedRustPolicy.HasValue && mixedHopStage == 1 && !mixedHopIssued &&
+                        GodotObject.IsInstanceValid(mixedHopBurst) &&
+                        (!encounterDanger.Threat || encounterDanger.SourceActorId == mixedHopBurst.GetInstanceId()) &&
+                        input.CurrentFrame.ShieldHeld && shield.IsActive && Input.IsPhysicalKeyPressed(Key.L);
+                    bool returnCompeting = combat.IsAttacking || mixedClawMotor.IsDashing ||
+                        mixedClaw.CurrentFrame.State != MechanicalClawState.Idle || input.CurrentFrame.AttackPressed ||
+                        input.CurrentFrame.PrimaryPressed || input.CurrentFrame.ClawPressed ||
+                        input.CurrentFrame.JumpPressed || input.CurrentFrame.JumpHeld || input.CurrentFrame.DashPressed;
+                    bool returnLease = Task10RustReturnLeaseGranted(mixedGuardReceipt, returnCurrent,
+                        input.CurrentFrameSequence, mixedGuardConsumedTransition, returnEnabled,
+                        returnEnabled && MixedGuardFullSupport(), returnCompeting);
+                    if (returnLease)
+                    {
+                        TestAssert.True(Task10MixedReturnLeftGuard(player, true),
+                            "MIXED_RETURN_INPUT_RED: a current real receipt lease must acquire its actual Left guard input");
+                        mixedReturnLeaseCommands++;
+                        if (mixedReturnTransition != mixedGuardReceipt.Transition)
+                        {
+                            mixedReturnLeaseStarted = mixedReturnPending = true;
+                            mixedReturnTransition = mixedGuardReceipt.Transition;
+                            mixedReturnCommandSequence = input.CurrentFrameSequence;
+                            MixedResourceSnapshot("Rust_left_return_command", $"contact_sequence={mixedGuardReceipt.Sequence} " +
+                                $"command_sequence={mixedReturnCommandSequence} transition={mixedReturnTransition} " +
+                                $"epoch={mixedGuardEpoch.Epoch} extra_waits=0");
+                        }
+                    }
+                    else if ((!mixedLeftProbe || input.CurrentFrameSequence == 6460) && generalDefendWindow &&
+                        !moveLeft && !moveRight && TryHeldLeftCandidate(encounterDanger, out var heldLeftBullet))
+                    {
+                        mixedHeldLeftUsed = true;
+                        await ProbeHeldLeftOnce(encounterDanger, heldLeftBullet);
+                        leftProbeAdvanced = true;
+                    }
+                    else if (mixedRechargeEnabled && mixedPostHopIssued && mixedPostHopKStage == 3 &&
+                        ReferenceEquals(actor, mixedGuardRust) && enemyHealth?.CurrentHealth == 1 &&
+                        generalDefendWindow && !moveLeft && !moveRight && !returnCompeting &&
+                        player.Velocity == Vector2.Zero && input.Current.MoveAxis == 0f && MixedGuardFullSupport() &&
+                        !mixedClawMotor.HasEnvironmentalLaunchMomentum && !mixedClawMotor.HasGrappleReleaseMomentum &&
+                        Engine.TimeScale == 1d && Engine.PhysicsTicksPerSecond == 60 &&
+                        rechargeCoverage.Admits(encounterDanger.CounterSources, Engine.GetPhysicsFrames(), input.CurrentFrameSequence) &&
+                        encounterDanger.CandidateObserverFaults == 0 && encounterDanger.MissingGuardSourceCount == 0 &&
+                        !mixedContactClipped && !previousContactClipped && mixedContactTick == Engine.GetPhysicsFrames() &&
+                        previousContactTick != 0 && previousContactTick + 1 == mixedContactTick &&
+                        previousContactSequence + 1 == mixedContactSequence && mixedContactSequence == input.CurrentFrameSequence &&
+                        mixedLateCapsule.HasValue && mixedContactWarningSeconds > 3f / 60f &&
+                        mixedContactCandidates.All(row =>
+                        {
+                            // A new emission, unmeasured candidate or live melee
+                            // always preserves the old guard. Only observed linear
+                            // Burst flight can earn a brief shield release here.
+                            if (row.FromActiveGap || row.OrientationConsumed || row.DepartureExcluded ||
+                                !row.HasShape || row.Shape.Kind != AttackShapeKind.Circle || row.ProjectileId == 0 ||
+                                row.LeafId == 0 || row.Timeline.AttackId == 0 || !float.IsFinite(row.GuardClearance) ||
+                                GodotObject.InstanceFromId(row.SourceActorId) is not RangedWeaponEnemy { Role: RangedWeaponRole.Burst })
+                                return false;
+                            var old = previousContactCandidates.FindLast(before => before.SourceActorId == row.SourceActorId &&
+                                before.ProjectileId == row.ProjectileId && before.LeafId == row.LeafId &&
+                                before.Timeline.AttackId == row.Timeline.AttackId);
+                            float travel = (row.Shape.Origin - old.Shape.Origin).Length();
+                            return old.HasShape && old.Shape.Kind == AttackShapeKind.Circle &&
+                                old.Shape.Extent == row.Shape.Extent && float.IsFinite(travel) && travel > .01f &&
+                                row.GuardClearance > 3f * travel + .5f;
+                        }))
+                    {
+                        mixedRechargeDeferrals++;
+                        MixedResourceSnapshot("posthop_recharge_defer", $"count={mixedRechargeDeferrals} " +
+                            $"warning={mixedContactWarningSeconds:R} active_candidates={mixedContactCandidates.Count} " +
+                            $"emission_sources={rechargeCoverage.Count}/{encounterDanger.CounterSources} emission_faults={rechargeCoverage.Faults} " +
+                            "emission_horizon=one_native_step same_scan=true");
+                        SendMouse(MouseButton.Right, false, player, encounterDanger.GuardSource);
+                    }
+                    else
+                        SendMouse(MouseButton.Right, generalDefendWindow, player,
+                            gearPostLureVerticalGuard ? gearPostLureGuardPoint :
+                            enemyThreat ? encounterDanger.GuardSource : target);
                 }
             }
 
-            await PhysicsFrames(tree, monitor, 1);
+            if (!mixedNeutralWindowSeen && mixedFinishIntent && strikeRange && !combat.IsAttacking &&
+                frame < nextAttackFrame && !generalDefendWindow && !input.Current.ShieldHeld && !shield.IsActive &&
+                mixedClawStage is 0 or 4)
+            {
+                mixedNeutralWindowSeen = mixedNeutralPending = true;
+                mixedNeutralSequence = input.CurrentFrameSequence;
+            }
+            if (!leftProbeAdvanced) await PhysicsFrames(tree, monitor, 1);
             if (frozenRustPolicy && frame < 6 && GodotObject.IsInstanceValid(actor))
             {
                 var rust = (RustShellSquire)actor;
@@ -13021,11 +20967,223 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             }
         }
         }
+        catch (Exception error)
+        {
+            GalleryCounterStage("original-loop-exception", error.GetType().Name);
+            GalleryCounterComplete("original-loop-exception");
+            GalleryHandoffRecord("original-loop-exception");
+            mixedUnwindType = error.GetType().FullName;
+            mixedUnwindMessage = error.Message;
+            throw;
+        }
         finally
         {
+            GalleryHp2Flush("original-loop-finally-before-existing-cleanup");
+            GalleryCounterComplete("original-loop-terminal-before-existing-cleanup");
+            GalleryCounterFlush("original-loop-finally-before-existing-cleanup");
+            GalleryHandoffPoll();
+            GalleryHandoffRecord("original-loop-finally-before-existing-cleanup");
+            GalleryHandoffFlush("original-loop-finally");
+            if (mixedVolleyJournal != null)
+            {
+                try
+                {
+                    if (mixedUnwindType != null && mixedHopIssued && mixedHopStage != 5)
+                    {
+                        // Freeze original Hop statistics at failure. The journal
+                        // below has no HP-retained gate and cannot certify Hop.
+                        if (GodotObject.IsInstanceValid(mixedHopObserver)) mixedHopObserver.Sample = null;
+                        if (GodotObject.IsInstanceValid(mixedHopBurst))
+                        { mixedHopBurst.ShotEmitted -= HopShot; mixedHopBurst.FrameChanged -= HopFrame; }
+                        foreach (var shot in mixedHopShots.Keys)
+                            if (GodotObject.IsInstanceValid(shot)) shot.Retired -= HopRetired;
+                        KeyboardRouteInputDriver.Current?.ReleaseAll();
+                        int downBefore = KeyboardRouteInputDriver.Current?.KeyDownCount ?? -1;
+                        mixedVolleyJournal.Mark("post_failure_begin", $"original_type={mixedUnwindType} " +
+                            $"original_message={System.Text.Json.JsonSerializer.Serialize(mixedUnwindMessage)} " +
+                            $"original_hop_stage={mixedHopStage} original_hop_shots={mixedHopShots.Count} " +
+                            $"max_extra_ticks=120 recoveries={monitor.RecoveryRequested}/{monitor.RecoveryCompleted}");
+                        var tail = await Task10ObserveFailedVolleyTail(() => mixedVolleyJournal.Complete, async () =>
+                        {
+                            // No monitor.Observe/strategy/inputs. ProcessFrame
+                            // lets the final physics tick's native callbacks finish.
+                            await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+                            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                        });
+                        mixedVolleyJournal.Mark("post_failure_end", $"extra_ticks={tail.Ticks} complete={tail.Complete} " +
+                            $"fault={System.Text.Json.JsonSerializer.Serialize(tail.Fault)} " +
+                            $"key_down_delta={(KeyboardRouteInputDriver.Current?.KeyDownCount ?? -1)-downBefore} " +
+                            $"recoveries={monitor.RecoveryRequested}/{monitor.RecoveryCompleted} original_failure_preserved=true");
+                    }
+                }
+                catch (Exception error)
+                {
+                    mixedVolleyJournal.Mark("tail_fault", System.Text.Json.JsonSerializer.Serialize(error.Message));
+                }
+                finally
+                {
+                    // Each unsubscribe is isolated inside Dispose; journal/output
+                    // failure never replaces the pending original route failure.
+                    mixedVolleyJournal.Dispose();
+                    try { mixedVolleyJournal.WriteSummary(); } catch (Exception) { }
+                }
+            }
+            if (mixedLaneControl != null)
+            {
+                try { mixedLaneControl.WriteSummary(); }
+                finally { mixedLaneControl.Dispose(); }
+            }
+            if (counterweightSuppressionKeyboard)
+                GD.Print($"MIXED_OWN_PREVIEW_PREP_END started={mixedOwnPrepStarted} ready={mixedOwnPrepReady} " +
+                    $"release_sequence={mixedOwnPrepSequence} start_loop={mixedOwnPrepLoop} " +
+                    "limit=8 original_outer_only=true preparation_K=0 whole_goal=false");
+            // This listener exists before any HP1 contact and must detach even if mixedClawEnemy is null.
+            if (earlyMixedSubscribed)
+            {
+                try
+                {
+                    if (GodotObject.IsInstanceValid(mixedClaw)) mixedClaw.ClawFrameChanged -= earlyMixedPreview;
+                    earlyMixedSubscribed = false;
+                }
+                catch (Exception error)
+                {
+                    earlyMixedFaults++;
+                    earlyMixedFirstFault ??= error.GetType().Name + ": " + error.Message;
+                }
+            }
             if (counterweightSuppressionKeyboard)
             {
+                try
+                {
+                    for (int octant = 0; octant < 8; octant++)
+                    {
+                        if ((earlyMixedObserved & (1 << octant)) == 0) continue;
+                        GD.Print(earlyMixedPreviews[octant].Facts);
+                        if (earlyMixedDangerRows[octant] != null) GD.Print(earlyMixedDangerRows[octant]);
+                    }
+                    foreach (string row in earlyMixedSourceRows) GD.Print(row);
+                    GD.Print($"MIXED_EARLY_PREVIEW_END observed={string.Join(",", earlyMixedOctants.Where((_, octant) => (earlyMixedObserved & (1 << octant)) != 0))} " +
+                        $"missing_octants={string.Join(",", earlyMixedOctants.Where((_, octant) => (earlyMixedObserved & (1 << octant)) == 0))} " +
+                        $"copy_failed_octants={string.Join(",", earlyMixedOctants.Where((_, octant) => (earlyMixedSeen & ~earlyMixedObserved & (1 << octant)) != 0))} " +
+                        $"unassociated_octants={string.Join(",", earlyMixedOctants.Where((_, octant) => (earlyMixedObserved & ~earlyMixedAssociated & (1 << octant)) != 0))} " +
+                        $"samples={earlyMixedPreviews.Count(row => row.Stamp != 0)}/8 " +
+                        $"associated={earlyMixedDangerRows.Count(row => row != null)} publications={earlyMixedPublicationStamp} " +
+                        $"contribution_rows={earlyMixedSourceRows.Count}/64 capcount={earlyMixedCapCount} " +
+                        $"faults={earlyMixedFaults} first_fault={earlyMixedFirstFault ?? "none"} listener_detached={!earlyMixedSubscribed} " +
+                        "missing_is_unobserved=true preview_scan_same_call=false post_node_completed_claimed=false " +
+                        "extra_resolver=false extra_physics_queries=0 input_writes=0 extra_waits=0 whole_goal=false");
+                }
+                catch (Exception) { /* Missing output is not evidence; never mask the primary route failure. */ }
+            }
+            if (counterweightSuppressionKeyboard)
+            {
+                try
+                {
+                    foreach (string row in mixedLiveAdmissionRows) GD.Print(row);
+                    GD.Print($"MIXED_LIVE_K_ADMISSION_END samples={mixedLiveAdmissionSamples} " +
+                        $"rows={mixedLiveAdmissionRows.Count}/64 omitted={mixedLiveAdmissionOmitted} " +
+                        $"faults={mixedLiveAdmissionFaults} boundary=original_outer_pre_node " +
+                        "extra_resolver=false input_writes=0 extra_waits=0 whole_goal=false");
+                }
+                catch (Exception) { /* Missing diagnostic output cannot count as evidence or replace the route failure. */ }
+            }
+            if (courtyardRearControl != null)
+            {
+                try { courtyardRearControl.WriteSummary(); }
+                catch (Exception) { /* Missing diagnostic receipt cannot be accepted, and must not replace the route failure. */ }
+                try { courtyardRearControl.Dispose(); }
+                catch (Exception error) { GD.PushError($"COURTYARD_REAR_CONTROL_CLEANUP_FAULT {error.GetType().Name}"); }
+            }
+            if (courtyardKeyboardJump)
+            {
+                try
+                {
+                    foreach (string row in courtyardRearRows) GD.Print(row);
+                    GD.Print($"COURTYARD_REAR_PLAN_END samples={courtyardRearSamples} rows={courtyardRearRows.Count}/192 " +
+                        $"omitted={courtyardRearOmitted} faults={courtyardRearFaults} extra_queries_disclosed=true " +
+                        "input_writes=0 extra_waits=0 policy_unchanged=true whole_goal=false");
+                }
+                catch (Exception) { /* Never replace the original route failure with diagnostic output failure. */ }
+            }
+            if (lowerTraceEnabled)
+            {
+                if (GodotObject.IsInstanceValid(lowerClawInputObserver))
+                { lowerClawInputObserver.Sample = null; lowerClawInputObserver.Free(); }
+                if (GodotObject.IsInstanceValid(lowerClaw)) lowerClaw.ClawFrameChanged -= LowerControlPublication;
+                try
+                {
+                    if (GodotObject.IsInstanceValid(playerHealth)) playerHealth.Damaged -= lowerDamage;
+                    foreach (var entry in lowerPublications)
+                        if (GodotObject.IsInstanceValid(entry.Source))
+                        {
+                            if (entry.Source is RustShellSquire rust) rust.AttackFrameChanged -= entry.Listener;
+                            else if (entry.Source is BellBackLaborer bell) bell.AttackFrameChanged -= entry.Listener;
+                        }
+                    foreach (var entry in lowerPostMoves)
+                        if (GodotObject.IsInstanceValid(entry.Source)) entry.Source.FrameChanged -= entry.Listener;
+                    foreach (var row in lowerTraceRows.Concat(lowerControlProofRows).OrderBy(row => row.Serial)) GD.Print(row.Text);
+                    GD.Print($"LOWER_BELL_TRACE_END rows={lowerTraceRows.Count}/512 total={lowerTraceSerial} " +
+                        $"dropped={lowerTraceDropped} faults={lowerTraceFaults} passes={lowerCandidatePasses} " +
+                        $"control_proof_rows={lowerControlProofRows.Count}/64 control_proof_omitted={lowerControlProofOmitted} " +
+                        $"publications={lowerPublications.Count} post_moves={lowerPostMoves.Count} " +
+                        $"control_stage={lowerControlStage} control_cast={lowerControlCast} control_ticks={lowerControlTicks} " +
+                        $"approach_steps={lowerApproachSteps} " +
+                        $"trigger_physics={lowerTriggerPhysics} after_window_omitted={lowerAfterWindowOmitted} post_trigger_ticks=2 " +
+                        "tail_only=true original_scan_only=true no_extra_frames=true decision_capsule_unchanged=true");
+                }
+                catch (Exception) { /* Preserve the original route failure; missing END is not valid observation. */ }
+            }
+            if (GodotObject.IsInstanceValid(steamBoundaryObserver))
+            { steamBoundaryObserver.Sample=null; steamBoundaryObserver.Free(); }
+            if (steamSentryDiagnostic)
+            {
+                try
+                {
+                    foreach (string row in steamBoundaryRows) GD.Print(row);
+                    GD.Print($"STEAM_NATIVE_BOUNDARY_END rows={steamBoundaryRows.Count}/64 samples={steamBoundarySamples} " +
+                        $"omitted={steamBoundaryOmitted} faults={steamBoundaryFaults} passive_only=true extra_frames=0 extra_queries=0");
+                }
+                catch (Exception) { /* Diagnostic output must not replace the original route failure. */ }
+            }
+            if (counterweightSuppressionKeyboard)
+            {
+                try
+                {
+                    foreach (string row in mixedGuardSwitchWindow.Rows)
+                        GD.Print("MIXED_GUARD_SWITCH_PINNED " + row.Substring("MIXED_LATE_DECISION ".Length));
+                    GD.Print($"MIXED_GUARD_SWITCH_PINNED_END rows={mixedGuardSwitchWindow.Rows.Count}/8 " +
+                        $"triggered={mixedGuardSwitchWindow.Triggered} complete={mixedGuardSwitchWindow.Complete} " +
+                        "captured_decisions_not_physics_frames=true same_original_capsule=true extra_queries=0 extra_frames=0");
+                    foreach (string row in mixedLateRows) GD.Print(row);
+                    GD.Print($"MIXED_LATE_END rows={mixedLateRows.Count}/96 dropped={mixedLateDropped} " +
+                        $"faults={mixedLateFaults} passes={mixedLatePass} whole_battle_coverage=false " +
+                        "outer_mask=0x3fff uncomputed_is_not_failed=true original_scans_only=true fresh_capsule_unchanged_null=true");
+                    foreach(object row in counterweightClimbRows)
+                        GD.Print("TASK10_COUNTERWEIGHT_CLIMB_OBSERVATION "+System.Text.Json.JsonSerializer.Serialize(row));
+                    GD.Print($"TASK10_COUNTERWEIGHT_CLIMB_OBSERVATION_END rows={counterweightClimbRows.Count}/64 " +
+                        $"start={counterweightClimbStart} fault={counterweightClimbFault??"none"} " +
+                        $"wall_jump_frame={counterweightWallJumpFrame} native_wall_landing={counterweightWallLandingSeen} " +
+                        "observation_only=true extra_queries=0 extra_frames=0");
+                }
+                catch (Exception) { /* Preserve the primary result if even diagnostic output is unavailable. */ }
+            }
+            foreach (var watch in rearmWatches)
+                if (GodotObject.IsInstanceValid(watch.Key)) watch.Key.FrameChanged -= watch.Value;
+            GD.Print($"TASK10_REARM_CONFIG watched={rearmWatches.Count} post_node_samples={rearmPostNodeSamples} " +
+                $"changed={rearmSettingsChanged} model_live_semantics_preserved=true");
+            if (frozenLowerKeyboard)
+            {
+                foreach (string row in frozenCounterRows) GD.Print(row);
+                GD.Print($"TASK10_FROZEN_COUNTER_END rows={frozenCounterRows.Count}/128 omitted={frozenCounterOmitted} " +
+                    $"faults={frozenCounterFaults} decision_samples_only=true internal_await_gaps_not_observed=true");
+            }
+            if (counterweightSuppressionKeyboard)
+            {
+                MixedResourceSnapshot("later_K_ledger_unwind", $"count={mixedLaterReceipts.Count} pending={mixedLaterPending} " +
+                    $"faults={mixedLaterFaults} first_edge_end={mixedFirstEdgeEnd} raw_edges={KeyboardRouteInputDriver.Current?.ClawEdges} " +
+                    $"first_fault={mixedLaterFault ?? "none"}");
                 MixedResourceSnapshot("unwind_before_listener_removal");
+                if (mixedJetOpportunity) KeyboardRouteInputDriver.Current?.ReleaseAll();
                 mixedClosed = true;
                 void RemoveMixedListener(Node node, Action remove)
                 {
@@ -13035,6 +21193,29 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 RemoveMixedListener(energy, () => energy.EnergyFrameChanged -= mixedEnergyChanged);
                 RemoveMixedListener(shield, () => shield.ShieldFrameChanged -= mixedShieldChanged);
                 RemoveMixedListener(shield, () => shield.ShieldResolved -= mixedShieldResolved);
+                RemoveMixedListener(shield, () => shield.ShieldResolved -= MixedGuardResolved);
+                RemoveMixedListener(mixedGuardRust, () => mixedGuardRust.AttackFrameChanged -= MixedGuardPublication);
+                RemoveMixedListener(mixedGuardHitbox, () => mixedGuardHitbox.Connected -= MixedGuardConnected);
+                RemoveMixedListener(mixedHopBurst, () => mixedHopBurst.ShotEmitted -= HopShot);
+                RemoveMixedListener(mixedHopBurst, () => mixedHopBurst.FrameChanged -= HopFrame);
+                foreach (RangedWeaponProjectile shot in mixedHopShots.Keys) shot.Retired -= HopRetired;
+                if (GodotObject.IsInstanceValid(mixedHopObserver))
+                { mixedHopObserver.Sample = null; mixedHopObserver.Free(); }
+                foreach (string row in mixedHopRows) GD.Print(row);
+                GD.Print($"MIXED_POST_HOP_K_END attempted={mixedPostHopAttempted} issued={mixedPostHopIssued} " +
+                    $"stage={mixedPostHopKStage} previews={mixedPostHopPreviews} target={mixedPostHopTarget} " +
+                    $"receipt_delta={(mixedPostHopIssued ? mixedLaterReceipts.Count-mixedPostHopReceiptStart : 0)} extra_resolver=false whole_goal=false");
+                GD.Print($"MIXED_RECOVERY_HOP_END stage={mixedHopStage} issued={mixedHopIssued} " +
+                    $"source={(GodotObject.IsInstanceValid(mixedHopBurst) ? mixedHopBurst.GetInstanceId() : 0)} cycle={mixedHopCycle} " +
+                    $"samples={mixedHopSamples} raw_jump_edges={mixedHopRawEdges} shots={mixedHopShots.Count} planned={mixedHopAcknowledged} " +
+                    $"passed={mixedHopShots.Values.Count(x => x.Passed)} natural_increase={mixedHopNaturalIncrease} " +
+                    $"retired_unpassed={mixedHopShots.Values.Count(x => x.RetiredUnpassed)} " +
+                    $"faults={mixedHopFaults} first_fault={mixedHopFault ?? "none"} whole_goal=false");
+                GD.Print($"MIXED_RUST_GUARD_END actor={mixedGuardActorId} contacts={mixedGuardContacts} " +
+                    $"returns_left={mixedGuardReturns} faults={mixedGuardFaults} epoch={mixedGuardEpoch} " +
+                    $"last_receipt={mixedGuardReceipt} continuous_production_Begin_only=true whole_goal=false");
+                mixedGuardRust = null; mixedGuardHitbox = null; mixedGuardHurtbox = null;
+                mixedGuardFloor = null; mixedGuardReceiver = null;
                 try
                 {
                     GD.Print($"MIXED_RESOURCE_BEGIN capacity={mixedRecordCapacity} diagnostic_only=true " +
@@ -13042,6 +21223,14 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     foreach (string record in mixedRecords) GD.Print(record);
                     GD.Print($"MIXED_RESOURCE_END records={mixedRecords.Count} dropped={mixedDropped} " +
                         $"observer_errors={mixedObservationErrors} live_loop_stdout=false zero_overhead_claim=false whole_goal=false");
+                    GD.Print($"MIXED_CANDIDATE_BEGIN start_physics={mixedCandidateStart} window_ticks={mixedCandidateWindowTicks} " +
+                        $"capacity={mixedCandidateCapacity} original_scan_only=true internal_await_gaps_not_observed=true");
+                    foreach (string row in mixedCandidateRows) GD.Print(row);
+                    GD.Print($"MIXED_CANDIDATE_END passes={mixedCandidatePasses} rows={mixedCandidateRows.Count} " +
+                        $"dropped={mixedCandidateDropped} observer_faults={mixedCandidateFaults} " +
+                        "live_loop_stdout=false whole_battle_coverage=false timed_priority_preserved=true live_circle_ties=surface_clearance");
+                    GD.Print($"MIXED_MELEE_GEOMETRY samples={mixedMothGeometrySamples} " +
+                        $"mismatch={mixedMothGeometryMismatch != null} published_world_circle=true human=false");
                 }
                 catch (Exception) { /* Preserve the original route failure if diagnostic output fails. */ }
             }
@@ -13139,6 +21328,17 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     $"damage_events={steamBellDamageEvents} hitbox_connections={steamBellConnections} " +
                     $"fatal_stack={steamBellFatalStack} fatal_connection={steamBellFatalConnection} " +
                     $"diagnostic_errors={steamBellErrors} observer_only=true normal_cap=64 terminal_reserved=2");
+                ObserveSteamRecoveryDecision("terminal_before_dispose");
+                var decisionRows = steamDecisionPrefix.Concat(steamDecisionTail).GroupBy(row => row.Serial)
+                    .Select(group => group.First()).OrderBy(row => row.Serial).ToArray();
+                foreach (var row in decisionRows) GD.Print("STEAM_RECOVERY_DECISION " + row.Text);
+                foreach (var row in steamDecisionTransitions) GD.Print("STEAM_RECOVERY_TRANSITION " + row.Text);
+                GD.Print($"STEAM_RECOVERY_TRANSITIONS_END retained={steamDecisionTransitions.Count}/160 " +
+                    $"total={steamTransitionTotal} omitted={steamTransitionOmitted} faults={steamDecisionFaults} " +
+                    "actual_command_boundary=true scalar_only=true no_policy_change=true");
+                GD.Print($"STEAM_RECOVERY_DECISION_END retained={decisionRows.Length} prefix={steamDecisionPrefix.Count}/24 " +
+                    $"tail={steamDecisionTail.Count}/128 total={steamDecisionTotal} tail_evicted={steamDecisionDropped} " +
+                    $"faults={steamDecisionFaults} scalar_only=true no_extra_scan=true no_extra_wait=true no_policy_change=true");
                 steamSentryRecovery?.Dispose();
                 if (GodotObject.IsInstanceValid(trackedBoltHitbox))
                     trackedBoltHitbox.Connected -= boltConnected;
@@ -13153,13 +21353,87 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 if (GodotObject.IsInstanceValid(shield)) shield.ShieldFrameChanged -= diagnosticShieldChanged;
                 GearDiagnosticSnapshot("unwind");
             }
+            if (gearBellKeyboard)
+                GD.Print($"TASK10_GEAR_BELL_READINESS_END rows={gearBellReadinessRows}/24 " +
+                    $"first_overheat={gearBellFirstOverheat} fault={gearBellReadinessFault ?? "none"} " +
+                    $"last=({gearBellLastReadiness}) observer_only=true extra_helper_calls=0 extra_queries=0");
+            if (gearLureBell != null)
+            {
+                try
+                {
+                    gearPostLureObserver.Sample = null;
+                    if (GodotObject.IsInstanceValid(gearPostLureObserver)) gearPostLureObserver.Free();
+                    else gearPostLureFault ??= "post-lure observer retired before owned cleanup";
+                }
+                catch (Exception error) { gearPostLureFault ??= error.ToString(); }
+                GD.Print($"TASK10_GEAR_POSTLURE_FLOOR_END samples={gearPostLureSamples} " +
+                    $"first={gearPostLureFirst} last={gearPostLureLast} fault={gearPostLureFault ?? "none"} " +
+                    "actual_post_Motor=true includes_inner_waits=true extra_frames=0 extra_queries=0");
+                GD.Print($"TASK10_GEAR_FIXED_LURE_END stage={gearLureStage} ticks={gearLureTicks} rows={gearLureRows}/24 " +
+                    $"same_bell={gearLureId} approach_seen={gearLureApproachSeen} native_handoff={gearLureStage == 4} " +
+                    $"near={gearLureNearX:R} outward={gearLureOutX:R} original_outer_budget=900 actor_pose_writes=0");
+            }
             combat.AttackStarted -= started;
             combat.AttackStarted -= directionStarted;
             combat.AttackConnected -= connected;
+            if (GodotObject.IsInstanceValid(mixedClawEnemy))
+            {
+                mixedClawEnemy.ShotEmitted -= mixedClawShot;
+                mixedClawEnemy.Defeated -= mixedClawDefeated;
+                mixedClawEnemy.FrameChanged -= mixedClawEnemyFrame;
+            }
+            if (mixedClawEnemy != null && GodotObject.IsInstanceValid(mixedClaw))
+                mixedClaw.ClawFrameChanged -= mixedClawFrame;
+            mixedLaterActor = null; mixedLaterTarget = null; mixedLaterAdapter = null;
             if (GodotObject.IsInstanceValid(playerHealth)) playerHealth.Damaged -= playerDamaged;
             if (GodotObject.IsInstanceValid(observedEnemyHealth))
                 observedEnemyHealth.Damaged -= damaged;
         }
+        // Reached only after normal encounter completion. An original route
+        // failure unwinds first and is never replaced by a diagnostic failure.
+        TestAssert.True(!mixedReturnLeaseStarted || !mixedReturnPending && mixedGuardReturns > 0 &&
+            mixedReturnLeaseCommands > 0 && mixedHopIssued && mixedHopStage == 5,
+            "MIXED_RETURN_TERMINAL_RED: acquired same-epoch Left lease needs its real return and original completed Hop");
+        TestAssert.True(!mixedForeignPreludeRequired || mixedGuardKAccepted && mixedGuardActorId != 0 &&
+            mixedLaterReceipts.Any(receipt => receipt.ActorId == mixedGuardActorId),
+            "MIXED_FOREIGN_PRELUDE_TERMINAL_RED: an acquired pre-fatal Rust interruption requires its original validated same-bound-actor K receipt");
+        TestAssert.True(!mixedSetupRequired || mixedSetupIssued && !mixedSetupAwaitContact &&
+            mixedSetupFault == null && mixedSetupAccepted == 1 && mixedSetupContacts == 1 && mixedFirstJObserved &&
+            mixedJetOpportunity && mixedJetCompleted && mixedJetStage == 5 && mixedJetSamples == 1,
+            "MIXED_SETUP_TERMINAL_RED: actual HP2 setup requires its one real HP2->1 contact and original neutral/jet handoff");
+        TestAssert.True(!mixedOwnPrepStarted || mixedOwnPrepReady,
+            "MIXED_OWN_PREVIEW_TERMINAL_RED: encounter completion cannot bypass an acquired fresh-preview handoff");
+        TestAssert.True(courtyardRearControl == null || !courtyardRearControl.Started || courtyardRearControl.Completed,
+            "COURTYARD_REAR_CONTROL_TERMINAL_RED: an acquired rear interruption must finish its own cast/effect/return before encounter acceptance");
+        Task10RequirePostHopObservation(mixedPostHopObservationAttempts,
+            mixedPostHopObservationCompleted, mixedObservationErrors, mixedDropped);
+        TestAssert.True(!mixedNeutralWindowSeen || mixedNeutralSamples == 1 && !mixedNeutralPending,
+            "MIXED_COOLDOWN_TERMINAL_RED: an observed cooldown-neutral command needs its one actual input sample before encounter completion");
+        TestAssert.True(!mixedHopIssued || mixedHopStage == 5 && mixedHopFaults == 0 && mixedHopRawEdges == 1 &&
+            mixedHopShots.Count == 3 && mixedHopAcknowledged == 3 && mixedHopShots.Values.All(x => x.Passed != x.RetiredUnpassed) &&
+            mixedHopNaturalIncrease && mixedHopSettled >= 2,
+            "MIXED_RECOVERY_HOP_TERMINAL_RED: no encounter completion bypasses the issued one-hop/three-shot/natural-regen/full-landing obligation");
+        TestAssert.True(!mixedPostHopAttempted || mixedPostHopKStage == 3 &&
+            (!mixedPostHopIssued || !mixedLaterPending &&
+                Task10PostHopReceiptRetained(mixedPostHopReceiptStart, mixedPostHopAcceptedReceipt, mixedLaterReceipts)),
+            "MIXED_POST_HOP_K_TERMINAL_RED: one neutral preparation must resolve, and an issued K needs its own normal conserved receipt");
+        TestAssert.True(!mixedJetOpportunity || mixedJetCompleted && mixedJetStage == 5 && mixedJetSamples == 1,
+            "MIXED_JET_TERMINAL_RED: a jet opportunity needs its real accepted sample, braking and neutral supported handoff");
+        TestAssert.True(mixedClawActorId == 0 || mixedClawShotSeen && mixedClawShotOrdinal != 0 &&
+            mixedFatalConnected && mixedDefeated && (!mixedLiveEnrolled || mixedFirstJObserved),
+            "MIXED_OWNED_SHOT_TERMINAL_RED: the captured Burst needs its own real Shot, fatal J contact and Defeated, not another actor or group completion");
+        TestAssert.True(Task10MixedClawTerminalAccepted(
+                mixedClawWindowPhysics != 0 || mixedPostShotSchedule && mixedEarlyWindowPhysics != 0, mixedClawCompleted,
+                mixedClawStage == 4, mixedClawSamples,
+                Task10MixedClawTerminalEdges(mixedPostShotSchedule, mixedFirstEdgeEnd,
+                    KeyboardRouteInputDriver.Current?.ClawEdges ?? mixedClawEdges, mixedClawEdges),
+                mixedClawAborted),
+            "MIXED_K_TERMINAL_RED: encounter completion cannot bypass an observed K obligation or its real handoff");
+        TestAssert.True(!mixedPostShotSchedule || mixedFirstEdgeEnd < 0 ||
+            Task10MixedLaterClawLedgerAccepted(mixedFirstEdgeEnd, KeyboardRouteInputDriver.Current.ClawEdges,
+                mixedClawCastId, mixedFirstHandoff, player.GetInstanceId(), actorRoot.GetInstanceId(),
+                mixedLaterReceipts, mixedLaterPending, mixedLaterFaults),
+            "MIXED_LATER_K_TERMINAL_RED: subsequent casts cannot hide behind the frozen first receipt");
         string lastActorState = GodotObject.InstanceFromId(trackedActorId) is Node2D liveActor
             ? $"type={liveActor.GetType().Name} velocity=" +
               $"{(liveActor is CharacterBody2D body ? body.Velocity : Vector2.Zero)} " +
@@ -13175,8 +21449,17 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             $"shield_active={shield.IsActive} energy={energy.EnergyRatio:0.000} " +
             $"frames_since_start={(lastAttackStartedFrame < 0 ? -1 : currentFrame - lastAttackStartedFrame)} " +
             $"frames_since_contact={(lastAttackConnectedFrame < 0 ? -1 : currentFrame - lastAttackConnectedFrame)}";
+        GalleryHandoffRecord("before-original-ReleaseAll-original-loop-terminal");
+        GalleryHandoffFlush("before-original-ReleaseAll-original-loop-terminal");
+        GalleryCounterFlush("before-original-ReleaseAll-original-loop-terminal");
         ReleaseAll(player.GlobalPosition);
         await PhysicsFrames(tree, monitor, 3);
+        GalleryHandoffPoll();
+        GalleryHandoffRecord("after-original-three-cleanup-frames-not-loop-budget");
+        GalleryHandoffFlush("after-original-three-cleanup-frames-not-loop-budget");
+        GalleryCounterFlush("after-original-three-cleanup-frames-not-loop-budget");
+        TestAssert.True(!rearmSettingsChanged,
+            "MIXED_REARM_DRIFT_RED: a changed live warning cannot certify an encounter counter window");
         TestAssert.True(group.IsComplete,
             $"Task10 real attack/defend/thread input defeats {encounterId}; " +
             $"player={player.GlobalPosition} active={group.IsActive} batch={group.CurrentBatch} " +
@@ -13193,6 +21476,20 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             $"energy={energy.EnergyRatio:0.000} shield={shield.IsActive} " +
             $"input_primary={input.Current.PrimaryPressed}/{input.Current.PrimaryHeld} " +
             $"player_health={player.GetNode<HealthComponent>("Health").CurrentHealth}");
+        TestAssert.True(gearLureBell == null || gearLureStage == 4,
+            "Gear encounter completion cannot bypass the opt-in real fixed-platform lure handoff");
+        TestAssert.True(gearLureBell == null || gearPostLureSamples > 0 && gearPostLureFault == null &&
+            playerHealth.CurrentHealth == playerHealthAtStart && monitor.RecoveryRequested == gearLureRequests &&
+            monitor.RecoveryCompleted == startingRecoveries && gearBellMotor.AcceptedJumpCount == gearLureJumps &&
+            gearBellMotor.AcceptedDashCount == gearLureDashes,
+            "post-lure defeat retains its continuous fixed-floor, HP and action obligations");
+        if (gearLureBell != null)
+            GD.Print($"TASK10_GEAR_POSTLURE_FLOOR_OK samples={gearPostLureSamples} " +
+                $"first={gearPostLureFirst} last={gearPostLureLast} health={playerHealthAtStart}->{playerHealth.CurrentHealth} " +
+                $"J_started={attacksStarted} J_connected={attacksConnected} K={threadCasts} " +
+                "actual_defeat=true same_player=true fixed_support=true original_outer_budget=900 human=false");
+        TestAssert.True(counterweightWallJumpFrame<0 || counterweightWallLandingSeen,
+            "one held ordinary Space at the measured lift-side wall must reach the exact Landing with one accepted jump");
         GD.Print($"TASK10_ENCOUNTER_INPUT_OK id={encounterId} attacks={attacks} " +
             $"started={attacksStarted} connected={attacksConnected} " +
             $"thread_casts={threadCasts} player={player.GlobalPosition} " +
@@ -13200,12 +21497,14 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             $"damage_events={playerDamageEvents}");
     }
 
-    private static string DescribeFloorCollider(CharacterBody2D player)
+    internal static string DescribeFloorCollider(CharacterBody2D player,
+        Action<ulong, WeakReference<KinematicCollision2D>> snapshotObserved = null)
     {
         if (!player.IsOnFloor()) return "airborne";
         for (int index = 0; index < player.GetSlideCollisionCount(); index++)
         {
-            KinematicCollision2D collision = player.GetSlideCollision(index);
+            using KinematicCollision2D collision = player.GetSlideCollision(index);
+            snapshotObserved?.Invoke(collision.GetInstanceId(), new WeakReference<KinematicCollision2D>(collision));
             if (collision.GetNormal().Y >= -.7f) continue;
             GodotObject collider = collision.GetCollider();
             return collider is Node node
@@ -13215,7 +21514,60 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         return "floor_without_slide_collider";
     }
 
-    private static bool TryTask10FullFloorSupport(CharacterBody2D player, out ulong floorId)
+    internal static bool Task10GearMothCastWindow(GraveLampMothState state, AttackPhase phase,
+        float remaining, float safeSeconds, float lead)
+    {
+        if (!float.IsFinite(lead) || lead <= 0f || float.IsNaN(safeSeconds) || safeSeconds <= lead ||
+            !float.IsFinite(remaining) || remaining < 0f) return false;
+        return (state is GraveLampMothState.Hover or GraveLampMothState.Align) && phase == AttackPhase.None && remaining == 0f ||
+            state == GraveLampMothState.Telegraph && phase == AttackPhase.Telegraph && remaining > lead;
+    }
+
+    internal static bool Task10EncounterJumpRequested(bool strikeRange, float dy, bool onFloor,
+        bool towardWall, int frame, bool allowStep, int stepRequestFrame = -1) =>
+        // Continue the SAME held Space for the original seven-tick key cadence;
+        // releasing on the first airborne tick cuts this saved jump to22px.
+        stepRequestFrame >= 0 && frame >= stepRequestFrame && frame - stepRequestFrame < 7 ||
+        !strikeRange && onFloor && frame % 45 == 0 &&
+        (dy < -42f || allowStep && towardWall && dy is >= -42f and < -16f);
+
+    internal static bool Task10CounterweightStepContact(CharacterBody2D player,
+        StaticBody2D source, StaticBody2D landing, Vector2 target)
+    {
+        bool Live(Node node) => GodotObject.IsInstanceValid(node) && node.IsInsideTree() &&
+            !node.IsQueuedForDeletion();
+        if (!Live(player) || !Live(source) || !Live(landing) || source == landing ||
+            !player.IsOnFloor() || !target.IsFinite()) return false;
+        var sourceShape = source.GetNodeOrNull<CollisionShape2D>("Collision");
+        var landingShape = landing.GetNodeOrNull<CollisionShape2D>("Collision");
+        var bodyShape = player.GetNodeOrNull<CollisionShape2D>("BodyCollider");
+        if (!Live(bodyShape) || bodyShape.Disabled || !Live(landingShape) || landingShape.Disabled ||
+            landingShape.Shape is not RectangleShape2D landingRectangle ||
+            !TryTask10CapsuleCorridor(player, sourceShape, out _, out _, out _, out _) ||
+            Mathf.Abs(landingShape.GlobalTransform.X.Y) > .001f ||
+            Mathf.Abs(landingShape.GlobalTransform.Y.X) > .001f ||
+            (source.CollisionLayer & CombatCollisionLayers.World) == 0 ||
+            (landing.CollisionLayer & CombatCollisionLayers.World) == 0) return false;
+        Rect2 body = bodyShape.GlobalTransform * bodyShape.Shape.GetRect();
+        Rect2 sourceBounds = sourceShape.GlobalTransform * sourceShape.Shape.GetRect();
+        Rect2 destination = landingShape.GlobalTransform * landingRectangle.GetRect();
+        Vector2 delta = target - player.GlobalPosition;
+        float side = Mathf.Sign(delta.X), rise = sourceBounds.Position.Y - destination.Position.Y;
+        float gap = side > 0f ? destination.Position.X - body.End.X : body.Position.X - destination.End.X;
+        if (!body.Position.IsFinite() || !body.Size.IsFinite() || !destination.Position.IsFinite() ||
+            !destination.Size.IsFinite() || side == 0f || delta.Y < -42f || delta.Y >= -16f ||
+            rise <= 0f || rise > 42f || Mathf.Abs(body.End.Y - sourceBounds.Position.Y) > 1.1f ||
+            gap < -.1f || gap > 2f || target.X < destination.Position.X || target.X > destination.End.X)
+            return false;
+        using var floorProbe = new KinematicCollision2D();
+        using var wallProbe = new KinematicCollision2D();
+        return player.TestMove(player.GlobalTransform, Vector2.Down * .001f, floorProbe,
+                player.SafeMargin, true) && floorProbe.GetCollider() == source && floorProbe.GetNormal().Y < -.7f &&
+            player.TestMove(player.GlobalTransform, new Vector2(side * 2f, 0f), wallProbe,
+                player.SafeMargin, true) && wallProbe.GetCollider() == landing && wallProbe.GetNormal().X * side < -.7f;
+    }
+
+    internal static bool TryTask10FullFloorSupport(CharacterBody2D player, out ulong floorId)
     {
         floorId = 0;
         if (!player.IsOnFloor()) return false;
@@ -13271,6 +21623,58 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         throw new InvalidOperationException($"rift catch fails its original90-frame full-support handoff; " +
             $"target={support.Name} player={player.GlobalPosition} velocity={player.Velocity} " +
             $"floor={DescribeFloorCollider(player)}");
+    }
+
+    private static async Task VerifyRiftAlternationWall(SceneTree tree, PrologueLevelController level,
+        CharacterBody2D player, RouteMonitor monitor, StaticBody2D support)
+    {
+        HealthComponent health = player.GetNode<HealthComponent>("Health");
+        int arrivalHealth = health.CurrentHealth, damage = 0;
+        ulong playerId = player.GetInstanceId();
+        PlayerInputReader input = player.GetNode<PlayerInputReader>("Input");
+        CollisionShape2D floor = support.GetNode<CollisionShape2D>("Collision");
+        TestAssert.True(KeyboardRouteInputDriver.Current != null && arrivalHealth > 0 && playerId != 0 &&
+            monitor.Player == player && TryTask10FullFloorSupport(player, out ulong floorId) && floorId == support.GetInstanceId() &&
+            TryTask10CapsuleCorridor(player, floor, out _, out _, out _, out _) &&
+            Mathf.Abs(player.Velocity.X) <= .5f && input.Current.MoveAxis == 0f && input.RawFrame.MoveAxis == 0f &&
+            !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D),
+            "Rift wall begins at the existing stopped, exact middle catch on the ordinary Main keyboard route");
+        monitor.AssertNoProductionRecovery("Rift wall arrival");
+        GD.Print($"RIFT_WALL_ARRIVAL_OK player={playerId} health={arrivalHealth} position_writes=0 recovery=0");
+
+        using var wall = new Task10OrdinaryWallSweepEvidence.Observer(tree, level, player, rift: true);
+        void Damaged(int remaining, Vector2 impulse) => damage++;
+        health.Damaged += Damaged;
+        async Task AdvanceOneWallStep()
+        {
+            int before = wall.CorridorSampleCount;
+            for (int i = 0; i < 2 && wall.CorridorSampleCount == before; i++)
+                await PhysicsFrames(tree, monitor, 1);
+            TestAssert.Equal(before + 1, wall.CorridorSampleCount,
+                "Rift wall driver consumes exactly one completed Motor step");
+            TestAssert.True(damage == 0 && health.CurrentHealth == arrivalHealth,
+                "Rift wall never substitutes damage or its impulse for ordinary pressure or retreat");
+            monitor.AssertNoProductionRecovery("Rift wall sampled step");
+        }
+        try
+        {
+            SendAction(InputActions.MoveRight, true);
+            for (int i = 0; i < 90 && !wall.CorridorBlocked; i++) await AdvanceOneWallStep();
+            TestAssert.True(wall.CorridorBlocked,
+                "RIFT_WALL_SWEEP_RED: real D reaches and sustains pressure on the actual RiftAlternationWall");
+            SendAction(InputActions.MoveRight, false);
+            await AdvanceOneWallStep();
+            SendAction(InputActions.MoveLeft, true);
+            for (int i = 0; i < 20 && !wall.CorridorRetreated; i++) await AdvanceOneWallStep();
+            SendAction(InputActions.MoveLeft, false);
+            wall.AssertRiftComplete();
+        }
+        finally
+        {
+            health.Damaged -= Damaged;
+            SendAction(InputActions.MoveRight, false);
+            SendAction(InputActions.MoveLeft, false);
+        }
     }
 
     private static async Task TraverseTask10ControlledAbyss(SceneTree tree,
@@ -13397,6 +21801,193 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         }
         GD.Print($"TASK10_EXPLORATION_BASIN_RETURN_OK player={player.GlobalPosition} " +
             $"input={player.GetNode<PlayerInputReader>("Input").Current.MoveAxis:0.000}");
+    }
+
+    private static async Task ObserveFrozenRightDrop(SceneTree tree, CharacterBody2D player,
+        RouteMonitor monitor, PrologueSector sector, StaticBody2D target)
+    {
+        var pair = sector.GetNode<CanyonSteamDiverter>("Gameplay/Mechanisms/SteamDiverterFrozen");
+        var jet = pair.GetNode<CanyonSteamJet>(pair.RightJetPath);
+        var jetCollision = jet.Collision;
+        var body = player.GetNode<CollisionShape2D>("BodyCollider");
+        var capsule = (CapsuleShape2D)body.Shape;
+        var jetRectangle = (RectangleShape2D)jetCollision.Shape;
+        TestAssert.True(body.GlobalTransform.X.IsEqualApprox(Vector2.Right) &&
+            body.GlobalTransform.Y.IsEqualApprox(Vector2.Down) &&
+            jetCollision.GlobalTransform.X.IsEqualApprox(Vector2.Right) &&
+            jetCollision.GlobalTransform.Y.IsEqualApprox(Vector2.Down),
+            "Frozen drop observer measures the saved upright capsule and jet rectangle");
+        var health = player.GetNode<HealthComponent>("Health");
+        var input = player.GetNode<PlayerInputReader>("Input");
+        var motor = player.GetNode<PlayerMotor>("Motor");
+        var claw = player.GetNode<MechanicalClawController>("MechanicalClaw");
+        ulong jetId = jet.GetInstanceId(), firstPhysics = Engine.GetPhysicsFrames();
+        int hpBefore = health.CurrentHealth, jumpsBefore = motor.AcceptedJumpCount,
+            dashesBefore = motor.AcceptedDashCount;
+        ulong castsBefore = claw.CurrentFrame.NextCastId;
+        int jetDamage = 0, completedSamples = 0, omitted = 0;
+        string observerFault = null;
+        bool movedRight = false, releaseSeen = false;
+        bool? lastOverlap = null, lastActive = null, lastContact = null;
+        var rows = new List<string>(32);
+        var identityField = typeof(HealthComponent).GetField("_processedAttackOrder",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var observer = new BasinBoardingTickObserver { ProcessPhysicsPriority = 100 };
+        void Snapshot(string edge)
+        {
+            try
+            {
+                Vector2 half = new(capsule.Radius, capsule.Height / 2f);
+                Rect2 bodyBounds = new(body.GlobalPosition - half, half * 2f);
+                Rect2 jetBounds = new(jetCollision.GlobalPosition - jetRectangle.Size / 2f, jetRectangle.Size);
+                bool overlap = bodyBounds.Intersects(jetBounds), contact = HasFloorContact(player, target);
+                bool release = movedRight && !releaseSeen && Math.Abs(input.Current.MoveAxis) <= .001f;
+                movedRight |= input.Current.MoveAxis > .99f;
+                releaseSeen |= release;
+                bool record = edge != "completed-step" || completedSamples <= 3 || release ||
+                    lastOverlap != overlap || lastActive != jet.Frame.HazardActive || lastContact != contact;
+                lastOverlap = overlap; lastActive = jet.Frame.HazardActive; lastContact = contact;
+                if (!record) return;
+                if (rows.Count >= 32) { omitted++; return; }
+                rows.Add("FROZEN_DROP_TRACE " + System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    edge, physics = Engine.GetPhysicsFrames(), localPhysics = Engine.GetPhysicsFrames() - firstPhysics,
+                    inputSequence = input.CurrentFrameSequence, axis = input.Current.MoveAxis,
+                    rawA = Input.IsPhysicalKeyPressed(Key.A), rawD = Input.IsPhysicalKeyPressed(Key.D),
+                    x = player.GlobalPosition.X, y = player.GlobalPosition.Y,
+                    vx = player.Velocity.X, vy = player.Velocity.Y,
+                    bodyLeft = bodyBounds.Position.X, bodyRight = bodyBounds.End.X,
+                    bodyTop = bodyBounds.Position.Y, bodyBottom = bodyBounds.End.Y,
+                    jetLeft = jetBounds.Position.X, jetRight = jetBounds.End.X,
+                    jetTop = jetBounds.Position.Y, jetBottom = jetBounds.End.Y,
+                    overlap, contact, floor = player.IsOnFloor(), hp = health.CurrentHealth, jetDamage,
+                    jetElapsed = jet.ElapsedSeconds, jet.Frame.Telegraphing, jet.Frame.HazardActive,
+                    jet.Monitoring, collisionDisabled = jetCollision.Disabled,
+                    selectedSide = pair.SelectedSide.ToString(), handoff = pair.IsHandingOff,
+                    releaseSeen, observationOnly = true
+                }));
+            }
+            catch (Exception error) { observerFault ??= error.ToString(); }
+        }
+        void Damaged(int _, Vector2 __)
+        {
+            try
+            {
+                if (identityField?.GetValue(health) is not Queue<DamageAttackIdentity> { Count: > 0 } identities)
+                    throw new InvalidOperationException("Frozen drop accepted source identity unavailable");
+                if (identities.Last().SourceRuntimeId == jetId) { jetDamage++; Snapshot("accepted-right-jet-damage"); }
+            }
+            catch (Exception error) { observerFault ??= error.ToString(); }
+        }
+        observer.Sample = _ => { completedSamples++; Snapshot("completed-step"); };
+        try
+        {
+            health.Damaged += Damaged;
+            player.AddChild(observer);
+            Snapshot("entry");
+            if (KeyboardRouteInputDriver.Current == null)
+                await PrologueCanyonTraversalTests.Task4ReachSupport(tree, player, target, clawRequired: false);
+            else
+            {
+                // The original helper's late neutral release drifted into the
+                // live RightJet. Select only real A/D input using the current
+                // module's reverse-braking arithmetic. Native movement and the
+                // exact original support remain the completion authority.
+                var targetCollision = target.GetNode<CollisionShape2D>("Collision");
+                var targetRectangle = (RectangleShape2D)targetCollision.Shape;
+                var middle = sector.GetNode<StaticBody2D>("Gameplay/Collision/FrozenUpperResidentShelf");
+                var middleCollision = middle.GetNode<CollisionShape2D>("Collision");
+                var middleRectangle = (RectangleShape2D)middleCollision.Shape;
+                TestAssert.True(targetCollision.GlobalTransform.X.IsEqualApprox(Vector2.Right) &&
+                    targetCollision.GlobalTransform.Y.IsEqualApprox(Vector2.Down) &&
+                    middleCollision.GlobalTransform.X.IsEqualApprox(Vector2.Right) &&
+                    middleCollision.GlobalTransform.Y.IsEqualApprox(Vector2.Down) && !motor.IsDashing &&
+                    HasFloorContact(player, sector.GetNode<StaticBody2D>("Gameplay/Collision/FrozenLeftCatch")),
+                    "Frozen keyboard drop starts on its real original source, with an unpowered upright target");
+                // The first braking candidate stopped on this real intermediate
+                // shelf. Clear its complete right edge before choosing a stable
+                // landing corridor; otherwise a safe X can still strand the
+                // player one level above the required target.
+                float safeLeft = Math.Max(targetCollision.GlobalPosition.X - targetRectangle.Size.X / 2f +
+                    capsule.Radius + player.SafeMargin,
+                    middleCollision.GlobalPosition.X + middleRectangle.Size.X / 2f + capsule.Radius + player.SafeMargin);
+                float safeRight = Math.Min(targetCollision.GlobalPosition.X + targetRectangle.Size.X / 2f -
+                    capsule.Radius - player.SafeMargin,
+                    jetCollision.GlobalPosition.X - jetRectangle.Size.X / 2f - capsule.Radius - player.SafeMargin);
+                TestAssert.True(safeLeft < safeRight,
+                    "Frozen catch has a full-capsule landing corridor left of the unchanged right jet");
+                float stance = (safeLeft + safeRight) / 2f;
+                double step = 1d / Engine.PhysicsTicksPerSecond;
+                bool braking = false;
+                int stable = 0, reverseCommands = 0;
+                ReleaseAll(player.GlobalPosition);
+                for (int frame = 0; frame < 300; frame++)
+                {
+                    TestAssert.True(pair.SelectedSide == CanyonSteamDiverterSide.Right && !pair.IsHandingOff,
+                        "ordinary Frozen drop does not switch or disarm the paired mechanism");
+                    if (!braking)
+                    {
+                        Vector2 predictedPosition = player.GlobalPosition;
+                        Vector2 predictedVelocity = player.Velocity;
+                        // Cover the pending reader/motor handoff conservatively
+                        // with two still-held forward samples, without stepping
+                        // the engine or querying hypothetical collision results.
+                        for (int sample = 0; sample < 2; sample++)
+                        {
+                            predictedVelocity = ThrusterDynamics.Step(new(predictedVelocity, 1f,
+                                player.IsOnFloor(), Vector2.Zero, 0f, ApplyGravity: false),
+                                motor.ThrusterState.Module, motor.MotionSettings, step).Velocity;
+                            predictedPosition += predictedVelocity * (float)step;
+                        }
+                        var stop = FreeMotionForecast.Reverse(predictedVelocity.X, false,
+                            motor.MotionSettings, motor.ThrusterState.Module, step, 300, .5f);
+                        TestAssert.True(stop.SpeedThresholdReached || stop.BrakeReachedZero,
+                            "current Frozen module has a bounded real reverse-braking forecast");
+                        braking = predictedPosition.X + stop.NetDistance >= stance;
+                        if (braking) Snapshot("reverse-brake-command");
+                    }
+                    float axis = braking ? player.Velocity.X > .5f ? -1f : 0f : 1f;
+                    if (axis < 0f) reverseCommands++;
+                    SendAction(InputActions.MoveLeft, axis < 0f);
+                    SendAction(InputActions.MoveRight, axis > 0f);
+                    await PhysicsFrames(tree, monitor, 1);
+                    stable = braking && HasFloorContact(player, target) &&
+                        body.GlobalPosition.X >= safeLeft && body.GlobalPosition.X <= safeRight &&
+                        body.GlobalPosition.X - capsule.Radius >= targetCollision.GlobalPosition.X - targetRectangle.Size.X / 2f &&
+                        body.GlobalPosition.X + capsule.Radius <= targetCollision.GlobalPosition.X + targetRectangle.Size.X / 2f &&
+                        Math.Abs(player.Velocity.X) <= .5f && Math.Abs(input.Current.MoveAxis) <= .001f
+                        ? stable + 1 : 0;
+                    if (stable >= 3) break;
+                }
+                ReleaseAll(player.GlobalPosition);
+                TestAssert.True(stable >= 3 && reverseCommands > 0,
+                    $"Frozen actual reverse input reaches stable original support inside300; stable={stable} " +
+                    $"reverse_commands={reverseCommands} player={player.GlobalPosition} velocity={player.Velocity} " +
+                    $"floor={DescribeFloorCollider(player)}");
+                GD.Print($"FROZEN_DROP_REVERSE_OK stance={stance:R} corridor={safeLeft:R}..{safeRight:R} " +
+                    $"player={player.GlobalPosition} velocity={player.Velocity} reverse_commands={reverseCommands} stable={stable}");
+            }
+            Snapshot("original-support-returned");
+            TestAssert.True(observerFault == null && omitted == 0 && completedSamples > 0,
+                $"Frozen drop observation must be complete: fault={observerFault} omitted={omitted} samples={completedSamples}");
+            TestAssert.True(jetDamage == 0 && health.CurrentHealth == hpBefore,
+                $"FROZEN_DROP_STEAM_RED actual keyboard drop must keep its capsule outside active RightJet; " +
+                $"jet_damage={jetDamage} hp={hpBefore}->{health.CurrentHealth} player={player.GlobalPosition}");
+            TestAssert.True(motor.AcceptedJumpCount == jumpsBefore && motor.AcceptedDashCount == dashesBefore &&
+                claw.CurrentFrame.NextCastId == castsBefore && Engine.GetPhysicsFrames() - firstPhysics <= 300,
+                "Frozen ordinary drop preserves the original300 budget and adds no jump/jet/claw");
+            GD.Print($"FROZEN_DROP_STEAM_OK hp={hpBefore}->{health.CurrentHealth} damage=0 " +
+                $"frames={Engine.GetPhysicsFrames() - firstPhysics}/300 support={target.Name} input_only=true");
+        }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(health)) health.Damaged -= Damaged;
+            observer.Sample = null;
+            if (GodotObject.IsInstanceValid(observer)) observer.QueueFree();
+            foreach (string row in rows) GD.Print(row);
+            GD.Print($"FROZEN_DROP_TRACE_END rows={rows.Count}/32 omitted={omitted} samples={completedSamples} " +
+                $"fault={observerFault != null} right_jet_damage={jetDamage} extra_frames=0");
+        }
     }
 
     private static async Task DropFromSupportToLowerShelf(SceneTree tree,
@@ -13902,7 +22493,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
 
     private static async Task RideTask10CounterweightLift(SceneTree tree,
         CharacterBody2D player, CanyonCounterweightLift lift, GrappleSurface2D control,
-        StaticBody2D upperLanding, RouteMonitor monitor, Action observe)
+        StaticBody2D upperLanding, RouteMonitor monitor, Action observe, bool headlessNormalPlan)
     {
         bool Live(Node node) => node != null && GodotObject.IsInstanceValid(node) &&
             node.IsInsideTree();
@@ -13927,6 +22518,37 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         bool keyboard = KeyboardRouteInputDriver.Current != null;
         ulong controlInputSequence = 0UL, sampledClawSequence = 0UL;
         int sampledClawEdges = 0;
+        var rideGhostObservers = new List<(GraveLampMoth Actor, Action<AttackPresentationFrame> Observe)>();
+        var rideGhostContacts = new List<(Hitbox Source, Hitbox.ConnectedEventHandler Observe)>();
+        var rideShield = player.GetNode<PlayerShieldController>("Shield");
+        var rideHurtbox = player.GetNode<Hurtbox>("Hurtbox");
+        var rideEnergy = player.GetNode<PlayerEnergyController>("Energy");
+        bool explicitRideGuard = OS.GetEnvironment("KNIGHT_LIFT_GHOST_GUARD_PROBE") == "1";
+        bool rideGuardEnabled = Task10LiftGhostGuardRoute(keyboard, headlessNormalPlan, explicitRideGuard);
+        if (keyboard)
+            GD.Print($"TASK10_LIFT_GHOST_GUARD_ROUTING normal_plan={headlessNormalPlan} " +
+                $"explicit_probe={explicitRideGuard} keyboard={keyboard} selected={rideGuardEnabled} " +
+                "safety_authorization=false");
+        bool rideGuardHeld = false, rideGuardResolved = false;
+        ulong rideGuardStart = 0, rideGuardAttack = 0, rideGuardSource = 0, rideGuardResultPhysics = 0;
+        ulong rideGuardSamplePhysics = 0;
+        (ulong Physics, ulong Attack, ulong Source, float Remaining, float DownAngle) rideWarning = default;
+        bool DownGuardSample() => rideGuardHeld && reader.CurrentFrameSequence > rideGuardStart &&
+            reader.CurrentFrame.ShieldHeld && Mathf.IsZeroApprox(reader.CurrentFrame.MoveAxis) &&
+            rideShield.IsActive && rideShield.GuardDirection.Dot(Vector2.Down) > .99f;
+        void RideGuardResult(PlayerShieldResult result, ulong transition)
+        {
+            if (stage == "ride" && DownGuardSample() && result.Guarded && !result.BrokeGuard &&
+                !result.SpendHeavyEnergy && result.DamageAmount == 0 && result.KnockbackScale == 0)
+                rideGuardResultPhysics = Engine.GetPhysicsFrames();
+        }
+        void ReleaseRideGuard()
+        {
+            if (!rideGuardHeld) return;
+            SendAction(InputActions.KeyboardShield, false);
+            SendAction(InputActions.MoveDown, false);
+            rideGuardHeld = false;
+        }
 
         string Snapshot()
         {
@@ -14153,6 +22775,54 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 $"applications={applications}->{adapter.ApplicationCount}");
 
             stage = "ride";
+            if (rideGuardEnabled) rideShield.ShieldResolved += RideGuardResult;
+            int rideGhostRows = 0;
+            var actors = lift.GetParent().GetParent().GetNodeOrNull<Node>("Actors");
+            if (actors != null)
+            {
+                foreach (var ghost in actors.GetChildren().OfType<GraveLampMoth>()
+                    .Where(actor => actor.SceneFilePath == "res://scenes/enemies/residents/v001/ghost-diver.tscn"))
+                {
+                    var hitbox = ghost.GetNode<Hitbox>("AttackHitbox");
+                    void OnAttack(AttackPresentationFrame frame)
+                    {
+                        var attack = frame.Timeline;
+                        if (stage != "ride" || rideGhostRows >= 180 ||
+                            attack.Phase is not (AttackPhase.Telegraph or AttackPhase.Active) ||
+                            !Live(hitbox) || !Live(rideHurtbox)) return;
+                        rideGhostRows++;
+                        var incoming = hitbox.GlobalPosition - rideHurtbox.GlobalPosition;
+                        float downAngle = Mathf.RadToDeg(Mathf.Abs(Vector2.Down.AngleTo(incoming)));
+                        if (attack.Phase == AttackPhase.Telegraph && attack.HasLockedTarget &&
+                            incoming.LengthSquared() > 1f && incoming.LengthSquared() < 1600f)
+                            rideWarning = (Engine.GetPhysicsFrames(), attack.AttackId, hitbox.GetInstanceId(),
+                                attack.PhaseRemainingSeconds, downAngle);
+                        var locked = attack.LockedWorldTarget;
+                        GD.Print(FormattableString.Invariant(
+                            $"TASK10_LIFT_GHOST_PUBLICATION physics={Engine.GetPhysicsFrames()} input={reader.CurrentFrameSequence} actor={ghost.GetInstanceId()} hitbox={hitbox.GetInstanceId()} attack={attack.AttackId} phase={attack.Phase} remaining={attack.PhaseRemainingSeconds:F5} locked={attack.HasLockedTarget} locked_target={locked} shape={frame.Shape.Kind} source={hitbox.GlobalPosition} hurtbox={rideHurtbox.GlobalPosition} down_angle={Mathf.RadToDeg(Mathf.Abs(Vector2.Down.AngleTo(incoming))):F3} shield={rideShield.IsActive} axis={reader.CurrentFrame.MoveAxis:F3} hp={health.CurrentHealth}"));
+                    }
+                    ghost.AttackFrameChanged += OnAttack;
+                    rideGhostObservers.Add((ghost, OnAttack));
+                    if (rideGuardEnabled)
+                    {
+                        void OnConnected(Hurtbox target)
+                        {
+                            ulong now = Engine.GetPhysicsFrames();
+                            if (target != rideHurtbox || rideGuardResolved || !DownGuardSample() ||
+                                rideGuardResultPhysics != now || rideGuardSamplePhysics == 0 ||
+                                rideGuardSamplePhysics >= now || hitbox.GetInstanceId() != rideGuardSource ||
+                                ghost.CurrentFrame.AttackTimeline.AttackId != rideGuardAttack ||
+                                hitbox.GuardClass != DamageGuardClass.Normal ||
+                                health.CurrentHealth != initialHealth) return;
+                            rideGuardResolved = true;
+                            GD.Print($"TASK10_LIFT_GHOST_GUARD_OK physics={now} earlier_sample={rideGuardSamplePhysics} attack={rideGuardAttack} hitbox={rideGuardSource} hp={health.CurrentHealth} axis={reader.CurrentFrame.MoveAxis}");
+                        }
+                        hitbox.Connected += OnConnected;
+                        rideGhostContacts.Add((hitbox, OnConnected));
+                    }
+                }
+            }
+            GD.Print($"TASK10_LIFT_GHOST_SCOPE physics={Engine.GetPhysicsFrames()} observers={rideGhostObservers.Count}");
             bool sawMotion = false;
             Vector2 upperWorld = lift.GetParent<Node2D>().ToGlobal(lift.UpperPosition);
             for (int frame = 0; frame < 180; frame++)
@@ -14165,8 +22835,35 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                         initialRelativeY) <= 8f && liftRise >= -1f && playerRise >= -1f);
                 if (lift.GlobalPosition.DistanceTo(upperWorld) <= .5f &&
                     lift.Frame.Phase01 >= .999f) break;
+                if (rideGuardEnabled && rideGhostObservers.Count == 1)
+                {
+                    ulong now = Engine.GetPhysicsFrames();
+                    if (rideGuardHeld && DownGuardSample() && rideGuardSamplePhysics == 0)
+                        rideGuardSamplePhysics = now;
+                    if (rideGuardHeld && (rideGuardResolved ||
+                        reader.CurrentFrameSequence - rideGuardStart >= 24)) ReleaseRideGuard();
+                    if (rideGuardAttack == 0 && rideWarning.Physics != 0 && now >= rideWarning.Physics &&
+                        now - rideWarning.Physics <= 1 && rideWarning.Remaining is >= .05f and <= .11f &&
+                        rideWarning.DownAngle < 45f && claw.CurrentFrame.State == MechanicalClawState.Idle &&
+                        Mathf.IsZeroApprox(reader.CurrentFrame.MoveAxis) && rideShield.CanBeginGuard &&
+                        rideEnergy.EnergyRatio > .25f &&
+                        !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D) &&
+                        !Input.IsPhysicalKeyPressed(Key.W) && !Input.IsPhysicalKeyPressed(Key.L) &&
+                        ReadTask10LiftSupport(player, lift, monitor).FullSupport)
+                    {
+                        rideGuardStart = reader.CurrentFrameSequence;
+                        rideGuardAttack = rideWarning.Attack;
+                        rideGuardSource = rideWarning.Source;
+                        SendAction(InputActions.MoveDown, true);
+                        SendAction(InputActions.KeyboardShield, true);
+                        rideGuardHeld = true;
+                        GD.Print($"TASK10_LIFT_GHOST_GUARD_REQUEST physics={now} warning={rideWarning.Physics} attack={rideGuardAttack} source={rideGuardSource} angle={rideWarning.DownAngle:R} remaining={rideWarning.Remaining:R} energy={rideEnergy.EnergyRatio:R}");
+                    }
+                }
                 await Tick();
             }
+            ReleaseRideGuard();
+            if (rideGuardEnabled) Check("down guard records one source-bound zero-damage ghost contact", rideGuardResolved);
             Check("supported transport rises over 400px to authored upper stop",
                 sawMotion && startLift.Y - lift.GlobalPosition.Y > 400f &&
                 startPlayer.Y - player.GlobalPosition.Y > 400f &&
@@ -14302,6 +22999,12 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         }
         finally
         {
+            ReleaseRideGuard();
+            if (rideGuardEnabled && GodotObject.IsInstanceValid(rideShield)) rideShield.ShieldResolved -= RideGuardResult;
+            foreach (var binding in rideGhostContacts)
+                if (GodotObject.IsInstanceValid(binding.Source)) binding.Source.Connected -= binding.Observe;
+            foreach (var binding in rideGhostObservers)
+                if (GodotObject.IsInstanceValid(binding.Actor)) binding.Actor.AttackFrameChanged -= binding.Observe;
             Move(false, false);
             SendAction(InputActions.MoveUp, false);
             SendAction(InputActions.MoveDown, false);
@@ -15112,20 +23815,37 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         return new Rect2(zone.Position + inset, zone.Size - inset * 2f).HasPoint(point);
     }
 
-    private static bool Task10KeyboardClawPlanSelects(CharacterBody2D player, GrappleSurface2D target)
+    private readonly record struct Task10KeyboardClawPlanSnapshot(
+        bool Captured, ulong Physics, ulong InputSequence, ulong TargetId,
+        Vector2 CasterPosition, Vector2 CasterVelocity, Vector2 TargetAnchor, Vector2 TargetVelocity,
+        Vector2 Direction, ulong SelectedId, Vector2 SelectedAnchor, bool SelectedLos, string TargetState);
+
+    private static bool Task10KeyboardClawPlanSelects(CharacterBody2D player, GrappleSurface2D target) =>
+        Task10KeyboardClawPlanSelects(player, target, out _);
+
+    private static bool Task10KeyboardClawPlanSelects(CharacterBody2D player, GrappleSurface2D target,
+        out Task10KeyboardClawPlanSnapshot plan)
     {
+        plan = default;
         if (KeyboardRouteInputDriver.Current == null) return true;
         // Planner filter only: do not fire an opportunistic combat cast already
         // known to select terrain. CastAt still proves the actual K sample/target.
-        Vector2 planned = PlayerKeyboardAimModel.ResolveDirection(target.WorldAnchor - player.GlobalPosition, 1);
+        Vector2 casterPosition = player.GlobalPosition, targetAnchor = target.WorldAnchor;
+        Vector2 planned = PlayerKeyboardAimModel.ResolveDirection(targetAnchor - casterPosition, 1);
         MechanicalClawTargetResolution selection = new MechanicalClawTargetResolver().ResolveKeyboard(player, planned);
+        plan = new(true, Engine.GetPhysicsFrames(), player.GetNode<PlayerInputReader>("Input").CurrentFrameSequence,
+            target.GetInstanceId(), casterPosition, player.Velocity, targetAnchor,
+            target.GetParent() is CharacterBody2D body ? body.Velocity : Vector2.Zero, planned,
+            GodotObject.IsInstanceValid(selection.Surface) ? selection.Surface.GetInstanceId() : 0UL,
+            selection.Snapshot.WorldAnchor, selection.Snapshot.HasLineOfSight,
+            target.GetParent() is GraveLampMoth moth ? moth.CurrentState.ToString() : "");
         return selection.Surface == target && selection.Snapshot.HasLineOfSight;
     }
 
     private static async Task<bool> CastAt(SceneTree tree, RouteMonitor monitor,
         CharacterBody2D player, GrappleSurface2D target, Func<bool> completed, int maxFrames,
         bool requireSafeFrozenMoth = false, bool observeGearBellAdmission = false,
-        Func<bool> gearBellAdmission = null)
+        Func<bool> gearBellAdmission = null, Task10KeyboardClawPlanSnapshot? frozenPlan = null)
     {
         ulong castPlayerId = player.GetInstanceId();
         int castRecoveryRequests = monitor.RecoveryRequested, castRecoveryCompletions = monitor.RecoveryCompleted;
@@ -15138,6 +23858,76 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         int gearRawEdges = gearBellAdmission != null ? KeyboardRouteInputDriver.Current.ClawEdges : 0;
         int gearApplications = gearAdapter?.ApplicationCount ?? 0;
         ulong gearNextCast = gearClaw?.CurrentFrame.NextCastId ?? 0;
+        MechanicalClawController frozenClaw = requireSafeFrozenMoth && KeyboardRouteInputDriver.Current != null
+            ? player.GetNode<MechanicalClawController>("MechanicalClaw") : null;
+        PlayerInputReader frozenInput = frozenClaw != null ? player.GetNode<PlayerInputReader>("Input") : null;
+        var frozenRows = frozenClaw != null ? new List<string>(16) : null;
+        int frozenPrinted = 0, frozenOmitted = 0;
+        string frozenTraceFault = null;
+        bool frozenAimSeen = false;
+        int modePrefixFrames = 2;
+        void FrozenBoundary(string stage, MechanicalClawFrame? publication = null)
+        {
+            if (frozenClaw == null) return;
+            try
+            {
+                if (frozenRows.Count >= 16) { frozenOmitted++; return; }
+                MechanicalClawFrame frame = publication ?? frozenClaw.CurrentFrame;
+                Vector2 caster = publication.HasValue ? frame.CasterWorldPosition : player.GlobalPosition;
+                Vector2 velocity = publication.HasValue ? frame.CasterVelocity : player.Velocity;
+                Vector2 anchor = target.WorldAnchor;
+                Vector2 targetVelocity = target.GetParent() is CharacterBody2D body ? body.Velocity : Vector2.Zero;
+                MechanicalClawTargetResolution preview = frozenClaw.KeyboardPreview;
+                Task10KeyboardClawPlanSnapshot plan = frozenPlan.GetValueOrDefault();
+                string selectedPath = "";
+                if (GodotObject.IsInstanceValid(preview.Surface))
+                { using NodePath path = preview.Surface.GetPath(); selectedPath = path.ToString(); }
+                frozenRows.Add("FROZEN_K_BOUNDARY " + System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    stage, physics = Engine.GetPhysicsFrames(), inputSequence = frozenInput.CurrentFrameSequence,
+                    rawW = Input.IsPhysicalKeyPressed(Key.W), rawA = Input.IsPhysicalKeyPressed(Key.A),
+                    rawS = Input.IsPhysicalKeyPressed(Key.S), rawD = Input.IsPhysicalKeyPressed(Key.D),
+                    rawK = Input.IsPhysicalKeyPressed(Key.K), sampledK = frozenInput.CurrentFrame.ClawPressed,
+                    rawSpace = Input.IsPhysicalKeyPressed(Key.Space),
+                    sampledJumpPressed = frozenInput.CurrentFrame.JumpPressed,
+                    sampledJumpHeld = frozenInput.CurrentFrame.JumpHeld,
+                    rawFrameJumpPressed = frozenInput.RawFrame.JumpPressed,
+                    rawFrameJumpHeld = frozenInput.RawFrame.JumpHeld,
+                    axis = frozenInput.CurrentFrame.MoveAxis, aimX = frozenInput.KeyboardAimDirection.X,
+                    aimY = frozenInput.KeyboardAimDirection.Y,
+                    casterX = caster.X, casterY = caster.Y, vx = velocity.X, vy = velocity.Y,
+                    targetId = target.GetInstanceId(), targetX = anchor.X, targetY = anchor.Y,
+                    targetVx = targetVelocity.X, targetVy = targetVelocity.Y,
+                    targetState = target.GetParent() is GraveLampMoth moth ? moth.CurrentState.ToString() : "",
+                    previewId = preview.Snapshot.RuntimeId, previewX = preview.Snapshot.WorldAnchor.X,
+                    previewY = preview.Snapshot.WorldAnchor.Y, previewLos = preview.Snapshot.HasLineOfSight,
+                    normalX = preview.Snapshot.SurfaceNormal.X, normalY = preview.Snapshot.SurfaceNormal.Y,
+                    selectedPath, state = frame.State.ToString(), frame.CastId, frame.NextCastId,
+                    frame.LockedTargetRuntimeId,
+                    plan = new { plan.Captured, plan.Physics, plan.InputSequence, plan.TargetId,
+                        casterX = plan.CasterPosition.X, casterY = plan.CasterPosition.Y,
+                        vx = plan.CasterVelocity.X, vy = plan.CasterVelocity.Y,
+                        targetX = plan.TargetAnchor.X, targetY = plan.TargetAnchor.Y,
+                        targetVx = plan.TargetVelocity.X, targetVy = plan.TargetVelocity.Y,
+                        aimX = plan.Direction.X, aimY = plan.Direction.Y, plan.SelectedId,
+                        selectedX = plan.SelectedAnchor.X, selectedY = plan.SelectedAnchor.Y,
+                        plan.SelectedLos, plan.TargetState },
+                    publicationBoundary = publication.HasValue, observationOnly = true, extraQueries = 0
+                }));
+            }
+            catch (Exception error) { frozenTraceFault ??= error.ToString(); }
+        }
+        void FrozenPublished(MechanicalClawFrame frame, GrappleSurface2D _)
+        {
+            if (frame.State != MechanicalClawState.Aim || frozenAimSeen) return;
+            frozenAimSeen = true;
+            FrozenBoundary("first_Aim_published", frame);
+        }
+        void FlushFrozenRows()
+        {
+            if (frozenRows == null) return;
+            while (frozenPrinted < frozenRows.Count) GD.Print(frozenRows[frozenPrinted++]);
+        }
         void ObserveGearBellCast(string boundary)
         {
             if (!observeGearBellAdmission) return;
@@ -15171,18 +23961,31 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 GuardCastLifetime();
             }
         }
+        if (frozenClaw != null) frozenClaw.ClawFrameChanged += FrozenPublished;
+        try
+        {
         GuardCastLifetime();
+        FrozenBoundary("caller_before_prefix");
         ObserveGearBellCast("caller_before_prefix");
         MoveMouse(player, target.WorldAnchor);
         SendAction(InputActions.SelectGrappleMode, true);
-        await CastFrames(2);
+        // This legacy mode intent is synchronous planner state in the keyboard
+        // adapter, not an input mode transition. Do not age an already-neutral
+        // Frozen Moth plan by two idle frames before issuing its one real K.
+        // A pending Space sample still gets the original two-frame release.
+        if (frozenInput != null && !Input.IsPhysicalKeyPressed(Key.Space) &&
+            !frozenInput.CurrentFrame.JumpPressed && !frozenInput.CurrentFrame.JumpHeld &&
+            !frozenInput.RawFrame.JumpPressed && !frozenInput.RawFrame.JumpHeld)
+            modePrefixFrames = 0;
+        await CastFrames(modePrefixFrames);
         if (requireSafeFrozenMoth)
         {
             var jumpInput = player.GetNode<PlayerInputReader>("Input").CurrentFrame;
             TestAssert.True(!jumpInput.JumpPressed && !jumpInput.JumpHeld && !Input.IsPhysicalKeyPressed(Key.Space),
-                "frozen safe Moth cast observes neutral Space in original mode prefix before K");
+                "frozen safe Moth cast requires actual raw and sampled neutral Space before K");
         }
         SendAction(InputActions.SelectGrappleMode, false);
+        FrozenBoundary("prefix_complete_before_K");
         ObserveGearBellCast("prefix_complete_before_K");
         if (gearBellAdmission != null)
         {
@@ -15219,6 +24022,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             TestAssert.True(!completed(), "keyboard CastAt cannot reuse an already-completed target predicate");
             try
             {
+                FrozenBoundary("before_K_command");
                 SendMouse(MouseButton.Left, true, player, target.WorldAnchor);
                 for (int frame = 0; frame < 8; frame++)
                 {
@@ -15231,9 +24035,14 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     if (sampled > issue && (claw.CurrentFrame.State != MechanicalClawState.Idle || completed())) break;
                 }
                 ObserveGearBellCast("sampled_K_before_admission_assert");
+                FrozenBoundary("sampled_K_before_admission_assert");
+                FlushFrozenRows();
                 TestAssert.True(sampled > issue && edges == 1 && keyboard.ClawEdges == rawEdges + 1 &&
                     input.CurrentFrame.KeyboardActions && input.KeyboardAimDirection.Dot(planned) > .999f &&
                     !input.CurrentFrame.PrimaryPressed && !input.CurrentFrame.AttackPressed && !input.CurrentFrame.InteractPressed &&
+                    (!requireSafeFrozenMoth || !Input.IsPhysicalKeyPressed(Key.Space) &&
+                        !input.CurrentFrame.JumpPressed && !input.CurrentFrame.JumpHeld &&
+                        !input.RawFrame.JumpPressed && !input.RawFrame.JumpHeld) &&
                     claw.CurrentFrame.Failure == MechanicalClawFailure.None &&
                     (claw.CurrentTarget == target || completed()),
                     $"keyboard CastAt retains one real K/octant through production target admission: {target.GetPath()} " +
@@ -15263,6 +24072,16 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         }
         await CastFrames(3);
         return true;
+        }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(frozenClaw)) frozenClaw.ClawFrameChanged -= FrozenPublished;
+            FlushFrozenRows();
+            if (frozenRows != null)
+                GD.Print($"FROZEN_K_BOUNDARY_END rows={frozenRows.Count}/16 omitted={frozenOmitted} " +
+                    $"fault={frozenTraceFault != null} first_Aim={frozenAimSeen} extra_queries=0 " +
+                    $"mode_prefix_frames={modePrefixFrames} input_commands_changed=false");
+        }
     }
 
     private static void TraceFinalSeam(RouteMonitor monitor, string moment)
@@ -15525,9 +24344,12 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         public int RecoveryRequested { get; private set; }
         public int RecoveryCompleted { get; private set; }
 
+        public Action<ulong, Task10EncounterDanger, bool> CombatDecisionObserved { get; set; }
+
         public void Dispose()
         {
             _additionalObservation = null;
+            CombatDecisionObserved = null;
             if (!GodotObject.IsInstanceValid(_level)) return;
             _level.RecoveryRequested -= OnRecoveryRequested;
             _level.RecoveryCompleted -= OnRecoveryCompleted;
@@ -15855,10 +24677,20 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         private readonly ulong _playerId;
         private readonly PlayerCombat _combat;
         private readonly ulong _hitboxId;
+        private readonly HealthComponent _playerHealth;
+        private readonly Dictionary<ulong, DamageSourceScalar> _damageSources = new();
+        private readonly HashSet<ulong> _observedGuardOwners = new();
+        private int _lastPlayerHealth, _acceptedDamageRows, _attributionGaps;
+        private ulong _decisionPhysics, _selectedActorId;
+        private Task10EncounterDanger _lastDecisionDanger;
+        private bool _decisionGuard;
+        private sealed record DamageSourceScalar(ulong ActorId, string Path, string Type,
+            string Scene, string Cohort, string StableId, string Subtype);
         private ulong _lastPlayerAttackId;
         private readonly Dictionary<ulong, RangedBinding> _live = new();
         private readonly Dictionary<ulong, GroupBinding> _groups = new();
         private readonly List<RangedReceipt> _receipts = new();
+        private readonly List<RangedReceipt> _residentReceipts = new();
         private string _observerError;
         private int _requests, _completions;
         private bool _disposed;
@@ -15908,6 +24740,12 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             _variant = variant; _playerId = player.GetInstanceId();
             _combat = player.GetNode<PlayerCombat>("Combat");
             _hitboxId = _combat.GetNode<Hitbox>("AttackHitbox").GetInstanceId();
+            _playerHealth = player.GetNode<HealthComponent>("Health");
+            _lastPlayerHealth = _playerHealth.CurrentHealth;
+            _playerHealth.Ready += OnPlayerHealthReady;
+            _playerHealth.Damaged += OnAcceptedPlayerDamage;
+            _playerHealth.Healed += OnPlayerHealed;
+            _tree.NodeAdded += OnDamageSourceAdded;
             // Installed before mounting PrologueLevel. NodeAdded observes every new root,
             // not only the actor selected by the existing first-child combat controller.
             _tree.NodeAdded += OnNodeAdded;
@@ -15915,6 +24753,155 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             _level.RecoveryCompleted += OnRecoveryCompleted;
             _combat.AttackStarted += OnPlayerAttackStarted;
             _combat.AttackConnected += OnPlayerAttackConnected;
+        }
+
+        public void ObserveCombatDecision(ulong selected, Task10EncounterDanger danger, bool defend)
+        {
+            _decisionPhysics = Engine.GetPhysicsFrames(); _selectedActorId = selected;
+            _lastDecisionDanger = danger; _decisionGuard = defend;
+            if (defend && danger.SourceActorId != 0 && _observedGuardOwners.Count < 128 &&
+                _observedGuardOwners.Add(danger.SourceActorId))
+            {
+                // Birth identity only. Do not re-query a moving actor or turn
+                // a missing cache entry into a gameplay/admission decision.
+                bool found = _damageSources.TryGetValue(danger.SourceActorId, out DamageSourceScalar source);
+                GD.Print("TASK10_GUARD_OWNER " + System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    physics = _decisionPhysics, selected, actor = danger.SourceActorId,
+                    danger.AttackId, phase = danger.Phase.ToString(), danger.RemainingSeconds,
+                    cacheFound = found, actorIdentityMatched = found && source.ActorId == danger.SourceActorId,
+                    path = source?.Path ?? "unknown", type = source?.Type ?? "unknown",
+                    scene = source?.Scene ?? "unknown", cohort = source?.Cohort ?? "unknown",
+                    stableId = source?.StableId ?? "unknown", subtype = source?.Subtype ?? "unknown",
+                    observationOnly = true, extraQueries = 0
+                }));
+            }
+        }
+
+        private void OnPlayerHealthReady() => _lastPlayerHealth = _playerHealth.CurrentHealth;
+        private void OnPlayerHealed(int restored, int remaining) => _lastPlayerHealth = remaining;
+
+        private void OnDamageSourceAdded(Node node)
+        {
+            if (_disposed || !_level.IsAncestorOf(node) ||
+                node is not (Hitbox or CharacterBody2D or PlayerMotor or RangedWeaponProjectile or CanyonSteamJet)) return;
+            try
+            {
+                ulong id = node.GetInstanceId();
+                if (_damageSources.Count >= 4096 && !_damageSources.ContainsKey(id))
+                    throw new InvalidOperationException("bounded scalar source capacity exceeded");
+                CharacterBody2D actor = null;
+                for (Node owner = node; owner != null && owner != _level; owner = owner.GetParent())
+                    if (owner is CharacterBody2D body && body is not BellBoltProjectile)
+                    { actor = body; break; }
+                string stableId = "", subtype = "", cohort = node is CanyonSteamJet ? "mechanism" :
+                    actor == _player ? "player" : "unclassified";
+                string scene = actor?.SceneFilePath ?? "";
+                if (actor?.GetNodeOrNull<ResidentSceneBinding>("ResidentBinding") is { Profile: not null } binding)
+                {
+                    subtype = binding.Profile.SubtypeId;
+                    var sites = _level.ResidentLayout.Where(site => site.Definition.SubtypeId == subtype &&
+                        site.Definition.Placement.WorldSpawn.DistanceSquaredTo(actor.GlobalPosition) < .01f).ToArray();
+                    if (sites.Length != 1) throw new InvalidOperationException("resident birth scalar requires unique authored home");
+                    stableId = sites[0].Definition.StableId; cohort = "resident";
+                }
+                else if (actor != null && actor != _player)
+                {
+                    string name = actor.Name.ToString();
+                    var groups = CanyonEncounterCatalog.Normal.Where(group =>
+                        name.StartsWith(group.StableId.Replace('.', '_') + "_batch", StringComparison.Ordinal)).ToArray();
+                    if (groups.Length == 1) { stableId = groups[0].StableId; cohort = "wave"; }
+                    else if (actor is BellBoltProjectile) cohort = "projectile";
+                }
+                using NodePath path = node.GetPath();
+                _damageSources[id] = new(actor?.GetInstanceId() ?? 0, path.ToString(), node.GetType().Name,
+                    scene, cohort, stableId, subtype);
+            }
+            catch (Exception error)
+            {
+                _attributionGaps++;
+                if (_attributionGaps <= 8)
+                    GD.Print("TASK10_DAMAGE_ATTRIBUTION_GAP source_cache=" + error.Message);
+            }
+        }
+
+        private void OnAcceptedPlayerDamage(int remaining, Vector2 impulse)
+        {
+            // Deliberately independent of Callback: an observer/route failure
+            // must not suppress the final real damage sample or replace its stack.
+            int before = _lastPlayerHealth;
+            _lastPlayerHealth = remaining;
+            if (_disposed) return;
+            try
+            {
+                if (++_acceptedDamageRows > 128) throw new InvalidOperationException("accepted damage row capacity exceeded");
+                var field = typeof(HealthComponent).GetField("_processedAttackOrder",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                if (field?.GetValue(_playerHealth) is not Queue<DamageAttackIdentity> identities || identities.Count == 0)
+                    throw new InvalidOperationException("accepted Health attack identity unavailable");
+                DamageAttackIdentity hit = identities.Last();
+                bool sourceCacheHit = _damageSources.TryGetValue(hit.SourceRuntimeId, out var source);
+                bool? sourceLiveValid = null, sourceInTree = null, sourceQueued = null, sourceInLevel = null;
+                string sourceLiveType = null, sourceLivePath = null;
+                if (!sourceCacheHit)
+                {
+                    Node live = GodotObject.InstanceFromId(hit.SourceRuntimeId) as Node;
+                    sourceLiveValid = GodotObject.IsInstanceValid(live);
+                    if (sourceLiveValid == true)
+                    {
+                        // Observe only this already-required fallback lookup at
+                        // accepted damage time. Do not retain a native wrapper
+                        // or silently broaden the source/cohort admission here.
+                        sourceLiveType = live.GetType().Name;
+                        sourceInTree = live.IsInsideTree();
+                        sourceQueued = live.IsQueuedForDeletion();
+                        sourceInLevel = _level.IsAncestorOf(live);
+                        if (sourceInTree == true)
+                        {
+                            using NodePath path = live.GetPath();
+                            sourceLivePath = path.ToString();
+                        }
+                        OnDamageSourceAdded(live);
+                    }
+                    _damageSources.TryGetValue(hit.SourceRuntimeId, out source);
+                }
+                RangedReceipt ranged = _receipts.Concat(_residentReceipts)
+                    .SingleOrDefault(receipt => receipt.ActorId == hit.SourceRuntimeId);
+                bool rangedOwner = source?.Type is nameof(RivetScatterGunner) or nameof(BeltBurstGunner) or
+                    nameof(FurnaceMissileGunner) or nameof(PrismLaserGunner);
+                bool shotObserved = ranged?.Shots.Contains(hit.LocalAttackId) ?? false;
+                bool attributed = source?.Cohort is "resident" or "wave" or "player" or "mechanism" &&
+                    hit.SourceRuntimeId != 0 && hit.LocalAttackId != 0 && before > remaining &&
+                    (!rangedOwner || shotObserved);
+                if (!attributed) _attributionGaps++;
+                var input = _player.GetNode<PlayerInputReader>("Input");
+                var shield = _player.GetNode<PlayerShieldController>("Shield");
+                var energy = _player.GetNode<PlayerEnergyController>("Energy");
+                GD.Print("TASK10_ACCEPTED_DAMAGE " + System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    variant = _variant.ToString(), sequence = _acceptedDamageRows, physics = Engine.GetPhysicsFrames(),
+                    inputSequence = input.CurrentFrameSequence, before, remaining, hpLoss = before - remaining,
+                    hit.SourceRuntimeId, hit.LocalAttackId, attributed, source,
+                    sourceLookup = new { cacheHit = sourceCacheHit, nativeValid = sourceLiveValid,
+                        runtimeType = sourceLiveType, path = sourceLivePath, inTree = sourceInTree,
+                        queued = sourceQueued, levelAncestor = sourceInLevel },
+                    rangedShotOrdinalObserved = shotObserved,
+                    selected = _selectedActorId, decisionPhysics = _decisionPhysics,
+                    decisionAge = _decisionPhysics == 0 ? (ulong?)null : Engine.GetPhysicsFrames() - _decisionPhysics,
+                    dangerActor = _lastDecisionDanger.SourceActorId, dangerAttack = _lastDecisionDanger.AttackId,
+                    dangerPhase = _lastDecisionDanger.Phase.ToString(), dangerRemaining = _lastDecisionDanger.RemainingSeconds,
+                    genericGuardPlan = _decisionGuard, shieldHeld = input.Current.ShieldHeld, shieldActive = shield.IsActive,
+                    shieldX = shield.GuardDirection.X, shieldY = shield.GuardDirection.Y,
+                    energy = energy.EnergyRatio, heat = energy.HeatRatio, overheated = energy.IsOverheated,
+                    attacking = _combat.IsAttacking, playerX = _player.GlobalPosition.X, playerY = _player.GlobalPosition.Y,
+                    impulseX = impulse.X, impulseY = impulse.Y, observationOnly = true
+                }));
+            }
+            catch (Exception error)
+            {
+                _attributionGaps++;
+                GD.Print("TASK10_DAMAGE_ATTRIBUTION_GAP accepted=" + error.Message);
+            }
         }
 
         private void Callback(Action observation)
@@ -15925,8 +24912,17 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             // Do not throw through a production event and interrupt its remaining listeners.
         }
 
-        public void AssertObserverHealthy() => TestAssert.True(_observerError == null,
-            $"RANGED_NORMAL_OBSERVER_RED variant={_variant} error={_observerError}");
+        public void AssertObserverHealthy()
+        {
+            // Preserve an original callback/recovery error as the primary
+            // failure. Attribution completeness must also be checked during
+            // the route, not only after a successful terminal that may never
+            // be reached when a later combat death aborts exploration.
+            TestAssert.True(_observerError == null,
+                $"RANGED_NORMAL_OBSERVER_RED variant={_variant} error={_observerError}");
+            TestAssert.True(_attributionGaps == 0,
+                $"TASK10_DAMAGE_ATTRIBUTION_RED gaps={_attributionGaps} rows={_acceptedDamageRows}");
+        }
 
         private static string SavedScene(RangedWeaponRole role) => role switch
         {
@@ -15951,27 +24947,46 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             if (node is not RangedWeaponEnemy actor || !_world.IsAncestorOf(actor)) return;
             ulong id = actor.GetInstanceId();
             if (_live.ContainsKey(id)) return;
-            TestAssert.True(_receipts.Count < MaxInstances,
-                "RANGED_NORMAL_OBSERVER_RED bounded instance capacity exceeded");
             Godot.Collections.Array<Node> candidates = _world.FindChildren("*", "", true, false);
             using Godot.Collections.Array candidatesBacking = (Godot.Collections.Array)candidates;
-            CanyonEncounterGroup group = candidates
-                .OfType<CanyonEncounterGroup>().Single(candidate =>
+            CanyonEncounterGroup[] groups = candidates
+                .OfType<CanyonEncounterGroup>().Where(candidate =>
                     candidate.GetNodeOrNull(candidate.ActorRootPath) == actor.GetParent() &&
                     actor.Name.ToString().StartsWith(candidate.EncounterId.ToString().Replace('.', '_') +
-                        "_batch", StringComparison.Ordinal));
+                        "_batch", StringComparison.Ordinal)).ToArray();
             string scene = actor.SceneFilePath;
-            TestAssert.True(scene == SavedScene(actor.Role) && group.Definition != null &&
-                group.Definition.Enemies.Any(placement => placement.ScenePath == scene &&
-                    placement.ActivationBatch == group.CurrentBatch),
-                "RANGED_NORMAL_OBSERVER_RED root must be the actual saved authored role/batch");
-            BindGroup(group);
+            ResidentSceneBinding resident = actor.GetNodeOrNull<ResidentSceneBinding>("ResidentBinding");
+            string encounter;
+            int batch;
+            List<RangedReceipt> cohort;
+            if (resident != null)
+            {
+                TestAssert.True(groups.Length == 0,
+                    $"RANGED_NORMAL_OBSERVER_RED ambiguous resident/wave actor_id={id} scene={scene}");
+                encounter = ResidentIdentity(actor, resident);
+                batch = -1; cohort = _residentReceipts;
+            }
+            else
+            {
+                TestAssert.True(groups.Length == 1,
+                    $"RANGED_NORMAL_OBSERVER_RED unknown/ambiguous wave actor_id={id} " +
+                    $"scene={scene} role={actor.Role} parent={actor.GetParent()?.Name} groups={groups.Length}");
+                CanyonEncounterGroup group = groups[0];
+                TestAssert.True(scene == SavedScene(actor.Role) && group.Definition != null &&
+                    group.Definition.Enemies.Any(placement => placement.ScenePath == scene &&
+                        placement.ActivationBatch == group.CurrentBatch),
+                    "RANGED_NORMAL_OBSERVER_RED root must be the actual saved authored role/batch");
+                BindGroup(group);
+                encounter = group.EncounterId.ToString(); batch = group.CurrentBatch; cohort = _receipts;
+            }
+            TestAssert.True(cohort.Count < MaxInstances,
+                "RANGED_NORMAL_OBSERVER_RED bounded cohort capacity exceeded");
             using NodePath runtimePath = actor.GetPath();
             var receipt = new RangedReceipt
             {
-                Encounter = group.EncounterId.ToString(), Scene = scene,
+                Encounter = encounter, Scene = scene,
                 Path = runtimePath.ToString(), Role = actor.Role.ToString(),
-                ActorId = id, PlayerId = _playerId, Batch = group.CurrentBatch
+                ActorId = id, PlayerId = _playerId, Batch = batch
             };
             var binding = new RangedBinding
             {
@@ -15981,6 +24996,15 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             binding.Attack = frame => Callback(() =>
             {
                 if (frame.Timeline.Phase != AttackPhase.Telegraph) return;
+                if (resident != null)
+                {
+                    var leaves = new List<AttackTelegraphVisual>(8);
+                    var danger = Task10ObserveEncounterDanger(actor.GetParent(),
+                        "resident-observer-no-wave", actor, false, leaves);
+                    TestAssert.True(danger.HasRanged,
+                        $"RANGED_RESIDENT_DANGER_RED actual warned resident must enter danger scope " +
+                        $"stable_id={receipt.Encounter} actor_id={id} role={actor.Role}");
+                }
                 TestAssert.True(frame.Timeline.Kind == AttackKind(actor.Role) &&
                     frame.Timeline.AttackId != 0 && frame.Shape.Kind != AttackShapeKind.None,
                     "RANGED_NORMAL_OBSERVER_RED warning must have real role-typed geometry");
@@ -16031,7 +25055,7 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     actor.CurrentFrame.AttackTimeline.AttackId, 0, "", null));
                 Detach(id);
             };
-            _receipts.Add(receipt); _live.Add(id, binding);
+            cohort.Add(receipt); _live.Add(id, binding);
             actor.AttackFrameChanged += binding.Attack;
             actor.FrameChanged += binding.Frame;
             actor.ShotEmitted += binding.Shot;
@@ -16039,12 +25063,57 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             binding.Health.Damaged += binding.Damaged;
             actor.TreeExiting += binding.Exit;
             // Bind is logged without pretending the not-yet-ready Health is initialized.
-            GD.Print($"RANGED_NORMAL_BOUND variant={_variant} encounter={receipt.Encounter} " +
+            GD.Print($"{(resident == null ? "RANGED_NORMAL_BOUND" : "RANGED_RESIDENT_BOUND")} " +
+                $"variant={_variant} encounter={receipt.Encounter} " +
                 $"scene={scene} path={receipt.Path} role={receipt.Role} actor_id={id} " +
                 $"batch={receipt.Batch} player_id={_playerId} physics={Engine.GetPhysicsFrames()} " +
                 $"actor={actor.GlobalPosition} muzzle={actor.GetNode<Node2D>("Muzzle").GlobalPosition} " +
                 $"player={_player.GlobalPosition} worldpath_at_bind=unmeasured full_capsule_support=unmeasured");
         });
+
+        private string ResidentIdentity(RangedWeaponEnemy actor, ResidentSceneBinding binding)
+        {
+            // NodeAdded precedes the manager's lease commit. Validate the configured
+            // saved root and unique authored birth site, not a not-yet-attached lease.
+            TestAssert.True(actor.GetParent()?.GetParent()?.GetParent() is PrologueSector,
+                "RANGED_NORMAL_OBSERVER_RED resident requires actual sector/Gameplay/Actors");
+            var sector = (PrologueSector)actor.GetParent().GetParent().GetParent();
+            var sites = _level.ResidentLayout.Where(site => site.Definition.Sector == sector.SectorId &&
+                site.Definition.Placement.WorldSpawn.DistanceSquaredTo(actor.GlobalPosition) < .01f).ToArray();
+            TestAssert.True(sites.Length == 1 && binding.Profile != null &&
+                CountResidentBindings(actor) == 1 &&
+                _world.TryGetMountedSector(sector.SectorId, out var mounted) && ReferenceEquals(mounted, sector) &&
+                ReferenceEquals(sector.GetNodeOrNull("Gameplay/Actors"), actor.GetParent()),
+                $"RANGED_NORMAL_OBSERVER_RED resident birth identity actor_id={actor.GetInstanceId()} " +
+                $"scene={actor.SceneFilePath} sector={sector.SectorId} sites={sites.Length}");
+            ResidentPopulationDefinition slot = sites[0].Definition;
+            var types = ResidentSceneRegistry.Select(_level.ResidentContent)
+                .Where(type => type.Id == slot.SubtypeId).ToArray();
+            ResidentSubtypeProfile profile = binding.Profile;
+            TestAssert.True(types.Length == 1 && actor.SceneFilePath == types[0].ScenePath &&
+                types[0].SceneState != ResidentSceneState.Unimplemented &&
+                binding.PresentationState == types[0].SceneState &&
+                profile.SubtypeId == slot.SubtypeId && profile.Family == slot.Family &&
+                profile.Archetype == slot.Archetype && profile.Family == types[0].Family &&
+                profile.Archetype == types[0].Archetype && profile.Carrier == types[0].Carrier &&
+                profile.Carrier == (actor.Role switch
+                {
+                    RangedWeaponRole.Scatter => ResidentCarrierKind.Scatter,
+                    RangedWeaponRole.Burst => ResidentCarrierKind.Burst,
+                    RangedWeaponRole.Laser => ResidentCarrierKind.Laser,
+                    RangedWeaponRole.Missile => ResidentCarrierKind.Missile,
+                    _ => ResidentCarrierKind.Unspecified
+                }), "RANGED_NORMAL_OBSERVER_RED resident must retain exact saved subtype/role/scene");
+            return slot.StableId;
+        }
+
+        private static int CountResidentBindings(Node node)
+        {
+            int count = node is ResidentSceneBinding ? 1 : 0;
+            for (int index = 0; index < node.GetChildCount(); index++)
+                count += CountResidentBindings(node.GetChild(index));
+            return count;
+        }
 
         private void BindGroup(CanyonEncounterGroup group)
         {
@@ -16069,12 +25138,26 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         {
             if (hurtbox.GetParent() is not RangedWeaponEnemy actor) return;
             ulong id = actor.GetInstanceId();
-            RangedReceipt receipt = _receipts.SingleOrDefault(candidate => candidate.ActorId == id);
+            RangedReceipt receipt = _receipts.Concat(_residentReceipts)
+                .SingleOrDefault(candidate => candidate.ActorId == id);
             if (receipt == null) return;
             HealthComponent health = actor.GetNode<HealthComponent>("Health");
-            TestAssert.True(_lastPlayerAttackId != 0 &&
-                ReferenceEquals(hurtbox.ResolveDamageReceiver(), health),
-                "RANGED_NORMAL_OBSERVER_RED player connection resolves the same actual actor Health");
+            IDamageReceiver receiver = hurtbox.ResolveDamageReceiver();
+            bool exactReceiver = receipt.Batch < 0
+                ? Task10IsSavedResident(actor) && ReferenceEquals(receiver, actor)
+                : ReferenceEquals(receiver, health);
+            // Residents intentionally route damage through their own residence
+            // authority. A connection still needs this exact child's accepted
+            // source/attack identity; an arbitrary proxy or another Health is
+            // not evidence that the real resident took the player's J.
+            var accepted = typeof(HealthComponent).GetField("_processedAttackOrder",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                ?.GetValue(health) as Queue<DamageAttackIdentity>;
+            TestAssert.True(_lastPlayerAttackId != 0 && exactReceiver &&
+                accepted is { Count: > 0 } &&
+                accepted.Last() == new DamageAttackIdentity(_hitboxId, _lastPlayerAttackId),
+                "RANGED_NORMAL_OBSERVER_RED player connection resolves the exact wave/resident receiver " +
+                "and the same actual actor Health accepted this player source/attack");
             receipt.PlayerCombatConnections++;
             // Connected follows Health.Died/Defeated synchronously in Hitbox.TryConnect, so
             // a lethal connection may arrive after that actor's live binding was released.
@@ -16104,7 +25187,8 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                 actor.IsOnFloor(), viewport.HasPoint(muzzle.GetGlobalTransformWithCanvas().Origin),
                 worldClear, _requests, _completions, _lastPlayerAttackId, _hitboxId, _combat.IsAttacking);
             receipt.Events.Add(sample);
-            GD.Print("RANGED_NORMAL_EVENT " + System.Text.Json.JsonSerializer.Serialize(new
+            GD.Print((receipt.Batch < 0 ? "RANGED_RESIDENT_EVENT " : "RANGED_NORMAL_EVENT ") +
+                System.Text.Json.JsonSerializer.Serialize(new
             {
                 variant = _variant.ToString(), receipt.Encounter, receipt.Scene, receipt.Path,
                 receipt.Role, receipt.ActorId, receipt.PlayerId, receipt.Batch, sample
@@ -16125,6 +25209,8 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
         public void AssertComplete(int requests, int completions)
         {
             AssertObserverHealthy();
+            TestAssert.True(_attributionGaps == 0,
+                $"TASK10_DAMAGE_ATTRIBUTION_RED gaps={_attributionGaps} rows={_acceptedDamageRows}");
             TestAssert.True(requests == 0 && completions == 0 && _requests == 0 && _completions == 0,
                 $"RANGED_NORMAL_ZERO_RECOVERY_RED variant={_variant} monitor={requests}/{completions} " +
                 $"observer={_requests}/{_completions}");
@@ -16169,6 +25255,13 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
             if (_disposed) return;
             _disposed = true;
             _tree.NodeAdded -= OnNodeAdded;
+            _tree.NodeAdded -= OnDamageSourceAdded;
+            if (GodotObject.IsInstanceValid(_playerHealth))
+            {
+                _playerHealth.Ready -= OnPlayerHealthReady;
+                _playerHealth.Damaged -= OnAcceptedPlayerDamage;
+                _playerHealth.Healed -= OnPlayerHealed;
+            }
             if (GodotObject.IsInstanceValid(_level))
             {
                 _level.RecoveryRequested -= OnRecoveryRequested;
@@ -16188,8 +25281,16 @@ public static partial class PrologueCanyonGeneratedMainRouteTests
                     $"damage={receipt.DamageEvents} player_connections={receipt.PlayerCombatConnections} " +
                     $"defeated={receipt.DefeatedEvents} health={receipt.DefeatedHealth} " +
                     $"physics={receipt.WarningPhysics}/{receipt.ShotPhysics}/{receipt.DefeatedPhysics}");
+            foreach (RangedReceipt receipt in _residentReceipts)
+                GD.Print($"RANGED_RESIDENT_INSTANCE_END variant={_variant} stable_id={receipt.Encounter} " +
+                    $"scene={receipt.Scene} role={receipt.Role} actor_id={receipt.ActorId} " +
+                    $"telegraphs={receipt.Warnings.Count} shots={receipt.Shots.Count} " +
+                    $"damage={receipt.DamageEvents} player_connections={receipt.PlayerCombatConnections} " +
+                    $"defeated={receipt.DefeatedEvents} mount_observation_only=true");
             GD.Print($"RANGED_NORMAL_OBSERVER_END variant={_variant} instances={_receipts.Count} " +
                 $"recoveries={_requests}/{_completions} observer_fault={_observerError ?? "none"}");
+            GD.Print($"TASK10_DAMAGE_ATTRIBUTION_END accepted_rows={_acceptedDamageRows} gaps={_attributionGaps} " +
+                $"scalar_sources={_damageSources.Count} behavior_accepted=false");
         }
     }
 

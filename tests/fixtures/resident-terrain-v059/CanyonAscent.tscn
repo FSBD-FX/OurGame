@@ -1,0 +1,2391 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/prologue/seamless/PrologueSector.cs" id="1_jehoa"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonBackdropVisual.cs" id="2_jl06a"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonPlatformVisual.cs" id="3_kanwa"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonAnchorVisual.cs" id="4_ga1rw"]
+[ext_resource type="Script" path="res://scripts/abilities/GrappleSurface2D.cs" id="5_be73d"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="6_3uv5q"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="7_poi1l"]
+[ext_resource type="Script" path="res://scripts/prologue/traversal/TraversalSegment2D.cs" id="8_5d71p"]
+[ext_resource type="Script" path="res://scripts/world/KillZone.cs" id="9_6d1g4"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonCounterweightLift.cs" id="10_3y46r"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonPendulumHazard.cs" id="11_e6xdc"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonShortcutWinch.cs" id="12_ago8t"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonSteamValve.cs" id="13_op74x"]
+[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragment.cs" id="14_ka627"]
+[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragmentVisual.cs" id="15_ewd72"]
+[ext_resource type="Script" path="res://scripts/prologue/CanyonEncounterGroup.cs" id="16_fy3o2"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_q6ng5"]
+size = Vector2(160, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_sk105"]
+size = Vector2(160, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_n5rtt"]
+size = Vector2(160, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_7sghw"]
+size = Vector2(200, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_kym84"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_u4v0b"]
+size = Vector2(240, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_7nag7"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_vt3v8"]
+size = Vector2(140, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_8v4p0"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_kynq2"]
+size = Vector2(240, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_bcs4a"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_e6edu"]
+size = Vector2(240, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_tdbwb"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_t6be4"]
+size = Vector2(240, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_vbwfn"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_1vy3h"]
+size = Vector2(240, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_8te3i"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_sat0b"]
+size = Vector2(240, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_kaw4g"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_8v6l3"]
+size = Vector2(240, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_vlusn"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_2v66d"]
+size = Vector2(240, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_lucrq"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_g3clf"]
+size = Vector2(220, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_qka5m"]
+size = Vector2(280, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_kky61"]
+size = Vector2(240, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_uudia"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_pdwtm"]
+size = Vector2(140, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_vybcy"]
+size = Vector2(150, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_u5o4m"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_nh6pa"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_iejs6"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_2dm0p"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_oh5ex"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_uvwxo"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_dvgdr"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_6yxuy"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ixdxq"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_jb02d"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_2axqc"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_up2qy"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_j4pou"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_2g3wc"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_gmdlk"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_yh3ij"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_8xtmq"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_yqxqk"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_3cnr8"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_u4nbj"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_c78rv"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_t0c8d"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_7pl8d"]
+size = Vector2(36, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_4lyds"]
+size = Vector2(150, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_o60gw"]
+size = Vector2(36, 60)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_asoe0"]
+radius = 22.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_7ejjv"]
+radius = 22.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_71py2"]
+radius = 22.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ctmpo"]
+size = Vector2(464, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_8bu5q"]
+size = Vector2(32, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_5oxmr"]
+size = Vector2(80, 24)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_3koie"]
+size = Vector2(28, 220)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_xswhy"]
+size = Vector2(410, 1930)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_hop23"]
+radius = 18.0
+
+[node name="CanyonAscent" type="Node2D" unique_id=555947587]
+script = ExtResource("1_jehoa")
+SectorId = 3
+Bounds = Rect2(0, 0, 1280, 2880)
+metadata/canyon_layout_version = 2
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=1507278459]
+
+[node name="Background" type="Node2D" parent="VisualRoot" unique_id=78909602]
+z_index = -40
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="CanyonVoid" type="Polygon2D" parent="VisualRoot/Background" unique_id=678059688]
+position = Vector2(640, 1440)
+color = Color(0.03529412, 0.08235294, 0.105882354, 1)
+polygon = PackedVector2Array(-640, -1440, 640, -1440, 640, 1440, -640, 1440)
+
+[node name="DistantCanyon" type="Node2D" parent="VisualRoot/Background" unique_id=1132739987]
+script = ExtResource("2_jl06a")
+SectorId = 3
+SectorBounds = Rect2(0, 0, 1280, 2880)
+DistantLayer = true
+
+[node name="CanyonCoverageSkirt" type="Node2D" parent="VisualRoot/Background" unique_id=646170578]
+z_index = -100
+z_as_relative = false
+script = ExtResource("2_jl06a")
+SectorId = 3
+SectorBounds = Rect2(-4940, -1660, 9880, 6200)
+CoverageLayer = true
+VisualRole = "coverage"
+
+[node name="Midground" type="Node2D" parent="VisualRoot" unique_id=1455179347]
+z_index = -20
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="CanyonRib1" type="Polygon2D" parent="VisualRoot/Midground" unique_id=71462154]
+position = Vector2(90, 2332.8)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -547.2, 16, -547.2, 16, 547.2, -16, 547.2)
+
+[node name="CanyonRib2" type="Polygon2D" parent="VisualRoot/Midground" unique_id=1989382646]
+position = Vector2(273.3333, 2217.6)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -662.39996, 16, -662.39996, 16, 662.39996, -16, 662.39996)
+
+[node name="CanyonRib3" type="Polygon2D" parent="VisualRoot/Midground" unique_id=521147364]
+position = Vector2(456.66666, 2102.4)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -777.6, 16, -777.6, 16, 777.6, -16, 777.6)
+
+[node name="CanyonRib4" type="Polygon2D" parent="VisualRoot/Midground" unique_id=784739007]
+position = Vector2(640, 2332.8)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -547.2, 16, -547.2, 16, 547.2, -16, 547.2)
+
+[node name="CanyonRib5" type="Polygon2D" parent="VisualRoot/Midground" unique_id=1812709009]
+position = Vector2(823.3333, 2217.6)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -662.39996, 16, -662.39996, 16, 662.39996, -16, 662.39996)
+
+[node name="CanyonRib6" type="Polygon2D" parent="VisualRoot/Midground" unique_id=754119667]
+position = Vector2(1006.6667, 2102.4)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -777.6, 16, -777.6, 16, 777.6, -16, 777.6)
+
+[node name="CanyonRib7" type="Polygon2D" parent="VisualRoot/Midground" unique_id=389269671]
+position = Vector2(1190, 2332.8)
+color = Color(0.11764706, 0.17254902, 0.1882353, 1)
+polygon = PackedVector2Array(-16, -547.2, 16, -547.2, 16, 547.2, -16, 547.2)
+
+[node name="CanyonLandmark" type="Node2D" parent="VisualRoot/Midground" unique_id=41437516]
+script = ExtResource("2_jl06a")
+SectorId = 3
+SectorBounds = Rect2(0, 0, 1280, 2880)
+
+[node name="ChallengeCompositions" type="Node2D" parent="VisualRoot/Midground" unique_id=216281655]
+
+[node name="CounterweightLift" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=171566669]
+script = ExtResource("2_jl06a")
+SectorId = 3
+VisualRole = "challenge"
+CompositionId = "moving-counterweight-lift"
+CompositionBounds = Rect2(0, 2080, 1280, 800)
+AccentColor = Color(0.4745098, 0.39607844, 0.25490198, 1)
+metadata/challenge_kind = 7
+metadata/height_layer = 1
+metadata/silhouette_id = "moving-counterweight-lift"
+metadata/collision_source = false
+
+[node name="PendulumGallery" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=139876924]
+script = ExtResource("2_jl06a")
+SectorId = 3
+VisualRole = "challenge"
+CompositionId = "pendulum-procession"
+CompositionBounds = Rect2(0, 1280, 1280, 800)
+AccentColor = Color(0.4745098, 0.39607844, 0.25490198, 1)
+metadata/challenge_kind = 8
+metadata/height_layer = 1
+metadata/silhouette_id = "pendulum-procession"
+metadata/collision_source = false
+
+[node name="SplitLevelEncounter" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=1958303775]
+script = ExtResource("2_jl06a")
+SectorId = 3
+VisualRole = "challenge"
+CompositionId = "upper-gallery-bell-frame"
+CompositionBounds = Rect2(0, 480, 1280, 800)
+AccentColor = Color(0.4745098, 0.39607844, 0.25490198, 1)
+metadata/challenge_kind = 9
+metadata/height_layer = 2
+metadata/silhouette_id = "upper-gallery-bell-frame"
+metadata/collision_source = false
+
+[node name="GameplayReadable" type="Node2D" parent="VisualRoot" unique_id=2031627696]
+z_index = -2
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="MicroSceneReadability" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=2116482228]
+
+[node name="CounterweightLift" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=1275903137]
+position = Vector2(640, 2480)
+color = Color(0.72, 0.58, 0.3, 0.04)
+polygon = PackedVector2Array(-636, -396, 636, -396, 636, 396, -636, 396)
+
+[node name="PendulumGallery" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=1540913608]
+position = Vector2(640, 1680)
+color = Color(0.72, 0.58, 0.3, 0.04)
+polygon = PackedVector2Array(-636, -396, 636, -396, 636, 396, -636, 396)
+
+[node name="SplitLevelEncounter" type="Polygon2D" parent="VisualRoot/GameplayReadable/MicroSceneReadability" unique_id=814124754]
+position = Vector2(640, 880)
+color = Color(0.72, 0.58, 0.3, 0.04)
+polygon = PackedVector2Array(-636, -396, 636, -396, 636, 396, -636, 396)
+
+[node name="LiftEntryFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=205363605]
+position = Vector2(80, 2872)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(160, 16)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/LiftEntryFloor" unique_id=916853219]
+position = Vector2(0, -5)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-80, -3, 80, -3, 80, 3, -80, 3)
+
+[node name="LiftAccessStepOne" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=678074139]
+position = Vector2(560, 2856)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(160, 40)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/LiftAccessStepOne" unique_id=2131446026]
+position = Vector2(0, -17)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-80, -3, 80, -3, 80, 3, -80, 3)
+
+[node name="LiftAccessStepTwo" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1588711213]
+position = Vector2(740, 2796)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(160, 40)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/LiftAccessStepTwo" unique_id=962540591]
+position = Vector2(0, -17)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-80, -3, 80, -3, 80, 3, -80, 3)
+
+[node name="LiftBackLanding" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=237986611]
+position = Vector2(860, 2760)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(200, 40)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/LiftBackLanding" unique_id=2015531801]
+position = Vector2(0, -17)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-100, -3, 100, -3, 100, 3, -100, 3)
+
+[node name="LiftBackLandingGrip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1962383000]
+position = Vector2(858, 2600)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/LiftBackLandingGrip" unique_id=1373932202]
+position = Vector2(0, -27)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AscentGrip1" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=278272706]
+position = Vector2(540, 2620)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(240, 40)
+CatchShelf = true
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip1" unique_id=1447447739]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
+
+[node name="AscentGrip1Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=2077662307]
+position = Vector2(554, 2470)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip1Grip" unique_id=956901594]
+position = Vector2(0, -27)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AscentGrip2" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1332821654]
+position = Vector2(890, 2380)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(140, 40)
+CatchShelf = true
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip2" unique_id=683060453]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-70, -3, 70, -3, 70, 3, -70, 3)
+
+[node name="AscentGrip2Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=605284939]
+position = Vector2(926, 2150)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip2Grip" unique_id=411473790]
+position = Vector2(0, -27)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AscentGrip3" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=808135242]
+position = Vector2(540, 2140)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(240, 40)
+CatchShelf = true
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip3" unique_id=1718701928]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
+
+[node name="AscentGrip3Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=532665910]
+position = Vector2(554, 1990)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip3Grip" unique_id=1673265431]
+position = Vector2(0, -27)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AscentGrip4" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1656164451]
+position = Vector2(940, 1900)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(240, 40)
+CatchShelf = true
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip4" unique_id=705176282]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
+
+[node name="AscentGrip4Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=77080091]
+position = Vector2(926, 1750)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip4Grip" unique_id=783653067]
+position = Vector2(0, -27)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AscentGrip5" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1018653492]
+position = Vector2(540, 1660)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(240, 40)
+CatchShelf = true
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip5" unique_id=1385712080]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
+
+[node name="AscentGrip5Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=256074709]
+position = Vector2(554, 1510)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip5Grip" unique_id=913998124]
+position = Vector2(0, -27)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AscentGrip6" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1259186642]
+position = Vector2(940, 1420)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(240, 40)
+CatchShelf = true
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip6" unique_id=652934546]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
+
+[node name="AscentGrip6Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=372019727]
+position = Vector2(926, 1270)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip6Grip" unique_id=2109940644]
+position = Vector2(0, -27)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AscentGrip7" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1397058157]
+position = Vector2(540, 1180)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(240, 40)
+CatchShelf = true
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip7" unique_id=1682194232]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
+
+[node name="AscentGrip7Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=921151840]
+position = Vector2(554, 1030)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip7Grip" unique_id=1460648858]
+position = Vector2(0, -27)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AscentGrip8" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=2125013360]
+position = Vector2(940, 940)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(240, 40)
+CatchShelf = true
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip8" unique_id=5873893]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
+
+[node name="AscentGrip8Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1351783616]
+position = Vector2(926, 790)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip8Grip" unique_id=1073295580]
+position = Vector2(0, -27)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="AscentGrip9" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=305145005]
+position = Vector2(540, 700)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(240, 40)
+CatchShelf = true
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip9" unique_id=200250761]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
+
+[node name="AscentGrip9Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1814840342]
+position = Vector2(554, 550)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip9Grip" unique_id=1837572314]
+position = Vector2(0, -27)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="PendulumCeiling" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=117549344]
+position = Vector2(1170, 1370)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(220, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/PendulumCeiling" unique_id=161912606]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-110, -3, 110, -3, 110, 3, -110, 3)
+
+[node name="SplitUpperGallery" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1365062476]
+position = Vector2(380, 780)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(280, 40)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/SplitUpperGallery" unique_id=1336351634]
+position = Vector2(0, -17)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-140, -3, 140, -3, 140, 3, -140, 3)
+
+[node name="AscentFinalCatch" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=416695672]
+position = Vector2(940, 620)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(240, 40)
+CatchShelf = true
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentFinalCatch" unique_id=1634635822]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
+
+[node name="AscentFinalCatchGrip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1013510903]
+position = Vector2(926, 470)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentFinalCatchGrip" unique_id=907638438]
+position = Vector2(0, -27)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="CourtyardApproach" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1049149013]
+position = Vector2(1210, 540)
+script = ExtResource("3_kanwa")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(140, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/CourtyardApproach" unique_id=2009123274]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-70, -3, 70, -3, 70, 3, -70, 3)
+
+[node name="ShortcutStep3476" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1550229422]
+position = Vector2(75, 2764)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(150, 16)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep3476" unique_id=1807801190]
+position = Vector2(0, -5)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep3476Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1243355642]
+position = Vector2(18, 2646)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep3476Grip" unique_id=553861594]
+position = Vector2(0, -27)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep3316" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=139424915]
+position = Vector2(335, 2612)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep3316" unique_id=987065244]
+position = Vector2(0, -13)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep3316Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=487345366]
+position = Vector2(392, 2486)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep3316Grip" unique_id=1651227377]
+position = Vector2(0, -27)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep3156" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1757220489]
+position = Vector2(75, 2452)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep3156" unique_id=55090156]
+position = Vector2(0, -13)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep3156Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=994414738]
+position = Vector2(18, 2326)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep3156Grip" unique_id=1334291344]
+position = Vector2(0, -27)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep2996" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1077359772]
+position = Vector2(335, 2292)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2996" unique_id=1964555024]
+position = Vector2(0, -13)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep2996Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=829158860]
+position = Vector2(392, 2166)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2996Grip" unique_id=697157797]
+position = Vector2(0, -27)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep2836" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1316039841]
+position = Vector2(75, 2132)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2836" unique_id=1527978831]
+position = Vector2(0, -13)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep2836Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1422172234]
+position = Vector2(18, 2006)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2836Grip" unique_id=860826525]
+position = Vector2(0, -27)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep2676" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=870104383]
+position = Vector2(335, 1972)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2676" unique_id=2077707008]
+position = Vector2(0, -13)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep2676Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1731719979]
+position = Vector2(392, 1846)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2676Grip" unique_id=1380121003]
+position = Vector2(0, -27)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep2516" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1556130691]
+position = Vector2(75, 1812)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2516" unique_id=819416633]
+position = Vector2(0, -13)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep2516Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=468252807]
+position = Vector2(18, 1686)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2516Grip" unique_id=313116307]
+position = Vector2(0, -27)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep2356" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1095129129]
+position = Vector2(335, 1652)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2356" unique_id=2122185533]
+position = Vector2(0, -13)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep2356Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=520163896]
+position = Vector2(392, 1526)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2356Grip" unique_id=40339831]
+position = Vector2(0, -27)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep2196" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=771384617]
+position = Vector2(75, 1492)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2196" unique_id=434243541]
+position = Vector2(0, -13)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep2196Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1425745217]
+position = Vector2(18, 1366)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2196Grip" unique_id=228849802]
+position = Vector2(0, -27)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep2036" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1153214460]
+position = Vector2(335, 1332)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2036" unique_id=553334953]
+position = Vector2(0, -13)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep2036Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=727634331]
+position = Vector2(392, 1206)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep2036Grip" unique_id=1325199924]
+position = Vector2(0, -27)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep1876" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=262281418]
+position = Vector2(75, 1172)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep1876" unique_id=541669077]
+position = Vector2(0, -13)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep1876Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=183882012]
+position = Vector2(18, 1046)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep1876Grip" unique_id=1827998865]
+position = Vector2(0, -27)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep1716" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=194417339]
+position = Vector2(335, 1012)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep1716" unique_id=1790049251]
+position = Vector2(0, -13)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep1716Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=546505121]
+position = Vector2(392, 886)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep1716Grip" unique_id=1597815514]
+position = Vector2(0, -27)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="ShortcutStep1556" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1479977375]
+position = Vector2(75, 852)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(150, 32)
+CatchShelf = true
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep1556" unique_id=434433797]
+position = Vector2(0, -13)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
+
+[node name="ShortcutStep1556Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=386944873]
+position = Vector2(18, 726)
+script = ExtResource("3_kanwa")
+SectorId = 3
+SkinSize = Vector2(36, 60)
+metadata/material_family = "grip-stone-masonry"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/ShortcutStep1556Grip" unique_id=1118673566]
+position = Vector2(0, -27)
+color = Color(0.56078434, 0.65882355, 0.70980394, 1)
+polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
+
+[node name="CounterweightLiftControl" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=854993265]
+position = Vector2(1260, 2700)
+script = ExtResource("4_ga1rw")
+SurfaceMaterial = 2
+Radius = 22.0
+metadata/material_family = "thread-anchor-cyan"
+
+[node name="MechanismTelegraphs" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=600339110]
+
+[node name="PendulumTelegraph" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs" unique_id=1541016731]
+position = Vector2(1080, 1510)
+color = Color(0.85, 0.54, 0.24, 0.68)
+polygon = PackedVector2Array(-150, -12, 150, -12, 150, 12, -150, 12)
+
+[node name="UpperBasinShortcutClosed" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs" unique_id=674307010]
+z_index = 1
+position = Vector2(205, 1765)
+color = Color(0.1254902, 0.16470589, 0.18431373, 1)
+polygon = PackedVector2Array(-205, -965, 205, -965, 205, 965, -205, 965)
+
+[node name="RecessedPanels" type="Node2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed" unique_id=1314299580]
+
+[node name="Panel1" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed/RecessedPanels" unique_id=305647466]
+position = Vector2(-120, 0)
+color = Color(0.16862746, 0.21568628, 0.23529412, 1)
+polygon = PackedVector2Array(-31, -895, 31, -895, 31, 895, -31, 895)
+
+[node name="Panel2" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed/RecessedPanels" unique_id=1541508047]
+position = Vector2(-40, 0)
+color = Color(0.14901961, 0.19607843, 0.21960784, 1)
+polygon = PackedVector2Array(-31, -895, 31, -895, 31, 895, -31, 895)
+
+[node name="Panel3" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed/RecessedPanels" unique_id=1702799891]
+position = Vector2(40, 0)
+color = Color(0.16862746, 0.21568628, 0.23529412, 1)
+polygon = PackedVector2Array(-31, -895, 31, -895, 31, 895, -31, 895)
+
+[node name="Panel4" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed/RecessedPanels" unique_id=1416738556]
+position = Vector2(120, 0)
+color = Color(0.14901961, 0.19607843, 0.21960784, 1)
+polygon = PackedVector2Array(-31, -895, 31, -895, 31, 895, -31, 895)
+
+[node name="LeftRail" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed" unique_id=501756329]
+position = Vector2(-176, 0)
+color = Color(0.34901962, 0.4, 0.41568628, 1)
+polygon = PackedVector2Array(-13, -940, 13, -940, 13, 940, -13, 940)
+
+[node name="RightRail" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed" unique_id=336023791]
+position = Vector2(176, 0)
+color = Color(0.34901962, 0.4, 0.41568628, 1)
+polygon = PackedVector2Array(-13, -940, 13, -940, 13, 940, -13, 940)
+
+[node name="CrossBraces" type="Node2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed" unique_id=1574214645]
+
+[node name="Brace1" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed/CrossBraces" unique_id=1930898532]
+position = Vector2(0, -760)
+rotation = 0.16
+color = Color(0.28235295, 0.32156864, 0.34117648, 1)
+polygon = PackedVector2Array(-170, -9, 170, -9, 170, 9, -170, 9)
+
+[node name="Brace2" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed/CrossBraces" unique_id=1764101460]
+position = Vector2(0, -570)
+rotation = -0.16
+color = Color(0.28235295, 0.32156864, 0.34117648, 1)
+polygon = PackedVector2Array(-170, -9, 170, -9, 170, 9, -170, 9)
+
+[node name="Brace3" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed/CrossBraces" unique_id=1634190213]
+position = Vector2(0, -380)
+rotation = 0.16
+color = Color(0.28235295, 0.32156864, 0.34117648, 1)
+polygon = PackedVector2Array(-170, -9, 170, -9, 170, 9, -170, 9)
+
+[node name="Brace4" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed/CrossBraces" unique_id=458049991]
+position = Vector2(0, -190)
+rotation = -0.16
+color = Color(0.28235295, 0.32156864, 0.34117648, 1)
+polygon = PackedVector2Array(-170, -9, 170, -9, 170, 9, -170, 9)
+
+[node name="Brace5" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed/CrossBraces" unique_id=1365849060]
+rotation = 0.16
+color = Color(0.28235295, 0.32156864, 0.34117648, 1)
+polygon = PackedVector2Array(-170, -9, 170, -9, 170, 9, -170, 9)
+
+[node name="Brace6" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed/CrossBraces" unique_id=1247845620]
+position = Vector2(0, 190)
+rotation = -0.16
+color = Color(0.28235295, 0.32156864, 0.34117648, 1)
+polygon = PackedVector2Array(-170, -9, 170, -9, 170, 9, -170, 9)
+
+[node name="Brace7" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed/CrossBraces" unique_id=354845959]
+position = Vector2(0, 380)
+rotation = 0.16
+color = Color(0.28235295, 0.32156864, 0.34117648, 1)
+polygon = PackedVector2Array(-170, -9, 170, -9, 170, 9, -170, 9)
+
+[node name="Brace8" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed/CrossBraces" unique_id=1709823881]
+position = Vector2(0, 570)
+rotation = -0.16
+color = Color(0.28235295, 0.32156864, 0.34117648, 1)
+polygon = PackedVector2Array(-170, -9, 170, -9, 170, 9, -170, 9)
+
+[node name="Brace9" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed/CrossBraces" unique_id=479784578]
+position = Vector2(0, 760)
+rotation = 0.16
+color = Color(0.28235295, 0.32156864, 0.34117648, 1)
+polygon = PackedVector2Array(-170, -9, 170, -9, 170, 9, -170, 9)
+
+[node name="UpperBasinShortcutOpen" type="Polygon2D" parent="VisualRoot/GameplayReadable/MechanismTelegraphs" unique_id=2137536326]
+position = Vector2(170, 2540)
+color = Color(0.4745098, 0.6666667, 0.5137255, 1)
+polygon = PackedVector2Array(-40, -6, 40, -6, 40, 6, -40, 6)
+
+[node name="UpperBasinShortcutControl" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1754680625]
+position = Vector2(500, 700)
+script = ExtResource("4_ga1rw")
+SurfaceMaterial = 2
+Radius = 22.0
+metadata/material_family = "thread-anchor-cyan"
+
+[node name="CourtyardSealLinkageControl" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=552823136]
+position = Vector2(1080, 540)
+script = ExtResource("4_ga1rw")
+SurfaceMaterial = 2
+Radius = 22.0
+metadata/material_family = "thread-anchor-cyan"
+
+[node name="Foreground" type="Node2D" parent="VisualRoot" unique_id=599778377]
+z_index = 20
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="DepthOccluders" type="Node2D" parent="VisualRoot/Foreground" unique_id=151273224]
+
+[node name="NearLeft" type="Polygon2D" parent="VisualRoot/Foreground/DepthOccluders" unique_id=940763513]
+color = Color(0.09019608, 0.14509805, 0.16470589, 0.66)
+polygon = PackedVector2Array(0, 0, 150, 0, 78, 96, 0, 69.12)
+metadata/occlusion_class = "foreground-safe-edge"
+
+[node name="NearRight" type="Polygon2D" parent="VisualRoot/Foreground/DepthOccluders" unique_id=646965164]
+color = Color(0.09019608, 0.14509805, 0.16470589, 0.66)
+polygon = PackedVector2Array(1130, 0, 1280, 0, 1280, 72.96, 1211, 96)
+metadata/occlusion_class = "foreground-safe-edge"
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=2029321071]
+z_index = 30
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="SectorLabel" type="Label" parent="VisualRoot/Effects" unique_id=570619598]
+visible = false
+modulate = Color(0.75, 0.82, 0.76, 0.55)
+offset_left = 42.0
+offset_top = 34.0
+offset_right = 42.0
+offset_bottom = 34.0
+text = "CanyonAscent"
+
+[node name="Gameplay" type="Node2D" parent="." unique_id=1858146103]
+
+[node name="Collision" type="Node2D" parent="Gameplay" unique_id=908037477]
+
+[node name="LiftEntryFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=879402542]
+position = Vector2(80, 2872)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/LiftEntryFloor" unique_id=496487719]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/LiftEntryFloor" unique_id=366178782]
+shape = SubResource("RectangleShape2D_q6ng5")
+
+[node name="LiftAccessStepOne" type="StaticBody2D" parent="Gameplay/Collision" unique_id=743709787]
+position = Vector2(560, 2856)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/LiftAccessStepOne" unique_id=1489440242]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/LiftAccessStepOne" unique_id=773440308]
+shape = SubResource("RectangleShape2D_sk105")
+
+[node name="LiftAccessStepTwo" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1294772539]
+position = Vector2(740, 2796)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/LiftAccessStepTwo" unique_id=1785277099]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/LiftAccessStepTwo" unique_id=973257748]
+shape = SubResource("RectangleShape2D_n5rtt")
+
+[node name="LiftBackLanding" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1816159918]
+position = Vector2(860, 2760)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/LiftBackLanding" unique_id=1741876197]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/LiftBackLanding" unique_id=222288004]
+shape = SubResource("RectangleShape2D_7sghw")
+
+[node name="LiftBackLandingGrip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1993875932]
+position = Vector2(858, 2600)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/LiftBackLandingGrip" unique_id=419466842]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/LiftBackLandingGrip" unique_id=1478449017]
+shape = SubResource("RectangleShape2D_kym84")
+
+[node name="AscentGrip1" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1713722356]
+position = Vector2(540, 2620)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip1" unique_id=1464054009]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip1" unique_id=1894811841]
+shape = SubResource("RectangleShape2D_u4v0b")
+
+[node name="AscentGrip1Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1503830023]
+position = Vector2(554, 2470)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip1Grip" unique_id=1780420563]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip1Grip" unique_id=393667600]
+shape = SubResource("RectangleShape2D_7nag7")
+
+[node name="AscentGrip2" type="StaticBody2D" parent="Gameplay/Collision" unique_id=898672598]
+position = Vector2(890, 2380)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip2" unique_id=562601660]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip2" unique_id=1401907147]
+shape = SubResource("RectangleShape2D_vt3v8")
+
+[node name="AscentGrip2Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1430855074]
+position = Vector2(926, 2150)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip2Grip" unique_id=163795296]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip2Grip" unique_id=1879947700]
+shape = SubResource("RectangleShape2D_8v4p0")
+
+[node name="AscentGrip3" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1709098474]
+position = Vector2(540, 2140)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip3" unique_id=844286299]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip3" unique_id=2016987434]
+shape = SubResource("RectangleShape2D_kynq2")
+
+[node name="AscentGrip3Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1867507599]
+position = Vector2(554, 1990)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip3Grip" unique_id=609656426]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip3Grip" unique_id=2067853845]
+shape = SubResource("RectangleShape2D_bcs4a")
+
+[node name="AscentGrip4" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1913409242]
+position = Vector2(940, 1900)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip4" unique_id=1721525625]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip4" unique_id=1699580535]
+shape = SubResource("RectangleShape2D_e6edu")
+
+[node name="AscentGrip4Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=2125733471]
+position = Vector2(926, 1750)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip4Grip" unique_id=1750894558]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip4Grip" unique_id=1184524659]
+shape = SubResource("RectangleShape2D_tdbwb")
+
+[node name="AscentGrip5" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1768309448]
+position = Vector2(540, 1660)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip5" unique_id=1863367873]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip5" unique_id=185844671]
+shape = SubResource("RectangleShape2D_t6be4")
+
+[node name="AscentGrip5Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=184418678]
+position = Vector2(554, 1510)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip5Grip" unique_id=1070629369]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip5Grip" unique_id=900934064]
+shape = SubResource("RectangleShape2D_vbwfn")
+
+[node name="AscentGrip6" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1454522579]
+position = Vector2(940, 1420)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip6" unique_id=1418162987]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip6" unique_id=1483972091]
+shape = SubResource("RectangleShape2D_1vy3h")
+
+[node name="AscentGrip6Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=425813140]
+position = Vector2(926, 1270)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip6Grip" unique_id=475058413]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip6Grip" unique_id=4289702]
+shape = SubResource("RectangleShape2D_8te3i")
+
+[node name="AscentGrip7" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1072568077]
+position = Vector2(540, 1180)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip7" unique_id=413825280]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip7" unique_id=180405208]
+shape = SubResource("RectangleShape2D_sat0b")
+
+[node name="AscentGrip7Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=245793202]
+position = Vector2(554, 1030)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip7Grip" unique_id=704315783]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip7Grip" unique_id=987683072]
+shape = SubResource("RectangleShape2D_kaw4g")
+
+[node name="AscentGrip8" type="StaticBody2D" parent="Gameplay/Collision" unique_id=549604736]
+position = Vector2(940, 940)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip8" unique_id=1085461642]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip8" unique_id=1135951434]
+shape = SubResource("RectangleShape2D_8v6l3")
+
+[node name="AscentGrip8Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=955714055]
+position = Vector2(926, 790)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip8Grip" unique_id=1675579073]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip8Grip" unique_id=2044156794]
+shape = SubResource("RectangleShape2D_vlusn")
+
+[node name="AscentGrip9" type="StaticBody2D" parent="Gameplay/Collision" unique_id=789604106]
+position = Vector2(540, 700)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip9" unique_id=1784873259]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip9" unique_id=419163080]
+shape = SubResource("RectangleShape2D_2v66d")
+
+[node name="AscentGrip9Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1722495538]
+position = Vector2(554, 550)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip9Grip" unique_id=640283649]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip9Grip" unique_id=137765728]
+shape = SubResource("RectangleShape2D_lucrq")
+
+[node name="PendulumCeiling" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1758842335]
+position = Vector2(1170, 1370)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/PendulumCeiling" unique_id=1764742595]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/PendulumCeiling" unique_id=623985829]
+shape = SubResource("RectangleShape2D_g3clf")
+
+[node name="SplitUpperGallery" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1216860261]
+position = Vector2(380, 780)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SplitUpperGallery" unique_id=930508083]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/SplitUpperGallery" unique_id=1124144877]
+shape = SubResource("RectangleShape2D_qka5m")
+
+[node name="AscentFinalCatch" type="StaticBody2D" parent="Gameplay/Collision" unique_id=452703227]
+position = Vector2(940, 620)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentFinalCatch" unique_id=1406251565]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentFinalCatch" unique_id=1790097924]
+shape = SubResource("RectangleShape2D_kky61")
+
+[node name="AscentFinalCatchGrip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1199841489]
+position = Vector2(926, 470)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentFinalCatchGrip" unique_id=55620625]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentFinalCatchGrip" unique_id=689455097]
+shape = SubResource("RectangleShape2D_uudia")
+
+[node name="CourtyardApproach" type="StaticBody2D" parent="Gameplay/Collision" unique_id=980117920]
+position = Vector2(1210, 540)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/CourtyardApproach" unique_id=782034983]
+script = ExtResource("5_be73d")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/CourtyardApproach" unique_id=888278484]
+shape = SubResource("RectangleShape2D_pdwtm")
+
+[node name="ShortcutStep3476" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1660601083]
+position = Vector2(75, 2764)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3476" unique_id=1033114307]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep3476" unique_id=945995774]
+shape = SubResource("RectangleShape2D_vybcy")
+
+[node name="ShortcutStep3476Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=261343741]
+position = Vector2(18, 2646)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3476Grip" unique_id=1485562404]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep3476Grip" unique_id=2091582611]
+shape = SubResource("RectangleShape2D_u5o4m")
+
+[node name="ShortcutStep3316" type="StaticBody2D" parent="Gameplay/Collision" unique_id=697983120]
+position = Vector2(335, 2612)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3316" unique_id=109037424]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep3316" unique_id=1491617309]
+shape = SubResource("RectangleShape2D_nh6pa")
+
+[node name="ShortcutStep3316Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1403589669]
+position = Vector2(392, 2486)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3316Grip" unique_id=1852073621]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep3316Grip" unique_id=166830566]
+shape = SubResource("RectangleShape2D_iejs6")
+
+[node name="ShortcutStep3156" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1248377194]
+position = Vector2(75, 2452)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3156" unique_id=967590699]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep3156" unique_id=225816251]
+shape = SubResource("RectangleShape2D_2dm0p")
+
+[node name="ShortcutStep3156Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1792466894]
+position = Vector2(18, 2326)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3156Grip" unique_id=1365571001]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep3156Grip" unique_id=1168843379]
+shape = SubResource("RectangleShape2D_oh5ex")
+
+[node name="ShortcutStep2996" type="StaticBody2D" parent="Gameplay/Collision" unique_id=2094697693]
+position = Vector2(335, 2292)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2996" unique_id=451907674]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2996" unique_id=1866452852]
+shape = SubResource("RectangleShape2D_uvwxo")
+
+[node name="ShortcutStep2996Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=554045764]
+position = Vector2(392, 2166)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2996Grip" unique_id=1026319180]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2996Grip" unique_id=851229930]
+shape = SubResource("RectangleShape2D_dvgdr")
+
+[node name="ShortcutStep2836" type="StaticBody2D" parent="Gameplay/Collision" unique_id=121599376]
+position = Vector2(75, 2132)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2836" unique_id=961418973]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2836" unique_id=2068190048]
+shape = SubResource("RectangleShape2D_6yxuy")
+
+[node name="ShortcutStep2836Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=221461643]
+position = Vector2(18, 2006)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2836Grip" unique_id=715424937]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2836Grip" unique_id=1904950417]
+shape = SubResource("RectangleShape2D_ixdxq")
+
+[node name="ShortcutStep2676" type="StaticBody2D" parent="Gameplay/Collision" unique_id=467659714]
+position = Vector2(335, 1972)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2676" unique_id=2095979409]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2676" unique_id=454610451]
+shape = SubResource("RectangleShape2D_jb02d")
+
+[node name="ShortcutStep2676Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1871455237]
+position = Vector2(392, 1846)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2676Grip" unique_id=2075960896]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2676Grip" unique_id=700748494]
+shape = SubResource("RectangleShape2D_2axqc")
+
+[node name="ShortcutStep2516" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1970556478]
+position = Vector2(75, 1812)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2516" unique_id=1668569852]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2516" unique_id=1788444360]
+shape = SubResource("RectangleShape2D_up2qy")
+
+[node name="ShortcutStep2516Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1424686106]
+position = Vector2(18, 1686)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2516Grip" unique_id=1148869006]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2516Grip" unique_id=1433856813]
+shape = SubResource("RectangleShape2D_j4pou")
+
+[node name="ShortcutStep2356" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1003035984]
+position = Vector2(335, 1652)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2356" unique_id=993199709]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2356" unique_id=608854983]
+shape = SubResource("RectangleShape2D_2g3wc")
+
+[node name="ShortcutStep2356Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=2001524546]
+position = Vector2(392, 1526)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2356Grip" unique_id=1864067962]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2356Grip" unique_id=182383386]
+shape = SubResource("RectangleShape2D_gmdlk")
+
+[node name="ShortcutStep2196" type="StaticBody2D" parent="Gameplay/Collision" unique_id=952373836]
+position = Vector2(75, 1492)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2196" unique_id=779032758]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2196" unique_id=473243735]
+shape = SubResource("RectangleShape2D_yh3ij")
+
+[node name="ShortcutStep2196Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1661554445]
+position = Vector2(18, 1366)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2196Grip" unique_id=1177850304]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2196Grip" unique_id=2047470751]
+shape = SubResource("RectangleShape2D_8xtmq")
+
+[node name="ShortcutStep2036" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1107280280]
+position = Vector2(335, 1332)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2036" unique_id=97719908]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2036" unique_id=792848465]
+shape = SubResource("RectangleShape2D_yqxqk")
+
+[node name="ShortcutStep2036Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1804421905]
+position = Vector2(392, 1206)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2036Grip" unique_id=908378645]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep2036Grip" unique_id=404281865]
+shape = SubResource("RectangleShape2D_3cnr8")
+
+[node name="ShortcutStep1876" type="StaticBody2D" parent="Gameplay/Collision" unique_id=711316008]
+position = Vector2(75, 1172)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep1876" unique_id=869212207]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep1876" unique_id=890907415]
+shape = SubResource("RectangleShape2D_u4nbj")
+
+[node name="ShortcutStep1876Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1005035605]
+position = Vector2(18, 1046)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep1876Grip" unique_id=280592588]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep1876Grip" unique_id=1575116449]
+shape = SubResource("RectangleShape2D_c78rv")
+
+[node name="ShortcutStep1716" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1174349763]
+position = Vector2(335, 1012)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep1716" unique_id=639789481]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep1716" unique_id=1047181501]
+shape = SubResource("RectangleShape2D_t0c8d")
+
+[node name="ShortcutStep1716Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1605222868]
+position = Vector2(392, 886)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep1716Grip" unique_id=129724831]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep1716Grip" unique_id=1253151237]
+shape = SubResource("RectangleShape2D_7pl8d")
+
+[node name="ShortcutStep1556" type="StaticBody2D" parent="Gameplay/Collision" unique_id=986154130]
+position = Vector2(75, 852)
+collision_layer = 33
+collision_mask = 0
+metadata/catch_shelf = true
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+metadata/public_main_junction = false
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep1556" unique_id=902981324]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep1556" unique_id=1008811269]
+shape = SubResource("RectangleShape2D_4lyds")
+
+[node name="ShortcutStep1556Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1018846113]
+position = Vector2(18, 726)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep1556Grip" unique_id=118474311]
+script = ExtResource("5_be73d")
+Material = 0
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep1556Grip" unique_id=260023278]
+shape = SubResource("RectangleShape2D_o60gw")
+
+[node name="GrappleSurfaces" type="Node2D" parent="Gameplay" unique_id=817843747]
+
+[node name="CounterweightLiftControl" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=1283159728]
+position = Vector2(1260, 2700)
+script = ExtResource("6_3uv5q")
+Kind = 3
+PullReceiverPath = NodePath("../../Mechanisms/CounterweightLift")
+metadata/target_role = "mechanism-control"
+
+[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/CounterweightLiftControl" unique_id=588140427]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/CounterweightLiftControl/TargetCollision" unique_id=1516490611]
+shape = SubResource("CircleShape2D_asoe0")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/GrappleSurfaces/CounterweightLiftControl" unique_id=1479273660]
+script = ExtResource("7_poi1l")
+
+[node name="UpperBasinShortcutControl" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=1560883864]
+position = Vector2(500, 700)
+script = ExtResource("6_3uv5q")
+Kind = 3
+PullReceiverPath = NodePath("../../Mechanisms/UpperBasinShortcutWinch")
+metadata/target_role = "mechanism-control"
+
+[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/UpperBasinShortcutControl" unique_id=334777513]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/UpperBasinShortcutControl/TargetCollision" unique_id=357100565]
+shape = SubResource("CircleShape2D_7ejjv")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/GrappleSurfaces/UpperBasinShortcutControl" unique_id=752004489]
+script = ExtResource("7_poi1l")
+
+[node name="CourtyardSealLinkageControl" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=63396280]
+position = Vector2(1080, 540)
+script = ExtResource("6_3uv5q")
+Kind = 3
+PullReceiverPath = NodePath("../../Mechanisms/CourtyardSealLinkage")
+metadata/target_role = "mechanism-control"
+
+[node name="TargetCollision" type="Area2D" parent="Gameplay/GrappleSurfaces/CourtyardSealLinkageControl" unique_id=1117427566]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/GrappleSurfaces/CourtyardSealLinkageControl/TargetCollision" unique_id=1466598711]
+shape = SubResource("CircleShape2D_71py2")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/GrappleSurfaces/CourtyardSealLinkageControl" unique_id=29883025]
+script = ExtResource("7_poi1l")
+
+[node name="TraversalContracts" type="Node2D" parent="Gameplay" unique_id=278853756]
+
+[node name="canyonv2routelift-to-pendulums" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=1184463117]
+script = ExtResource("8_5d71p")
+SegmentId = &"canyon.v2.route.lift-to-pendulums"
+Kind = 1
+RequiredAbilities = 3
+LaunchZone = Rect2(820, 2288, 160, 72)
+LandingZone = Rect2(560, 1568, 80, 72)
+AssistTargetPath = NodePath("Gameplay/Collision/AscentGrip3/GrappleSurfaceProfile")
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routelift-to-pendulums" unique_id=1838893776]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(820, 2288, 980, 2288, 980, 2360, 820, 2360)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routelift-to-pendulums" unique_id=1277330044]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(560, 1568, 640, 1568, 640, 1640, 560, 1640)
+
+[node name="canyonv2routependulums-to-split-level" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=488657881]
+script = ExtResource("8_5d71p")
+SegmentId = &"canyon.v2.route.pendulums-to-split-level"
+Kind = 1
+RequiredAbilities = 3
+LaunchZone = Rect2(820, 1328, 160, 72)
+LandingZone = Rect2(560, 608, 80, 72)
+AssistTargetPath = NodePath("Gameplay/Collision/AscentGrip7/GrappleSurfaceProfile")
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routependulums-to-split-level" unique_id=288992759]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(820, 1328, 980, 1328, 980, 1400, 820, 1400)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routependulums-to-split-level" unique_id=1020799864]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(560, 608, 640, 608, 640, 680, 560, 680)
+
+[node name="canyonv2routesplit-level-to-courtyard" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=1178216860]
+script = ExtResource("8_5d71p")
+SegmentId = &"canyon.v2.route.split-level-to-courtyard"
+Kind = 1
+RequiredAbilities = 3
+LaunchZone = Rect2(560, 608, 80, 72)
+LandingZone = Rect2(1340, 448, 220, 72)
+AssistTargetPath = NodePath("Gameplay/Collision/AscentFinalCatchGrip/GrappleSurfaceProfile")
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routesplit-level-to-courtyard" unique_id=896163772]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(560, 608, 640, 608, 640, 680, 560, 680)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routesplit-level-to-courtyard" unique_id=671952928]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(1340, 448, 1560, 448, 1560, 520, 1340, 520)
+
+[node name="canyonv2routeupper-to-basin-shortcut" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=1302062663]
+script = ExtResource("8_5d71p")
+SegmentId = &"canyon.v2.route.upper-to-basin-shortcut"
+RequiredAbilities = 1
+LaunchZone = Rect2(260, 688, 120, 72)
+LandingZone = Rect2(-2000, 3204, 200, 72)
+
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routeupper-to-basin-shortcut" unique_id=1567600070]
+visible = false
+color = Color(0.36, 0.72, 0.62, 0.32)
+polygon = PackedVector2Array(260, 688, 380, 688, 380, 760, 260, 760)
+
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routeupper-to-basin-shortcut" unique_id=913265428]
+visible = false
+color = Color(0.82, 0.66, 0.32, 0.34)
+polygon = PackedVector2Array(-2000, 3204, -1800, 3204, -1800, 3276, -2000, 3276)
+
+[node name="RouteMarkers" type="Node2D" parent="Gameplay" unique_id=660053650]
+
+[node name="PreviousSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=367818873]
+position = Vector2(70, 2878)
+
+[node name="PublicJunctionWestSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=1739788224]
+position = Vector2(220, 2878)
+
+[node name="PublicJunctionEastSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=2137851953]
+position = Vector2(400, 2878)
+
+[node name="SteamRejoinSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=382325774]
+position = Vector2(1152, 2878)
+
+[node name="SteamRejoinJumpSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=503872689]
+position = Vector2(1056, 2878)
+
+[node name="NextSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=1806308194]
+position = Vector2(1278, 484)
+
+[node name="FallRecovery" type="Node2D" parent="Gameplay" unique_id=2140891308]
+
+[node name="RecoveryVolume" type="Area2D" parent="Gameplay/FallRecovery" unique_id=1077720896]
+position = Vector2(728, 2872)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("9_6d1g4")
+RoomControllerPath = NodePath("../../../../../..")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume" unique_id=309572079]
+shape = SubResource("RectangleShape2D_ctmpo")
+
+[node name="RecoveryVolume2" type="Area2D" parent="Gameplay/FallRecovery" unique_id=1953508727]
+position = Vector2(1264, 2872)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("9_6d1g4")
+RoomControllerPath = NodePath("../../../../../..")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume2" unique_id=2146537927]
+shape = SubResource("RectangleShape2D_8bu5q")
+
+[node name="RecoveryLanding" type="Marker2D" parent="Gameplay/FallRecovery" unique_id=587210532]
+position = Vector2(80, 2804)
+
+[node name="OptionalPaths" type="Node2D" parent="Gameplay" unique_id=982053326]
+
+[node name="MicroScenes" type="Node2D" parent="Gameplay" unique_id=412409896]
+
+[node name="CounterweightLift" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=1858042421]
+position = Vector2(640, 2480)
+metadata/local_bounds = Rect2(0, 2080, 1280, 800)
+metadata/optional_subarea = false
+metadata/route_node_id = 8
+metadata/challenge_kind = 7
+
+[node name="PendulumGallery" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=1387147521]
+position = Vector2(640, 1680)
+metadata/local_bounds = Rect2(0, 1280, 1280, 800)
+metadata/optional_subarea = false
+metadata/route_node_id = 9
+metadata/challenge_kind = 8
+
+[node name="SplitLevelEncounter" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=663670873]
+position = Vector2(640, 880)
+metadata/local_bounds = Rect2(0, 480, 1280, 800)
+metadata/optional_subarea = false
+metadata/route_node_id = 10
+metadata/challenge_kind = 9
+
+[node name="Mechanisms" type="Node2D" parent="Gameplay" unique_id=594666008]
+
+[node name="CounterweightLift" type="AnimatableBody2D" parent="Gameplay/Mechanisms" unique_id=489738638]
+script = ExtResource("10_3y46r")
+LowerPosition = Vector2(1000, 2820)
+UpperPosition = Vector2(1000, 2300)
+TravelSeconds = 1.8
+EndpointDwellSeconds = 1.0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/CounterweightLift" unique_id=825453699]
+shape = SubResource("RectangleShape2D_5oxmr")
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Mechanisms/CounterweightLift" unique_id=647308140]
+script = ExtResource("5_be73d")
+Material = 4
+UseCollisionHitPoint = true
+
+[node name="Carriage" type="Polygon2D" parent="Gameplay/Mechanisms/CounterweightLift" unique_id=135557820]
+color = Color(0.39529413, 0.31019607, 0.16745098, 1)
+polygon = PackedVector2Array(-40, -12, 40, -12, 40, 12, -40, 12)
+
+[node name="FacingPlane" type="Polygon2D" parent="Gameplay/Mechanisms/CounterweightLift/Carriage" unique_id=1505917557]
+position = Vector2(0, -2)
+color = Color(0.5647059, 0.44313726, 0.23921569, 1)
+polygon = PackedVector2Array(-36, -8, 36, -8, 36, 8, -36, 8)
+
+[node name="ContactShadow" type="Polygon2D" parent="Gameplay/Mechanisms/CounterweightLift/Carriage" unique_id=493673813]
+position = Vector2(0, 7)
+color = Color(0.29364705, 0.23043136, 0.12439215, 1)
+polygon = PackedVector2Array(-36, -3, 36, -3, 36, 3, -36, 3)
+
+[node name="BoltLeft" type="Polygon2D" parent="Gameplay/Mechanisms/CounterweightLift/Carriage" unique_id=221978608]
+position = Vector2(-32, -4)
+color = Color(0.7607843, 0.6862745, 0.4627451, 0.72)
+polygon = PackedVector2Array(2.5, 0, 2.3776414, 0.7725425, 2.0225425, 1.4694631, 1.4694631, 2.0225425, 0.7725424, 2.3776414, -1.09278474e-07, 2.5, -0.7725426, 2.3776412, -1.4694636, 2.0225422, -2.0225427, 1.469463, -2.3776412, 0.7725426, -2.5, -2.1855695e-07, -2.377641, -0.772543, -2.0225425, -1.4694633, -1.4694626, -2.0225427, -0.77254164, -2.3776414, 2.9812202e-08, -2.5, 0.77254283, -2.3776412, 1.4694637, -2.022542, 2.0225425, -1.4694632, 2.3776414, -0.77254236)
+
+[node name="BoltRight" type="Polygon2D" parent="Gameplay/Mechanisms/CounterweightLift/Carriage" unique_id=1479854682]
+position = Vector2(32, -4)
+color = Color(0.7607843, 0.6862745, 0.4627451, 0.72)
+polygon = PackedVector2Array(2.5, 0, 2.3776414, 0.7725425, 2.0225425, 1.4694631, 1.4694631, 2.0225425, 0.7725424, 2.3776414, -1.09278474e-07, 2.5, -0.7725426, 2.3776412, -1.4694636, 2.0225422, -2.0225427, 1.469463, -2.3776412, 0.7725426, -2.5, -2.1855695e-07, -2.377641, -0.772543, -2.0225425, -1.4694633, -1.4694626, -2.0225427, -0.77254164, -2.3776414, 2.9812202e-08, -2.5, 0.77254283, -2.3776412, 1.4694637, -2.022542, 2.0225425, -1.4694632, 2.3776414, -0.77254236)
+
+[node name="PendulumHazard" type="AnimatableBody2D" parent="Gameplay/Mechanisms" unique_id=281066410]
+position = Vector2(1080, 1370)
+script = ExtResource("11_e6xdc")
+PeriodSeconds = 2.4
+MaxAngleDegrees = 58.0
+TelegraphPath = NodePath("../../../VisualRoot/GameplayReadable/MechanismTelegraphs/PendulumTelegraph")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/PendulumHazard" unique_id=1464320495]
+position = Vector2(0, 110)
+shape = SubResource("RectangleShape2D_3koie")
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Mechanisms/PendulumHazard" unique_id=1870465558]
+script = ExtResource("5_be73d")
+Material = 4
+UseCollisionHitPoint = true
+
+[node name="VisiblePendulum" type="Polygon2D" parent="Gameplay/Mechanisms/PendulumHazard" unique_id=567788526]
+position = Vector2(0, 110)
+color = Color(0.64705884, 0.43529412, 0.23921569, 1)
+polygon = PackedVector2Array(-14, -110, 14, -110, 14, 110, -14, 110)
+
+[node name="UpperBasinShortcutWinch" type="Node2D" parent="Gameplay/Mechanisms" unique_id=1865583091]
+script = ExtResource("12_ago8t")
+ClosedVisualPath = NodePath("../../../VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed")
+OpenVisualPath = NodePath("../../../VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutOpen")
+CorridorBounds = Rect2(0, 780, 410, 2060)
+
+[node name="Barrier" type="StaticBody2D" parent="Gameplay/Mechanisms/UpperBasinShortcutWinch" unique_id=1075702258]
+position = Vector2(205, 1765)
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/UpperBasinShortcutWinch/Barrier" unique_id=2007370063]
+shape = SubResource("RectangleShape2D_xswhy")
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Mechanisms/UpperBasinShortcutWinch/Barrier" unique_id=2129998795]
+script = ExtResource("5_be73d")
+Material = 4
+UseCollisionHitPoint = true
+
+[node name="WinchWheel" type="Polygon2D" parent="Gameplay/Mechanisms/UpperBasinShortcutWinch" unique_id=78955420]
+position = Vector2(500, 700)
+color = Color(0.34525493, 0.27717647, 0.15560785, 1)
+polygon = PackedVector2Array(32, 0, 30.43381, 9.888544, 25.888544, 18.809128, 18.809128, 25.888544, 9.888543, 30.43381, -1.3987644e-06, 32, -9.888545, 30.433807, -18.809134, 25.88854, -25.888546, 18.809126, -30.433807, 9.888545, -32, -2.7975289e-06, -30.433805, -9.888551, -25.888542, -18.809132, -18.809122, -25.888548, -9.888533, -30.433811, 3.8159618e-07, -32, 9.888548, -30.433807, 18.809135, -25.888538, 25.888542, -18.80913, 30.43381, -9.888542)
+
+[node name="Face" type="Polygon2D" parent="Gameplay/Mechanisms/UpperBasinShortcutWinch/WinchWheel" unique_id=960008137]
+color = Color(0.5568628, 0.44705883, 0.2509804, 1)
+polygon = PackedVector2Array(24.96, 0, 23.73837, 7.713064, 20.193064, 14.671119, 14.671119, 20.193064, 7.7130632, 23.73837, -1.0910362e-06, 24.96, -7.7130647, 23.738369, -14.6711235, 20.19306, -20.193066, 14.671118, -23.738369, 7.7130647, -24.96, -2.1820724e-06, -23.738367, -7.7130694, -20.193062, -14.671123, -14.671115, -20.193068, -7.713055, -23.738373, 2.9764502e-07, -24.96, 7.713067, -23.738369, 14.671125, -20.19306, 20.193062, -14.671121, 23.73837, -7.713063)
+
+[node name="Hub" type="Polygon2D" parent="Gameplay/Mechanisms/UpperBasinShortcutWinch/WinchWheel" unique_id=1655214426]
+color = Color(0.13333334, 0.19215687, 0.21568628, 1)
+polygon = PackedVector2Array(6.08, 0, 5.7824235, 1.8788234, 4.9188232, 3.5737343, 3.5737343, 4.9188232, 1.8788232, 5.7824235, -2.6576524e-07, 6.08, -1.8788235, 5.7824235, -3.5737352, 4.918823, -4.9188237, 3.5737338, -5.7824235, 1.8788235, -6.08, -5.315305e-07, -5.782423, -1.8788246, -4.918823, -3.573735, -3.573733, -4.918824, -1.8788211, -5.782424, 7.2503276e-08, -6.08, 1.8788241, -5.7824235, 3.5737357, -4.9188223, 4.918823, -3.5737345, 5.7824235, -1.878823)
+
+[node name="Spoke1" type="Polygon2D" parent="Gameplay/Mechanisms/UpperBasinShortcutWinch/WinchWheel" unique_id=612340404]
+color = Color(0.6144706, 0.51894116, 0.34835297, 1)
+polygon = PackedVector2Array(-22.72, -2, 22.72, -2, 22.72, 2, -22.72, 2)
+
+[node name="Spoke2" type="Polygon2D" parent="Gameplay/Mechanisms/UpperBasinShortcutWinch/WinchWheel" unique_id=62026579]
+rotation = 0.7853982
+color = Color(0.6144706, 0.51894116, 0.34835297, 1)
+polygon = PackedVector2Array(-22.72, -2, 22.72, -2, 22.72, 2, -22.72, 2)
+
+[node name="Spoke3" type="Polygon2D" parent="Gameplay/Mechanisms/UpperBasinShortcutWinch/WinchWheel" unique_id=1875107685]
+rotation = 1.5707964
+color = Color(0.6144706, 0.51894116, 0.34835297, 1)
+polygon = PackedVector2Array(-22.72, -2, 22.72, -2, 22.72, 2, -22.72, 2)
+
+[node name="Spoke4" type="Polygon2D" parent="Gameplay/Mechanisms/UpperBasinShortcutWinch/WinchWheel" unique_id=1838544748]
+rotation = 2.3561945
+color = Color(0.6144706, 0.51894116, 0.34835297, 1)
+polygon = PackedVector2Array(-22.72, -2, 22.72, -2, 22.72, 2, -22.72, 2)
+
+[node name="CourtyardSealLinkage" type="Node2D" parent="Gameplay/Mechanisms" unique_id=499219041]
+position = Vector2(1080, 620)
+script = ExtResource("13_op74x")
+ActivationId = "canyon.v2.courtyard-crank"
+PairedJetPath = NodePath("")
+
+[node name="LinkageWheel" type="Polygon2D" parent="Gameplay/Mechanisms/CourtyardSealLinkage" unique_id=564440550]
+color = Color(0.39874512, 0.29905882, 0.1604706, 1)
+polygon = PackedVector2Array(29, 0, 27.580639, 8.9614935, 23.461493, 17.045773, 17.045773, 23.461493, 8.961493, 27.580639, -1.2676303e-06, 29, -8.9614935, 27.580639, -17.045776, 23.461489, -23.461494, 17.04577, -27.580639, 8.9614935, -29, -2.5352606e-06, -27.580637, -8.961499, -23.46149, -17.045776, -17.045767, -23.461496, -8.961483, -27.58064, 3.4582155e-07, -29, 8.961496, -27.580639, 17.045778, -23.461489, 23.46149, -17.045774, 27.580639, -8.961492)
+
+[node name="Face" type="Polygon2D" parent="Gameplay/Mechanisms/CourtyardSealLinkage/LinkageWheel" unique_id=1791438594]
+color = Color(0.6431373, 0.48235294, 0.25882354, 1)
+polygon = PackedVector2Array(22.619999, 0, 21.512897, 6.9899645, 18.299963, 13.295702, 13.295702, 18.299963, 6.9899635, 21.512897, -9.887516e-07, 22.619999, -6.989965, 21.512897, -13.295706, 18.299961, -18.299965, 13.2957, -21.512897, 6.989965, -22.619999, -1.9775032e-06, -21.512896, -6.989969, -18.299963, -13.295704, -13.295697, -18.299967, -6.9899564, -21.5129, 2.6974078e-07, -22.619999, 6.989967, -21.512897, 13.295707, -18.29996, 18.299963, -13.295703, 21.512897, -6.989963)
+
+[node name="Hub" type="Polygon2D" parent="Gameplay/Mechanisms/CourtyardSealLinkage/LinkageWheel" unique_id=598968305]
+color = Color(0.13333334, 0.19215687, 0.21568628, 1)
+polygon = PackedVector2Array(5.5099998, 0, 5.240321, 1.7026836, 4.4576836, 3.2386966, 3.2386966, 4.4576836, 1.7026834, 5.240321, -2.4084974e-07, 5.5099998, -1.7026838, 5.240321, -3.2386975, 4.4576826, -4.457684, 3.2386963, -5.240321, 1.7026838, -5.5099998, -4.816995e-07, -5.2403207, -1.7026848, -4.457683, -3.2386973, -3.2386956, -4.457684, -1.7026817, -5.2403216, 6.570609e-08, -5.5099998, 1.7026843, -5.240321, 3.2386978, -4.4576826, 4.457683, -3.2386968, 5.240321, -1.7026833)
+
+[node name="Spoke1" type="Polygon2D" parent="Gameplay/Mechanisms/CourtyardSealLinkage/LinkageWheel" unique_id=983380384]
+color = Color(0.6895294, 0.54964703, 0.35517648, 1)
+polygon = PackedVector2Array(-20.59, -2, 20.59, -2, 20.59, 2, -20.59, 2)
+
+[node name="Spoke2" type="Polygon2D" parent="Gameplay/Mechanisms/CourtyardSealLinkage/LinkageWheel" unique_id=2020273868]
+rotation = 0.7853982
+color = Color(0.6895294, 0.54964703, 0.35517648, 1)
+polygon = PackedVector2Array(-20.59, -2, 20.59, -2, 20.59, 2, -20.59, 2)
+
+[node name="Spoke3" type="Polygon2D" parent="Gameplay/Mechanisms/CourtyardSealLinkage/LinkageWheel" unique_id=838737525]
+rotation = 1.5707964
+color = Color(0.6895294, 0.54964703, 0.35517648, 1)
+polygon = PackedVector2Array(-20.59, -2, 20.59, -2, 20.59, 2, -20.59, 2)
+
+[node name="Spoke4" type="Polygon2D" parent="Gameplay/Mechanisms/CourtyardSealLinkage/LinkageWheel" unique_id=2093378447]
+rotation = 2.3561945
+color = Color(0.6895294, 0.54964703, 0.35517648, 1)
+polygon = PackedVector2Array(-20.59, -2, 20.59, -2, 20.59, 2, -20.59, 2)
+
+[node name="QuestFragments" type="Node2D" parent="Gameplay" unique_id=526152433]
+
+[node name="ascent-mid" type="Area2D" parent="Gameplay/QuestFragments" unique_id=1368792801]
+position = Vector2(890, 2324)
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+script = ExtResource("14_ka627")
+StableId = "canyon.v2.fragment.ascent-mid"
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/QuestFragments/ascent-mid" unique_id=2116433409]
+shape = SubResource("CircleShape2D_hop23")
+
+[node name="AvailableVisual" type="Node2D" parent="Gameplay/QuestFragments/ascent-mid" unique_id=1057407580]
+script = ExtResource("15_ewd72")
+metadata/replaceable_art_layer = true
+metadata/gameplay_authority = false
+
+[node name="Status" type="Label" parent="Gameplay/QuestFragments/ascent-mid" unique_id=1880065986]
+custom_minimum_size = Vector2(180, 30)
+offset_left = -90.0
+offset_top = -48.0
+offset_right = -90.0
+offset_bottom = -48.0
+horizontal_alignment = 1
+
+[node name="Actors" type="Node2D" parent="Gameplay" unique_id=247919661]
+
+[node name="Encounters" type="Node2D" parent="Gameplay" unique_id=809707358]
+
+[node name="CounterweightLiftEncounter" type="Node" parent="Gameplay/Encounters" unique_id=986893995]
+script = ExtResource("16_fy3o2")
+EncounterId = &"canyon.v2.encounter.counterweight-lift"
+
+[node name="PendulumGalleryEncounter" type="Node" parent="Gameplay/Encounters" unique_id=177297037]
+script = ExtResource("16_fy3o2")
+EncounterId = &"canyon.v2.encounter.pendulum-gallery"
+
+[node name="SplitLevelEncounter" type="Node" parent="Gameplay/Encounters" unique_id=179321094]
+script = ExtResource("16_fy3o2")

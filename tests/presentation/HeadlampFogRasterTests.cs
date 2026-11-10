@@ -26,12 +26,19 @@ public static class HeadlampFogRasterTests
 
     // A bounded diagnostic, not full-route FPS acceptance. Same living actor,
     // unchanged level/settings/workload, old->candidate->old, all endpoints kept.
-    public static async Task RunNormalShaderComparison(SceneTree tree)
+    public static async Task RunNormalShaderComparison(SceneTree tree, bool baselineReadOnly = false)
     {
-        const string baselinePath = "E:/OurGame/Knight/.evidence/october13-stable-claw/fog-raster-20261013-021818-817-186fe045d70e4690a9a6360171409489/before/assets/shaders/prologue-fog.gdshader";
+        const string baselinePath = "G:/knight/历史资料/E-OurGame-Knight/.evidence/october13-stable-claw/fog-raster-20261013-021818-817-186fe045d70e4690a9a6360171409489/before/assets/shaders/prologue-fog.gdshader";
         byte[] original = File.ReadAllBytes(baselinePath);
         TestAssert.Equal("6A49749E031DE9D2A06C6F4CBBBBC4C6ADD0ECED5A2228CEBC535ED54FF41D27",
             Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(original)), "frozen pre-edit shader identity");
+        // Storage migration probe only: exercise the very same baseline read and
+        // content guard without loading a level, writing saves or claiming GPU/FPS acceptance.
+        if (baselineReadOnly)
+        {
+            GD.Print("FOG_BASELINE_IDENTITY_OK read_only=true raster_accepted=false human=false");
+            return;
+        }
         TestAssert.True(Engine.TimeScale == 1 && !OS.GetCmdlineArgs().Contains("--fixed-fps") &&
             !OS.GetCmdlineArgs().Contains("--write-movie"), "normal shader comparison has no time substitution");
         MinimapStrictSampleBufferTests.Run();

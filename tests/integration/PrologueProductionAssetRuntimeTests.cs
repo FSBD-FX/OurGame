@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Godot;
 using Knight.Audio;
+using Knight.Player;
 using Knight.Presentation;
 using Knight.Prologue;
 using Knight.Prologue.Seamless;
@@ -14,31 +15,147 @@ public static class PrologueProductionAssetRuntimeTests
 {
     public static async Task Run(SceneTree tree)
     {
+        IsolatedPrologueFixture.ValidateStorageRoot();
         string root = ProjectSettings.GlobalizePath("res://");
         string json = File.ReadAllText(Path.Combine(root, "assets", "production", "prologue-assets.json"));
         ProductionAssetManifest manifest = ProductionAssetManifestParser.Parse(json);
         TestAssert.True(manifest.Assets.Count == 8 && manifest.Assets.All(asset => asset.Final),
-            "all eight production asset families are final");
+            "all eight production asset families have final manifest declarations");
         TestAssert.Equal(0, manifest.RequireRuntimeFiles(root).Count,
             "all final production manifest files exist");
 
         PackedScene packed = GD.Load<PackedScene>("res://scenes/prologue/PrologueLevel.tscn");
         TestAssert.True(packed != null, "production audit loads the final prologue scene");
         PrologueLevelController level = packed.Instantiate<PrologueLevelController>();
-        IsolatedPrologueFixture.Configure(level, nameof(PrologueProductionAssetRuntimeTests));
-        level.GetNode<PrologueAudioDirector>("Audio").PlaybackEnabled = false;
-        level.GetNode<PrologueGameFlowController>("GameFlow").AutomationAutoStart = true;
-        tree.Root.AddChild(level);
-        await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
-        await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+        try
+        {
+            IsolatedPrologueFixture.Configure(level, nameof(PrologueProductionAssetRuntimeTests));
+            level.GetNode<PrologueAudioDirector>("Audio").PlaybackEnabled = false;
+            PrologueGameFlowController flow = level.GetNode<PrologueGameFlowController>("GameFlow");
+            flow.HeadlessAutoStart = false;
+            flow.AutomationAutoStart = false;
+            tree.Root.AddChild(level);
+            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            await AuditPlayableEntrance(tree, level, flow);
+            AuditReplacementBoundaries(manifest, level);
+        }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(level))
+            {
+                if (level.IsInsideTree())
+                {
+                    level.QueueFree();
+                    await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                }
+                else level.Free();
+            }
+        }
+    }
+
+    private static async Task AuditPlayableEntrance(SceneTree tree, PrologueLevelController level,
+        PrologueGameFlowController flow)
+    {
+        var playerVisual = level.Player.GetNode<Node2D>("VisualRoot");
+        var input = level.Player.GetNode<PlayerInputReader>("Input");
+        var menu = level.GetNode<CanvasLayer>("ProductUi");
+        var hud = level.GetNode<CanvasLayer>("Hud");
+        var start = menu.GetNode<Button>("MainMenu/Panel/Buttons/Start");
+        var fallbackProbe = new PlayerPlaceholderVisual { Name = "ProductionAuditVisualProbe" };
+        var textureProbe = new Sprite2D { Name = "ProductionAuditTextureProbe" };
+        int starts = 0;
+        ulong frameAtStart = 0;
+        bool committedAtStart = false;
+        void OnStarted()
+        {
+            starts++;
+            frameAtStart = input.CurrentFrameSequence;
+            committedAtStart = flow.State == PrologueGameFlowState.Playing &&
+                !level.ResidentPreparationPending && level.Player.IsVisibleInTree();
+        }
+
+        flow.SessionStarted += OnStarted;
+        try
+        {
+            // Add after the real presentation profile has selected its formal visual;
+            // leave the probes locally visible so only production hierarchy can hide them.
+            playerVisual.AddChild(fallbackProbe);
+            playerVisual.AddChild(textureProbe);
+            string fallback = $"{fallbackProbe.GetPath()} [PlayerPlaceholderVisual]";
+            string missingTexture = $"{textureProbe.GetPath()}: visible Sprite2D has no texture";
+            void AssertProbesHidden(string phase) => TestAssert.True(
+                fallbackProbe.Visible && textureProbe.Visible && !fallbackProbe.IsVisibleInTree() &&
+                !textureProbe.IsVisibleInTree() &&
+                !PrologueProductionAudit.FindVisibleFallbacks(level).Contains(fallback) &&
+                !PrologueProductionAudit.FindInvalidVisibleResources(level).Contains(missingTexture),
+                $"the actual {phase} hierarchy excludes both locally visible test probes");
+
+            TestAssert.True(flow.State == PrologueGameFlowState.Title && menu.Visible &&
+                start.IsVisibleInTree() && !start.Disabled && !hud.Visible && starts == 0,
+                "production visibility audit starts at the real usable title");
+            AssertProbesHidden("Title");
+            start.EmitSignal(BaseButton.SignalName.Pressed);
+            TestAssert.True(flow.State == PrologueGameFlowState.Intro && level.ResidentPreparationPending &&
+                !level.Player.IsVisibleInTree() && !hud.Visible && starts == 0,
+                "real Start enters hidden Intro and prepares the authored population");
+            AssertProbesHidden("Intro");
+
+            for (int frame = 0; frame < 180 &&
+                 (flow.State == PrologueGameFlowState.Intro ||
+                  flow.State == PrologueGameFlowState.Playing && starts == 1 &&
+                  input.CurrentFrameSequence <= frameAtStart); frame++)
+                await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+
+            var sector = level.CurrentSectorRoot;
+            var world = level.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors");
+            TestAssert.True(flow.State == PrologueGameFlowState.Playing && starts == 1 && committedAtStart &&
+                !level.ResidentPreparationPending && level.ResidentPreparationFailure.Length == 0 &&
+                flow.LastRejectedTransition.Length == 0 && !tree.Paused && !menu.Visible && hud.Visible &&
+                level.Player.IsVisibleInTree() && input.IsPhysicsProcessing() && input.CanProcess() &&
+                input.CurrentFrameSequence > frameAtStart &&
+                playerVisual.GetNodeOrNull<PlayerFormalVisual>("Formal") is { } formal &&
+                PrologueProductionAudit.IsEffectivelyVisible(formal) &&
+                hud.GetNodeOrNull<Control>("FormalHud/ResourceCluster") is { } resources &&
+                PrologueProductionAudit.IsEffectivelyVisible(resources) &&
+                level.CurrentSector == PrologueSectorId.CanyonEntrance && sector != null &&
+                sector.SectorId == PrologueSectorId.CanyonEntrance && sector.GetParent() == world &&
+                sector.IsInsideTree() && !sector.IsQueuedForDeletion() &&
+                sector.GetNodeOrNull<Polygon2D>("VisualRoot/GameplayReadable/StartFloor/ReadableEdge")
+                    is { } edge && PrologueProductionAudit.IsEffectivelyVisible(edge),
+                $"PRODUCTION_ASSET_AUDIT_BEFORE_GAMEPLAY state={flow.State} starts={starts} " +
+                $"pending={level.ResidentPreparationPending} failure={level.ResidentPreparationFailure} " +
+                $"rejection={flow.LastRejectedTransition} input={frameAtStart}->{input.CurrentFrameSequence} " +
+                $"sector={level.CurrentSector} hud_visible={hud.Visible} menu_visible={menu.Visible}");
+
+            TestAssert.True(fallbackProbe.IsVisibleInTree() && textureProbe.IsVisibleInTree() &&
+                PrologueProductionAudit.FindVisibleFallbacks(level).Count(path => path == fallback) == 1 &&
+                PrologueProductionAudit.FindInvalidVisibleResources(level).Count(path => path == missingTexture) == 1,
+                "Playing reports both exact visible probes: drawn fallback and missing texture");
+
+            textureProbe.SelfModulate = new Color(1f, 1f, 1f, 0f);
+            TestAssert.True(textureProbe.IsVisibleInTree() && !PrologueProductionAudit.IsEffectivelyVisible(textureProbe) &&
+                !PrologueProductionAudit.FindInvalidVisibleResources(level).Contains(missingTexture),
+                "a fully transparent probe is excluded even when the engine reports it visible in tree");
+        }
+        finally
+        {
+            flow.SessionStarted -= OnStarted;
+            fallbackProbe.Free();
+            textureProbe.Free();
+        }
 
         IReadOnlyList<string> visibleFallbacks = PrologueProductionAudit.FindVisibleFallbacks(level);
-        TestAssert.Equal(0, visibleFallbacks.Count,
-            "final prologue has no visible placeholder, debug, fallback, or gray-box visuals");
         IReadOnlyList<string> invalidResources = PrologueProductionAudit.FindInvalidVisibleResources(level);
-        TestAssert.Equal(0, invalidResources.Count,
-            "every visible final texture, label, and font resolves at runtime");
+        TestAssert.True(visibleFallbacks.Count == 0 && invalidResources.Count == 0,
+            "playable entrance contains unexpected visible resource nodes: " +
+            string.Join("; ", visibleFallbacks.Concat(invalidResources)));
+        GD.Print($"PRODUCTION_ASSET_PLAYABLE_ENTRANCE_OK starts={starts} " +
+            $"input_advanced={input.CurrentFrameSequence > frameAtStart} sector=CanyonEntrance " +
+            "visible_world_player_hud=true hidden_probes=2 visible_probes=2 transparent_probe_excluded=true baseline_clean=true");
+    }
 
+    private static void AuditReplacementBoundaries(ProductionAssetManifest manifest, PrologueLevelController level)
+    {
         var sectors = new List<Node>();
         try
         {
@@ -47,9 +164,9 @@ public static class PrologueProductionAssetRuntimeTests
                 PrologueSector sector = GD.Load<PackedScene>(
                         $"res://scenes/prologue/sectors/{id}.tscn")
                     .Instantiate<PrologueSector>();
+                sectors.Add(sector);
                 TestAssert.Equal(id, sector.SectorId,
                     $"real generated sector scene {id} preserves its unique identity");
-                sectors.Add(sector);
             }
             IReadOnlyList<string> replacementErrors =
                 manifest.AuditReplacementBoundaries(level, sectors);
@@ -60,9 +177,6 @@ public static class PrologueProductionAssetRuntimeTests
         {
             foreach (Node sector in sectors) sector.Free();
         }
-
-        level.QueueFree();
-        await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
     }
 
     public static void Task10ReplacementBoundaryMutationsFail()

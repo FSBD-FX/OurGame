@@ -114,9 +114,9 @@ public partial class RunNormalExitNeighborTests : SceneTree
         string storage = Trim(Path.GetFullPath(raw));
         string caseRoot = Path.GetDirectoryName(storage)!;
         string expectedTemp = Path.Combine(caseRoot, "unit-temp");
-        string repo = Trim(Path.GetFullPath("E:/OurGame/Knight/.worktrees/task6-certified-final-20260902T0555"));
+        string repo = Trim(Path.GetFullPath("G:/knight/Knight"));
         if (!string.Equals(Path.GetDirectoryName(caseRoot), Trim(Path.GetFullPath(
-                "E:/OurGame/Knight/.evidence/september09-continuous-canyon/task10")), StringComparison.OrdinalIgnoreCase) ||
+                "G:/knight/验证证据/september09-continuous-canyon/task10")), StringComparison.OrdinalIgnoreCase) ||
             Path.GetFileName(storage) != "storage" || !Directory.Exists(storage) ||
             Directory.EnumerateFileSystemEntries(storage).Any() || !Directory.Exists(expectedTemp) ||
             !string.Equals(Trim(Path.GetFullPath(ProjectSettings.GlobalizePath("res://"))), repo, StringComparison.OrdinalIgnoreCase))

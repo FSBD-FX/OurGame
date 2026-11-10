@@ -1,0 +1,11 @@
+# First-ascent map memory and production post — v179
+
+Previous goal turn was progress: actual staged native comparison established that one higher post can win the unchanged NE resolver; it did not change production geometry or certify real passage. The full original eleven-item goal remains active.
+
+Preserve all map memory outside the two explicitly attested historical geometry deltas. A new `(4214,3724,36,152)` solid58 has50 boundaries replacing26 at7348; later indices shift24. Forget only new owner58 edges and cells touching its footprint: columns526..531, rows465..484 (120). Prior4802 full memory retains518280 cells/12410 edges. B264 first goes through the existing shelf48 conversion, then this conversion; retain518175 cells/12366 edges. No core progress or source save writes, no generic revision-label bypass. Require exact new revision, full catalog SHA, counts and grid before converting.
+
+Use five real saved sector definitions to derive the candidate catalog in isolation; bind resulting hash before codec implementation. Test real file load sparse/full/zero, B264 chain, malformed padding/missing/unknown revisions/forged target, old source SHA and complete core invariants; cold-read in a separate process. Historical4802 fixture must remain byte-attested after production parent changes, not silently become the new parent.
+
+Once compatibility is actually green, change only first post in generator. Stage existing saved Basin by copying only this donor body/skin geometry, and parent only its Catalog; preserve all unrelated semantic values, groups, connections and external scene references. Publish only the two validated scene artifacts under a fixed whitelist, not a broad regeneration. Re-run current compatibility/catalog/native claw and original fullExplore with original16/32/300 guards; no extra input/budget/HP. Collision and visible skin/readable edge synchronize; this is existing-resource authoring, not paid or final art. 56px top gap is not actor-passable; actual left-face approach and exit must be proved.
+
+No automation, Git writes, front windows/OS input, new crash capture, deleted files or real saves. Unknown native PID8760 remains unscoped. Historical Main death/resources and formal visual/hardware/user acceptance remain open.

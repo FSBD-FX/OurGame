@@ -1,8 +1,28 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using Godot;
 using Knight.Abilities;
 using Knight.Prologue.Seamless;
 
 namespace Knight.Presentation;
+
+public enum CanyonRockSkinRole { Legacy = 0, Ground = 1, Roof = 2, Wall = 3 }
+
+/// <summary>One immutable, contained command submitted by the real terrain draw path.</summary>
+public sealed class CanyonRockPaintCommand
+{
+    public IReadOnlyList<Vector2> Points { get; }
+    public Color Tint { get; }
+    public float StrokeWidth { get; }
+
+    internal CanyonRockPaintCommand(Vector2[] points, Color tint, float strokeWidth)
+    {
+        Points = Array.AsReadOnly((Vector2[])points.Clone());
+        Tint = tint;
+        StrokeWidth = strokeWidth;
+    }
+}
 
 /// <summary>
 /// Replaceable, static terrain skin. Every mark stays inside the authored collision rectangle.
@@ -15,6 +35,7 @@ public partial class CanyonPlatformVisual : Node2D
     [Export] public Vector2 SkinSize { get; set; } = new(160f, 60f);
     [Export] public bool CatchShelf { get; set; }
     [Export] public bool UseCanyonDepthStaging { get; set; } = false;
+    [Export] public CanyonRockSkinRole RockSkinRole { get; set; } = CanyonRockSkinRole.Legacy;
 
     public string MaterialFamily => RoomVisualCatalog.CanyonMaterialFamily(SurfaceMaterial);
 
@@ -27,7 +48,14 @@ public partial class CanyonPlatformVisual : Node2D
         bool rockMass = stagedStone && SkinSize.Y >= 72f;
         if (rockMass)
         {
-            DrawCanyonRockMass();
+            IReadOnlyList<CanyonRockPaintCommand> paint = BuildEntranceRockPaintPlan();
+            if (paint.Count == 0) DrawCanyonRockMass();
+            else foreach (CanyonRockPaintCommand command in paint)
+            {
+                Vector2[] points = command.Points.ToArray();
+                if (command.StrokeWidth == 0f) DrawColoredPolygon(points, command.Tint);
+                else DrawPolyline(points, command.Tint, command.StrokeWidth, true);
+            }
         }
         else if (stagedStone)
         {
@@ -76,6 +104,74 @@ public partial class CanyonPlatformVisual : Node2D
                 DrawLine(new Vector2(x + 3f, 10f), new Vector2(x + 9f, 10f), new Color("aec6a0"), 2f);
             }
         }
+    }
+
+    /// <summary>
+    /// Explicit entrance authoring only. Sparse large planes distinguish packed earth,
+    /// fractured roof and longitudinal wall without inventing openings or support.
+    /// Coordinates are local to the original solid; ReadableEdge stays independent.
+    /// </summary>
+    public IReadOnlyList<CanyonRockPaintCommand> BuildEntranceRockPaintPlan()
+    {
+        if (!UseCanyonDepthStaging || SectorId != PrologueSectorId.CanyonEntrance ||
+            SurfaceMaterial != GrappleSurfaceMaterial.GripStone ||
+            !float.IsFinite(SkinSize.X) || !float.IsFinite(SkinSize.Y) ||
+            SkinSize.X < 24f || SkinSize.Y < 72f ||
+            RockSkinRole is not (CanyonRockSkinRole.Ground or CanyonRockSkinRole.Roof or CanyonRockSkinRole.Wall))
+            return Array.Empty<CanyonRockPaintCommand>();
+
+        var commands = new List<CanyonRockPaintCommand>();
+        void Paint(Color tint, float width, params Vector2[] points) => commands.Add(
+            new CanyonRockPaintCommand(points.Select(point => point * SkinSize).ToArray(), tint, width));
+        void Base(string tint) => Paint(new Color(tint), 0f, new(0,0), new(1,0), new(1,1), new(0,1));
+        switch (RockSkinRole)
+        {
+            case CanyonRockSkinRole.Ground:
+                Base("35433e");
+                // Compressed soil is reserved for the actual ground, not the roof/wall.
+                Paint(new Color("6b624b", .78f), 0f, new(0,0), new(1,0), new(1,.13f),
+                    new(.83f,.17f), new(.61f,.12f), new(.36f,.19f), new(.14f,.14f), new(0,.18f));
+                Paint(new Color("526052", .74f), 0f, new(.04f,.27f), new(.27f,.22f),
+                    new(.39f,.45f), new(.29f,.73f), new(.06f,.69f));
+                Paint(new Color("68705a", .38f), 0f, new(.43f,.29f), new(.68f,.20f),
+                    new(.88f,.36f), new(.79f,.60f), new(.52f,.64f));
+                Paint(new Color("243736", .82f), 0f, new(0,.83f), new(.26f,.79f),
+                    new(.56f,.88f), new(.78f,.76f), new(1,.82f), new(1,1), new(0,1));
+                Paint(new Color("172e31", .84f), 2f, new(.12f,.24f), new(.33f,.34f),
+                    new(.39f,.62f), new(.53f,.76f), new(.72f,.70f), new(.89f,.79f));
+                Paint(new Color("8b8c6b", .28f), 1.5f, new(.45f,.27f), new(.67f,.24f), new(.81f,.36f));
+                break;
+            case CanyonRockSkinRole.Roof:
+                Base("293a3e");
+                Paint(new Color("4d5850", .66f), 0f, new(0,0), new(.34f,0),
+                    new(.42f,.32f), new(.30f,.64f), new(.09f,.77f), new(0,.59f));
+                Paint(new Color("3d4c49", .76f), 0f, new(.47f,0), new(1,0),
+                    new(1,.62f), new(.78f,.49f), new(.64f,.71f), new(.39f,.43f));
+                // Internal underside shade, never a dark painted tunnel through solid rock.
+                Paint(new Color("17292f", .86f), 0f, new(0,.82f), new(.18f,.75f),
+                    new(.39f,.89f), new(.63f,.79f), new(.85f,.87f), new(1,.73f), new(1,1), new(0,1));
+                Paint(new Color("142c32", .88f), 2.5f, new(.17f,.12f), new(.33f,.28f),
+                    new(.41f,.48f), new(.61f,.59f), new(.72f,.80f));
+                Paint(new Color("75816b", .25f), 1.5f, new(.14f,.23f), new(.29f,.35f), new(.33f,.52f));
+                Paint(new Color("1d3035", .83f), 2f, new(.58f,.17f), new(.72f,.30f),
+                    new(.84f,.23f), new(.91f,.41f));
+                break;
+            case CanyonRockSkinRole.Wall:
+                Base("303f3c");
+                Paint(new Color("4e594d", .72f), 0f, new(0,0), new(.48f,0),
+                    new(.59f,.23f), new(.35f,.49f), new(.47f,.78f), new(.23f,1), new(0,1));
+                Paint(new Color("1f3437", .73f), 0f, new(.72f,0), new(1,0),
+                    new(1,1), new(.64f,1), new(.74f,.69f), new(.56f,.46f), new(.78f,.19f));
+                Paint(new Color("68715d", .25f), 0f, new(.12f,.30f), new(.43f,.26f),
+                    new(.54f,.41f), new(.31f,.51f), new(.10f,.45f));
+                Paint(new Color("142c30", .88f), 2.5f, new(.53f,.10f), new(.66f,.27f),
+                    new(.43f,.47f), new(.57f,.67f), new(.38f,.89f));
+                Paint(new Color("223633", .86f), 2f, new(.12f,.34f), new(.30f,.31f),
+                    new(.58f,.37f), new(.87f,.33f));
+                Paint(new Color("7b8265", .25f), 1.5f, new(.12f,.66f), new(.30f,.61f), new(.42f,.64f));
+                break;
+        }
+        return commands.AsReadOnly();
     }
 
     // Graybox terrain finish, not a raster asset: all facets remain INSIDE the

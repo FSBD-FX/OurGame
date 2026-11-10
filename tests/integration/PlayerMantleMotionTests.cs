@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using Godot;
 using Knight.Presentation;
+using Knight.Player;
 
 namespace Knight.Tests.Integration;
 
@@ -111,6 +112,7 @@ public static class PlayerMantleMotionTests
             MirroredFramesUseOnlyFormalRootMirror(control, driven);
             ExistingSpringLagAndSettleReachActualDrawConsumer(driven, cloth);
             ActionReleaseDeathAndRecoveryKeepAuthoredAttachment(control, driven, cloth);
+            VerticalLandingDrivesSegmentedHemFromRealTimeline(control, driven, cloth);
         }
         finally
         {
@@ -418,6 +420,98 @@ public static class PlayerMantleMotionTests
                     "action boundary still forwards real hem drive");
             else AssertExactRest(cloth, "action/release/death/recovery identity clears old shape");
         }
+    }
+
+    // Break caught: pure vertical landing rotates the authored pose, but a model that
+    // reads only X/turn leaves every actual segmented cloth point exactly at rest.
+    private static void VerticalLandingDrivesSegmentedHemFromRealTimeline(
+        PlayerFormalVisual control, PlayerFormalVisual driven, PlayerFormalLayer cloth)
+    {
+        CharacterBody2D authored = GD.Load<PackedScene>("res://scenes/player/Player.tscn")
+            .Instantiate<CharacterBody2D>();
+        try
+        {
+            var tuning = authored.GetNode<PlayerMotor>("Motor").Tuning;
+            Vector2 hem = new(-4f, 31f);
+            float maximum = 0f;
+            foreach (int facing in new[] { 1, -1 })
+            foreach (float fallSpeed in new[] { 180f, 650f })
+            {
+                var timeline = new PlayerPresentationTimeline(tuning);
+                var airborneControl = new PlayerPresentationTimeline(tuning);
+                for (int index = 0; index < 24; index++) Publish(Vector2.Zero, true);
+                for (int index = 0; index < 12; index++)
+                    Publish(new Vector2(0f, -420f + index * 30f), false);
+                TestAssert.True(cloth.MapMantlePoint(hem).Y > hem.Y + .01f,
+                    "rising body leaves the free hem trailing downward, not leading upward");
+                for (int index = 0; index < 30; index++)
+                    Publish(new Vector2(0f, fallSpeed * (index + 1) / 30f), false);
+                TestAssert.True(cloth.MapMantlePoint(hem).Y < hem.Y - .05f,
+                    "falling body leaves the free hem trailing upward, in either facing");
+
+                var landedInput = Input(Vector2.Zero, true);
+                PlayerPresentationFrame landed = timeline.Step(landedInput, 1f / 60f);
+                PlayerPresentationFrame stillAirborne = airborneControl.Step(
+                    landedInput with { Grounded = false }, 1f / 60f);
+                Apply(landed);
+                TestAssert.Equal(fallSpeed < 430f ? PlayerLocomotionState.SoftLand :
+                    PlayerLocomotionState.HardLand, landed.Locomotion.State,
+                    "actual ground edge reaches its original soft/hard landing pose");
+                TestAssert.True(Mathf.Abs(cloth.MapMantlePoint(hem).Y - hem.Y) > .05f,
+                    "vertical landing drives segmented hem relative to pinned upper band");
+                TestAssert.True(landed.Secondary.Mantle.Position.Y >
+                    stillAirborne.Secondary.Mantle.Position.Y + .001f,
+                    "actual landing impulse affects cloth beyond the same velocity deceleration alone");
+                float afterLanding = 0f;
+                for (int index = 0; index < 12; index++)
+                {
+                    Publish(Vector2.Zero, true);
+                    afterLanding = Mathf.Max(afterLanding,
+                        Mathf.Abs(cloth.MapMantlePoint(hem).Y - hem.Y));
+                }
+                TestAssert.True(afterLanding > .01f,
+                    "segmented hem retains post-landing motion without repeated impact or artificial clock");
+                for (int index = 0; index < 300; index++) Publish(Vector2.Zero, true);
+                TestAssert.True(cloth.MapMantlePoint(hem).DistanceTo(hem) < .001f,
+                    "vertical cloth settles through the existing spring, without explicit shape reset");
+
+                PlayerPresentationInput Input(Vector2 velocity, bool grounded) =>
+                    new(velocity, grounded, false, false, false, facing);
+
+                void Publish(Vector2 velocity, bool grounded)
+                {
+                    PlayerPresentationInput input = Input(velocity, grounded);
+                    Apply(timeline.Step(input, 1f / 60f));
+                    airborneControl.Step(input, 1f / 60f);
+                }
+
+                void Apply(PlayerPresentationFrame frame)
+                {
+                    // Remove only the cloth drive in the control: both authored poses,
+                    // whole-layer landing rotation and the other channels stay identical.
+                    control.ApplyPlayerFrame(frame with
+                    {
+                        Secondary = frame.Secondary with { Mantle = PoseTransform2D.Identity }
+                    });
+                    driven.ApplyPlayerFrame(frame);
+                    AssertTransformNear(control.GetNode<Node2D>("Mantle").GlobalTransform,
+                        cloth.GlobalTransform, "vertical cloth never moves the shoulder attachment");
+                    foreach (Vector2 rest in PaintSamples)
+                    {
+                        Vector2 point = cloth.MapMantlePoint(rest);
+                        TestAssert.True(float.IsFinite(point.X) && float.IsFinite(point.Y) &&
+                            Mathf.Abs(point.X - rest.X) <= 12.0001f &&
+                            Mathf.Abs(point.Y - rest.Y) <= 7.0001f,
+                            "actual vertical draw points retain the original finite displacement bounds");
+                        if (rest.Y <= -3f) TestAssert.Equal(rest, point, "upper cloth band is fixed");
+                    }
+                    maximum = Mathf.Max(maximum, Mathf.Abs(cloth.MapMantlePoint(hem).Y - hem.Y));
+                }
+            }
+            GD.Print($"MANTLE_VERTICAL_LANDING_OK cases=4 real_timeline=true max_hem_y={maximum} " +
+                "pinned_band=true isolated_impact=true settled=true pixels=false human=false");
+        }
+        finally { authored.Free(); }
     }
 
     private static void AssertExactRest(PlayerFormalLayer cloth, string message)

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Godot;
+using Knight.Settings;
 using Knight.Shared;
 
 namespace Knight.Ui;
@@ -63,4 +65,39 @@ public static class InputGlyphResolver
         throw new ArgumentOutOfRangeException(nameof(action), action,
             $"No input glyph is declared for {device} action '{action}'.");
     }
+
+    // The reference pages show the first usable keyboard binding. The static
+    // glyph/icon table remains the default legend for other callers.
+    internal static string LiveKeyboardText(StringName action, GameLanguage language)
+    {
+        if (InputMap.HasAction(action))
+            foreach (InputEvent inputEvent in InputMap.ActionGetEvents(action))
+                if (inputEvent is InputEventKey key && TryFormatKeyboardBinding(key, language, out string text))
+                    return text;
+        return language == GameLanguage.English ? "UNBOUND" : "未绑定";
+    }
+
+    internal static bool TryFormatKeyboardBinding(InputEventKey key, GameLanguage language, out string text)
+    {
+        text = string.Empty;
+        if (key.PhysicalKeycode == Key.None && key.Keycode == Key.None && key.KeyLabel == Key.None) return false;
+        Key code = key.PhysicalKeycode != Key.None ? key.GetPhysicalKeycodeWithModifiers() :
+            key.Keycode != Key.None ? key.GetKeycodeWithModifiers() : key.GetKeyLabelWithModifiers();
+        if (code == Key.None) return false;
+        text = code == Key.Escape ? "ESC" : OS.GetKeycodeString(code).ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        bool english = language == GameLanguage.English;
+        string side = key.Location switch
+        {
+            KeyLocation.Left => english ? "LEFT " : "左 ",
+            KeyLocation.Right => english ? "RIGHT " : "右 ",
+            _ => string.Empty
+        };
+        // Godot prints modifiers before the base key (CTRL+SHIFT).
+        if (side.Length != 0) text = text.Insert(text.LastIndexOf('+') + 1, side);
+        return true;
+    }
+
+    internal static string KeyboardAimText(string up, string left, string down, string right) =>
+        (up, left, down, right) == ("W", "A", "S", "D") ? "WASD" : $"{up}/{left}/{down}/{right}";
 }

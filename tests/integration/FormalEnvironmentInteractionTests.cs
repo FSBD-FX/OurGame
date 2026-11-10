@@ -7,6 +7,7 @@ using Knight.Player;
 using Knight.Prologue;
 using Knight.Prologue.Seamless;
 using Knight.Settings;
+using Knight.Shared;
 
 namespace Knight.Tests.Integration;
 
@@ -21,13 +22,14 @@ public static class FormalEnvironmentInteractionTests
         flow.HeadlessAutoStart = false;
         flow.AutomationAutoStart = false;
         tree.Root.AddChild(level);
-        await Frames(tree, 4);
-        flow.StartNew();
-        var player = level.Player;
-        var input = player.GetNode<PlayerInputReader>("Input");
-        var interaction = player.GetNode<EnvironmentInteractionController>("EnvironmentInteraction");
         try
         {
+            await Frames(tree, 4);
+            flow.StartNew();
+            await BasinAscentCameraRuntimeTests.WaitForPlaying(tree, level);
+            var player = level.Player;
+            var input = player.GetNode<PlayerInputReader>("Input");
+            var interaction = player.GetNode<EnvironmentInteractionController>("EnvironmentInteraction");
             await KeyboardActionRuntimeTests.Frames(tree, input, 8);
             level.SetGameplayActive(false);
             TestAssert.True(!interaction.IsPhysicsProcessing() && interaction.CurrentCandidate == null,
@@ -57,10 +59,33 @@ public static class FormalEnvironmentInteractionTests
             for (int tick = 0; tick < 60 && player.GlobalPosition.X < 3150f; tick++)
                 await KeyboardActionRuntimeTests.Frames(tree, input, 1);
             KeyboardActionRuntimeTests.KeyEvent(Key.D, false);
-            await KeyboardActionRuntimeTests.Frames(tree, input, 8);
+            // The input sampler precedes Motor. Observe completed physical steps,
+            // not a fixed sample count that still leaves authored ground inertia.
+            int stableSteps = 0;
+            int brakeSteps = 0;
+            for (; brakeSteps < 24 && stableSteps < 2; brakeSteps++)
+            {
+                await KeyboardActionRuntimeTests.Frames(tree, input, 1);
+                await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                bool stopped = player.IsOnFloor() && Mathf.Abs(player.Velocity.X) <= .1f &&
+                    Mathf.Abs(player.Velocity.Y) <= .1f && Mathf.Abs(input.Current.MoveAxis) <= .001f;
+                stableSteps = stopped ? stableSteps + 1 : 0;
+            }
+            TestAssert.True(stableSteps == 2,
+                "released D naturally brakes to rest across two completed steps without pose or velocity writes");
+            GD.Print($"FORMAL_VALVE_BRAKE_OK completed_steps={brakeSteps} stable_steps={stableSteps} " +
+                $"velocity={player.Velocity} move_axis={input.Current.MoveAxis} natural=true");
             TestAssert.True(player.IsOnFloor() && player.GlobalPosition.DistanceTo(target.GlobalPosition) <= 80f,
                 "normal D walking reaches the supported manual control without teleport or motor freeze");
             var candidate = interaction.CurrentCandidate;
+            var manual = target.GetNode<ManualSteamValveControl>("ManualSteamValveControl");
+            GD.Print($"FORMAL_VALVE_NEARBY_STATE actor={player.GlobalPosition} velocity={player.Velocity} " +
+                $"grounded={player.IsOnFloor()} move_axis={input.Current.MoveAxis} " +
+                $"distance={player.GlobalPosition.DistanceTo(target.GlobalPosition)} " +
+                $"input_active={input.IsPhysicsProcessing()} interaction_active={interaction.IsPhysicsProcessing()} " +
+                $"target_visible={target.IsVisibleInTree()} target_available={target.IsAvailable} " +
+                $"material={target.Material} validation_errors={target.Validate().Count} " +
+                $"manual_eligible={manual.CanInteract(player)} candidate={candidate?.StableId ?? "none"}");
             TestAssert.True(candidate != null && ReferenceEquals(candidate.InteractionNode, target),
                 "the real saved Basin publishes exactly its explicitly opted-in manual valve candidate");
             level.SetLanguage(GameLanguage.English);
@@ -70,6 +95,7 @@ public static class FormalEnvironmentInteractionTests
             level.SetLanguage(GameLanguage.ChineseSimplified);
             TestAssert.Equal("Q 关闭蒸汽阀", interaction.CurrentPromptText,
                 "Chinese live Q prompt explains the same actual valve action");
+            AssertCurrentInteractionGlyph(level, interaction, candidate);
             Node jetParent = jet.GetParent();
             jetParent.RemoveChild(jet);
             bool missingJetWithdrawsCandidate;
@@ -121,7 +147,12 @@ public static class FormalEnvironmentInteractionTests
                 "the original save pipeline retains the same manual valve activation ID on disk");
 
             flow.ReturnToTitle();
+            TestAssert.Equal(PrologueGameFlowState.Title, flow.State,
+                "the first committed session ends before the independent remote-claw case starts");
             flow.StartNew();
+            await BasinAscentCameraRuntimeTests.WaitForPlaying(tree, level);
+            TestAssert.True(ReferenceEquals(player, level.Player),
+                "the second committed session keeps the original input actor");
             await KeyboardActionRuntimeTests.Frames(tree, input, 8);
             TestAssert.True(world.RestoreCheckpoint(PrologueSectorId.CanyonBasin, new Vector2(3060, 4080)),
                 "independent new session restores the remote-claw diagnostic stance");
@@ -167,6 +198,41 @@ public static class FormalEnvironmentInteractionTests
             tree.Paused = false;
             await TestSceneTeardown.FreeSceneAfterAudioDrain(tree, level);
         }
+    }
+
+    private static void AssertCurrentInteractionGlyph(PrologueLevelController level,
+        EnvironmentInteractionController interaction, IEnvironmentInteractable candidate)
+    {
+        var original = InputMap.ActionGetEvents(InputActions.Interact);
+        using var alternate = new InputEventKey { PhysicalKeycode = Key.F };
+        try
+        {
+            InputMap.ActionEraseEvents(InputActions.Interact);
+            InputMap.ActionAddEvent(InputActions.Interact, alternate);
+            level.SetLanguage(GameLanguage.English);
+            TestAssert.Equal("F Close steam valve", interaction.CurrentPromptText,
+                "the same visible valve immediately shows the new English binding");
+            level.SetLanguage(GameLanguage.ChineseSimplified);
+            TestAssert.Equal("F 关闭蒸汽阀", interaction.CurrentPromptText,
+                "the same visible valve immediately shows the new Chinese binding");
+            InputMap.ActionEraseEvents(InputActions.Interact);
+            TestAssert.Equal("未绑定 关闭蒸汽阀", interaction.CurrentPromptText,
+                "an unbound action never advertises the former default Q");
+            level.SetLanguage(GameLanguage.English);
+            TestAssert.Equal("UNBOUND Close steam valve", interaction.CurrentPromptText,
+                "an unbound action uses the existing English binding fallback");
+            TestAssert.True(ReferenceEquals(candidate, interaction.CurrentCandidate),
+                "displaying another or missing key does not select a different target");
+        }
+        finally
+        {
+            InputMap.ActionEraseEvents(InputActions.Interact);
+            foreach (InputEvent entry in original) InputMap.ActionAddEvent(InputActions.Interact, entry);
+            level.SetLanguage(GameLanguage.ChineseSimplified);
+        }
+        TestAssert.Equal("Q 关闭蒸汽阀", interaction.CurrentPromptText,
+            "the original native Q test sees its restored default prompt");
+        GD.Print("FORMAL_INTERACTION_GLYPH_OK languages=2 remapped=true unbound=true restored=true same_candidate=true");
     }
 
     private static async Task Pulse(SceneTree tree, PlayerInputReader input, Key key, int count)

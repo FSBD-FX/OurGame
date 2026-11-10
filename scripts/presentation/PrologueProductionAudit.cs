@@ -61,7 +61,7 @@ public static class PrologueProductionAudit
         value.Contains("Graybox", StringComparison.OrdinalIgnoreCase) ||
         value.Contains("Fallback", StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsEffectivelyVisible(CanvasItem item)
+    internal static bool IsEffectivelyVisible(CanvasItem item)
     {
         if (!item.IsInsideTree() || !item.IsVisibleInTree()) return false;
         Node current = item;

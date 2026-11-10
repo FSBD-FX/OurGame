@@ -1,6 +1,7 @@
 using System;
 using Godot;
 using Knight.Prologue.Guidance;
+using Knight.Prologue.Residents;
 using Knight.Prologue.Seamless;
 using Knight.Ui;
 
@@ -29,12 +30,7 @@ public partial class BasinQualitySampleEntry : Node
         Node2D playerRoot = Level.GetNode<Node2D>("PlayerRoot");
         CharacterBody2D player = playerRoot.GetNode<CharacterBody2D>("Player");
         player.Position = AuthoredStart;
-        SeamlessPrologueWorld world =
-            Level.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors");
-        world.InitialSector = PrologueSectorId.CanyonBasin;
-        // Pin the entire old geometry/camera contract before any shared runtime enters the tree.
-        world.LayoutVersion = 1;
-        world.Definitions = BasinSampleLegacyLayout.CreateDefinitions();
+        ConfigureLegacyWorld(Level);
 
         PrologueGameFlowController flow =
             Level.GetNode<PrologueGameFlowController>("GameFlow");
@@ -83,6 +79,18 @@ public partial class BasinQualitySampleEntry : Node
 
         AddChild(Level);
         Level.AddChild(new BasinSampleGuideController { Name = "SampleGuide" });
+    }
+
+    // The independent old sample has one authored encounter, not the V2
+    // development resident layout. Keep this explicit and local: a mistaken
+    // LayoutVersion on a normal Development Level must not bypass preparation.
+    internal static void ConfigureLegacyWorld(PrologueLevelController level)
+    {
+        var world = level.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors");
+        world.InitialSector = PrologueSectorId.CanyonBasin;
+        world.LayoutVersion = 1;
+        world.Definitions = BasinSampleLegacyLayout.CreateDefinitions();
+        level.ResidentContent = ResidentContentMode.FinalOnly;
     }
 
     private static string Join(string directory, string file) => $"{directory}/{file}";

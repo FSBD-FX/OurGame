@@ -9,7 +9,7 @@ public static class RealtimeRouteArgumentContractTests
 
     public static void Run()
     {
-        const string storage = "--case-storage-root=E:/OurGame/Knight/.evidence/realtime-contract/storage";
+        const string storage = "--case-storage-root=G:/knight/验证证据/realtime-contract/storage";
         const string main = "--route-variant=main";
         const string exploration = "--route-variant=exploration";
         const string keyboard = "--keyboard-route";

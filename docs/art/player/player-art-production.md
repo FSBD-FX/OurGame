@@ -1,5 +1,21 @@
 # Thread-Spool Bearer Art Production
 
+## 2026-11-06 direction-only decision: A reference, B structure only
+
+User U-20261106-02 / call_91f7f042f77640229f790e265388f4d2 confirmed A silhouette/proportions/palette with less noise; B is structural reference only, not approved for runtime assembly. Preserve established shoulder/back and floating lantern functions. This does not approve final pixels, existing body/mantle layers, assembly, continuous motion or in-game appearance, transfer missing V1 approval, authorize paid redraw, or alter independent weapon/grip approvals. Exact images/decision: `G:/knight/过程图稿与视频/2026-11-06_角色现稿重审_v001/approval-v002.md`. Older pending-review statements below are historical. V01–V04 and motion/inertia/physics quality remain open.
+
+## 2026-11-05 user decision: re-review existing candidates later
+
+The user cannot currently recover the original V1 source folder and chose “暂时找不到，后续重新审阅现有稿” (U-20261105-01). Stop expanding the old-source search. Establish the exact candidate version and custody before a later actual art/motion review; this is **not approval** of current PNGs, assembly, animation or character identity, and does not transfer historical part approvals. No paid generation, GUI/input/capture or publication authorization was added. Other headless work continues. [Bounded local-Git evidence and decision](../../production/2026-11-05-approved-body-mantle-git-history-readonly-v001.md).
+
+## 2026-10-24 source custody clarification
+
+The historical E-root below is not the live KNIGHT project. The independent source directory `E:/OurGame/ArtProduction/thread-spool-bearer-v1/masters/complete-layered-001` was outside the old Knight tree and had not been included in its migration. A verified byte-identical **93-file / 10,276,779-byte** copy now lives at `G:/knight/美术源文件/迁移留存/2026-10-24_complete-layered-001_未发布`; E originals were not deleted or modified. See that copy's `KNIGHT-留存说明.md` and custody CSV. Do not execute the preserved historical scripts against their old absolute paths.
+
+This is source preservation, not publication approval: all35 PNG layers and6 editable SVGs exist, but only19 layer hashes match the preserved final-manifest and16 differ. The reason/version of those differences is unproved. `review-state.json` records accepted part stages, **dressedMaster ready-for-review**, smallScale/animationReady not-started; do not treat the whole assembly or rejected A2/idle as approved. No new runtime body/action atlas was imported; the already integrated independent lantern remains the only such approved PNG binding.
+
+The following sections retain their original historical paths and approval stages as evidence, not current project/dependency directions.
+
 - Status: all independent complete layered-master part groups accepted; final dressed-master review is the next gated stage
 - Project: `E:\OurGame\Knight`
 - External workspace: `E:\OurGame\ArtProduction\thread-spool-bearer-v1`

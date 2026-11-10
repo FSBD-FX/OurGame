@@ -22,7 +22,7 @@ public partial class RustShellSquire : CharacterBody2D, IThreadPullReceiver, IEn
     private Area2D _residentTargetArea;
     private bool _residentDormant,_residentPermitted,_originalHurtMonitoring,_originalHurtMonitorable;
     private bool _originalThreadGroup,_originalGrappleGroup;
-    private uint _originalHurtLayer,_originalTargetLayer;
+    private uint _originalHurtLayer,_originalTargetLayer,_originalBodyLayer;
     private Func<Hurtbox,bool> _priorResidentTargetFilter;
     private bool _residentVoidPending;
 
@@ -90,6 +90,7 @@ public partial class RustShellSquire : CharacterBody2D, IThreadPullReceiver, IEn
     private Vector2 _checkpointPosition;
 
     public RustShellState CurrentState { get; private set; } = RustShellState.Idle;
+    internal float AttackTelegraphSeconds => _model?.AttackTelegraphSeconds ?? 0f;
     public RustShellFrame CurrentFrame { get; private set; } = new(RustShellState.Idle, 0f, false, false);
     public int Facing => _facing;
 
@@ -106,6 +107,7 @@ public partial class RustShellSquire : CharacterBody2D, IThreadPullReceiver, IEn
         _checkpointPosition = GlobalPosition;
         if(_residentModel!=null)
         {
+            _originalBodyLayer=CollisionLayer;
             _originalHurtLayer=_hurtbox.CollisionLayer;_originalHurtMonitoring=_hurtbox.Monitoring;_originalHurtMonitorable=_hurtbox.Monitorable;
             _residentTargetArea=_threadTarget.GetNode<Area2D>("TargetCollision");_originalTargetLayer=_residentTargetArea.CollisionLayer;
             _originalThreadGroup=_threadTarget.IsInGroup(ThreadTarget2D.TargetGroup);
@@ -143,11 +145,17 @@ public partial class RustShellSquire : CharacterBody2D, IThreadPullReceiver, IEn
             _residentPermitted=seesPlayer;
         }
         float signedDistance = player is null ? float.PositiveInfinity : player.GlobalPosition.X - GlobalPosition.X;
-        RustShellFrame frame = _model.Step(signedDistance, seesPlayer, _stunRequested, _health.CurrentHealth <= 0, delta);
+        bool canBeginStrike = seesPlayer && (MathF.Abs(signedDistance) > _settings.AttackRange ||
+            WithinThrustOuterReach(player, signedDistance));
+        RustShellFrame frame = _model.Step(signedDistance, seesPlayer, _stunRequested, _health.CurrentHealth <= 0, delta,
+            canBeginStrike);
         float authoredSpeed=_settings.MoveSpeed;
         if(_residentModel!=null)
         {
-            ResidenceFrame=_residentModel.Step(new(GlobalPosition,ResidentBounds(),seesPlayer,IsOnFloor(),
+            // Detection range arbitrates patrol intent, not the permission/lifetime
+            // of a committed attack. LOS/territory authorization above is unchanged.
+            bool targetInDetection=seesPlayer&&MathF.Abs(signedDistance)<=_settings.DetectionRange;
+            ResidenceFrame=_residentModel.Step(new(GlobalPosition,ResidentBounds(),targetInDetection,IsOnFloor(),
                 CanResidentMove(-_residentSettings.Speed*(float)delta),CanResidentMove(_residentSettings.Speed*(float)delta),
                 frame.State==RustShellState.Stunned,_residentDormant,_health.CurrentHealth<=0));
             if(ResidenceFrame.State is ResidentPatrolState.Patrolling or ResidentPatrolState.Returning && frame.State is RustShellState.Idle or RustShellState.Chase)
@@ -165,7 +173,13 @@ public partial class RustShellSquire : CharacterBody2D, IThreadPullReceiver, IEn
         _stunRequested = false;
 
         if (frame.MoveDirection != 0f) _facing = Mathf.RoundToInt(frame.MoveDirection);
-        _attackHitbox.Position = new Vector2(_facing * 34f, -7f);
+        // A resident can manifest or finish recovery already in striking range:
+        // no Chase movement then exists to replace its old patrol facing. Pick
+        // the target side once on warning entry, never home during the warning.
+        if (frame.State == RustShellState.Telegraph && frame.EnteredState &&
+            float.IsFinite(signedDistance) && MathF.Abs(signedDistance) > .0001f)
+            _facing = MathF.Sign(signedDistance);
+        _attackHitbox.Position = ThrustOrigin(_facing);
         AttackTimelineFrame timeline = EnrichTimeline(frame.AttackTimeline, player);
         if (timeline.Phase == AttackPhase.Active && _lastAttackTimeline.Phase != AttackPhase.Active)
             _attackHitbox.Begin(timeline.AttackId);
@@ -188,6 +202,26 @@ public partial class RustShellSquire : CharacterBody2D, IThreadPullReceiver, IEn
         FrameChanged?.Invoke(frame, _facing);
     }
 
+    private static Vector2 ThrustOrigin(int facing) => new(facing * 34f, -7f);
+
+    private bool WithinThrustOuterReach(Node2D player, float signedDistance)
+    {
+        // Preserve the legacy range-only contract for custom targets without the
+        // canonical damage shape. Normal Player scenes supply the saved Hurtbox.
+        var targetShape = player.GetNodeOrNull<CollisionShape2D>("Hurtbox/HurtboxCollider");
+        if (targetShape?.Shape == null || _attackCollider?.Shape == null) return true;
+        int direction = signedDistance > .0001f ? 1 : signedDistance < -.0001f ? -1 : _facing;
+        Transform2D projectedHitbox = _attackHitbox.Transform;
+        projectedHitbox.Origin = ThrustOrigin(direction);
+        Rect2 strike = (GlobalTransform * projectedHitbox * _attackCollider.Transform) * _attackCollider.Shape.GetRect();
+        Rect2 target = targetShape.GlobalTransform * targetShape.Shape.GetRect();
+        if (!strike.Position.IsFinite() || !strike.Size.IsFinite() || !target.Position.IsFinite() ||
+            !target.Size.IsFinite() || strike.Size.X <= 0 || target.Size.X <= 0) return false;
+        // Only the outer horizontal approach boundary is qualified. This is not
+        // homing, a guaranteed hit, a vertical dodge veto, or an active-attack check.
+        return direction > 0 ? target.Position.X < strike.End.X : target.End.X > strike.Position.X;
+    }
+
     public void ApplyThreadPull(Vector2 velocity)
     {
         if(!GhostPhaseAllowsInteraction||_residentModel!=null&&(_residentDormant||_residentVoidPending||_health!=null&&_health.CurrentHealth<=0)) return;
@@ -199,12 +233,14 @@ public partial class RustShellSquire : CharacterBody2D, IThreadPullReceiver, IEn
 
     private void ApplyResidentDormancy()
     {
-        bool unavailable=_residentDormant||HasFamilyCombatProfile&&(_residentVoidPending||_health.CurrentHealth<=0);
+        bool unavailable=_residentDormant||_residentVoidPending||_health.CurrentHealth<=0;
         bool targetUnavailable=unavailable||!GhostPhaseAllowsInteraction;
+        // Residents retain their corpse for checkpoint reset. It must not remain
+        // a solid Enemy ray occluder; live sleep/hidden bodies and the saved mask stay unchanged.
+        CollisionLayer=_health.CurrentHealth<=0?0:_originalBodyLayer;
         _hurtbox.CollisionLayer=unavailable?0:_originalHurtLayer;
         _hurtbox.Monitoring=!unavailable&&_originalHurtMonitoring;
-        if(HasFamilyCombatProfile)Callable.From(CommitResidentHurtMonitorable).CallDeferred();
-        else _hurtbox.Monitorable=!_residentDormant&&_originalHurtMonitorable;
+        Callable.From(CommitResidentHurtMonitorable).CallDeferred();
         _residentTargetArea.CollisionLayer=targetUnavailable?0:_originalTargetLayer;
         SetTargetGroup(ThreadTarget2D.TargetGroup,_originalThreadGroup);
         SetTargetGroup(GrappleSurface2D.TargetGroup,_originalGrappleGroup);
@@ -225,7 +261,7 @@ public partial class RustShellSquire : CharacterBody2D, IThreadPullReceiver, IEn
     private void ApplyPendingResidentVoidDeath()
     {
         _boneThreadOpening=false;
-        if(HasFamilyCombatProfile)ApplyResidentDormancy();
+        ApplyResidentDormancy();
         _stunRequested=true;_residentPermitted=false;
         _attackHitbox.End();PublishAttack(default);
         // A rejected invulnerable request does not consume its identity. Keep
@@ -303,18 +339,19 @@ public partial class RustShellSquire : CharacterBody2D, IThreadPullReceiver, IEn
         PublishAttack(default);
         _health?.ResetFull();
         ResetGhostPhase();
-        if(HasBoneProfile)ApplyResidentDormancy();
+        if(_residentModel!=null)ApplyResidentDormancy();
     }
 
     public bool HasLineOfSightTo(Node2D player)
     {
-        PhysicsRayQueryParameters2D query = PhysicsRayQueryParameters2D.Create(GlobalPosition, player.GlobalPosition);
+        using PhysicsRayQueryParameters2D query = PhysicsRayQueryParameters2D.Create(GlobalPosition, player.GlobalPosition);
         query.CollideWithAreas = true;
         query.CollideWithBodies = true;
         var selfColliders = new Godot.Collections.Array<Rid>();
+        using Godot.Collections.Array selfColliderBacking = (Godot.Collections.Array)selfColliders;
         AppendSelfColliders(this, selfColliders);
         query.Exclude = selfColliders;
-        Godot.Collections.Dictionary hit = GetWorld2D().DirectSpaceState.IntersectRay(query);
+        using Godot.Collections.Dictionary hit = GetWorld2D().DirectSpaceState.IntersectRay(query);
         if (hit.Count == 0) return true;
         Node collider = hit["collider"].AsGodotObject() as Node;
         return collider != null && NodesBelongToSameTarget(collider, player);
@@ -325,7 +362,9 @@ public partial class RustShellSquire : CharacterBody2D, IThreadPullReceiver, IEn
         // Inactive attack areas remain ray-queryable. Exclude the whole actor,
         // including nested targets/sensors, without ignoring external occluders.
         if (node is CollisionObject2D collider) exclusions.Add(collider.GetRid());
-        foreach (Node child in node.GetChildren()) AppendSelfColliders(child, exclusions);
+        Godot.Collections.Array<Node> children = node.GetChildren();
+        using Godot.Collections.Array childrenBacking = (Godot.Collections.Array)children;
+        foreach (Node child in children) AppendSelfColliders(child, exclusions);
     }
 
     public static bool NodesBelongToSameTarget(Node collider, Node target)
@@ -350,7 +389,7 @@ public partial class RustShellSquire : CharacterBody2D, IThreadPullReceiver, IEn
     {
         _residentVoidPending=false;
         _boneThreadOpening=false;
-        if(HasFamilyCombatProfile)ApplyResidentDormancy();
+        if(_residentModel!=null)ApplyResidentDormancy();
         Velocity = Vector2.Zero;
         _attackHitbox?.End();
         PublishAttack(default);

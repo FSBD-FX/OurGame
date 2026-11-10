@@ -15,6 +15,7 @@ internal static class ExplorationMapColdReadTests
         string root = IsolatedPrologueFixture.ValidateStorageRoot(); // Before first read, no test writes.
         int writerPid = int.Parse(File.ReadAllText(Path.Combine(root, "writer-pid.txt")));
         TestAssert.True(writerPid != Environment.ProcessId, "cold read must be a truly different process");
+        AnnexExplorationMapMigrationTests.ColdRead(root);
         using var catalog = ExplorationMapSaveTests.Catalog();
         foreach (string name in new[] { "map-roundtrip.json", "old-core-only.json" })
         {
@@ -35,6 +36,21 @@ internal static class ExplorationMapColdReadTests
             TestAssert.Equal(before, ExplorationMapSaveTests.Hash(path), "cold reader never rewrites source");
             GD.Print($"MINIMAP_COLD_WITNESS name={name} source_sha256={before} map={hasMap}");
         }
-        GD.Print($"MINIMAP_COLD_READ_OK writer_pid={writerPid} reader_pid={Environment.ProcessId} witnesses=2 read_only=True");
+        using var current = FirstAscentMapMigrationTests.HistoricalCatalog();
+        string legacyPath = Path.Combine(root, "map-v133-migration.json"), legacyHash = ExplorationMapSaveTests.Hash(legacyPath);
+        TestAssert.Equal(File.ReadAllText(legacyPath + ".sha256"), legacyHash, "cold old-revision exact retained witness");
+        using (var wire = JsonDocument.Parse(File.ReadAllText(legacyPath)))
+            TestAssert.Equal(ExplorationMapSaveTests.V133Revision,
+                wire.RootElement.GetProperty("explorationMap").GetProperty("terrainRevision").GetString(),
+                "cold reads an actual old-revision wire, not writer's converted DTO");
+        var migrated = PrologueSaveStore.LoadOrNew(legacyPath, 2, current);
+        ExplorationMapSaveTests.AssertCore(migrated);
+        TestAssert.True(migrated.ExplorationMap != null, "cold known revision conversion remains available");
+        ExplorationMapSaveTests.AssertKnownRevisionBits(migrated.ExplorationMap, current);
+        TestAssert.Equal(legacyHash, ExplorationMapSaveTests.Hash(legacyPath), "cold migration never rewrites old source");
+        GD.Print($"MINIMAP_COLD_MIGRATION_OK old_revision=true literal_bits=true core_unchanged=true source_sha256={legacyHash}");
+        FirstAscentMapMigrationTests.ColdRead(root);
+        FirstAscentMapMigrationTests.Grip8BaffleColdRead(root);
+        GD.Print($"MINIMAP_COLD_READ_OK writer_pid={writerPid} reader_pid={Environment.ProcessId} witnesses=6 read_only=True");
     }
 }

@@ -15,6 +15,8 @@ public sealed class RustShellModel
     private Vector2 _lockedTarget;
     private bool _hasLockedTarget;
 
+    public float AttackTelegraphSeconds => _settings.TelegraphSeconds;
+
     public RustShellModel(RustShellSettings settings = null)
     {
         _settings = settings ?? new RustShellSettings();
@@ -22,7 +24,8 @@ public sealed class RustShellModel
             throw new ArgumentException("Invalid Rust-Shell settings.", nameof(settings));
     }
 
-    public RustShellFrame Step(float signedDistanceToPlayer, bool seesPlayer, bool stunned, bool dead, double delta)
+    public RustShellFrame Step(float signedDistanceToPlayer, bool seesPlayer, bool stunned, bool dead, double delta,
+        bool canBeginStrike = true)
     {
         bool enteredState = false;
         float seconds = MathF.Max(0f, (float)delta);
@@ -44,7 +47,7 @@ public sealed class RustShellModel
             case RustShellState.Idle:
                 if (seesPlayer && distance <= _settings.DetectionRange)
                 {
-                    enteredState = TransitionTo(distance <= _settings.AttackRange
+                    enteredState = TransitionTo(distance <= _settings.AttackRange && canBeginStrike
                         ? RustShellState.Telegraph
                         : RustShellState.Chase);
                 }
@@ -53,7 +56,7 @@ public sealed class RustShellModel
             case RustShellState.Chase:
                 if (!seesPlayer || distance > _settings.DetectionRange)
                     enteredState = TransitionTo(RustShellState.Idle);
-                else if (distance <= _settings.AttackRange)
+                else if (distance <= _settings.AttackRange && canBeginStrike)
                     enteredState = TransitionTo(RustShellState.Telegraph);
                 break;
 
@@ -75,7 +78,7 @@ public sealed class RustShellModel
                 if (AdvanceTimer(seconds, _settings.RecoverySeconds))
                 {
                     enteredState = TransitionTo(seesPlayer && distance <= _settings.DetectionRange
-                        ? distance <= _settings.AttackRange ? RustShellState.Telegraph : RustShellState.Chase
+                        ? distance <= _settings.AttackRange && canBeginStrike ? RustShellState.Telegraph : RustShellState.Chase
                         : RustShellState.Idle);
                 }
                 break;

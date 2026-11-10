@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 
 namespace Knight.Prologue.Seamless;
@@ -11,7 +12,7 @@ public sealed class PrologueSectorStreamModel
 
     private readonly Dictionary<PrologueSectorId, PrologueSectorDefinition> _definitions = new();
 
-    public PrologueSectorStreamModel(IEnumerable<PrologueSectorDefinition> definitions)
+    public PrologueSectorStreamModel(IEnumerable<PrologueSectorDefinition> definitions,PrologueWorldProfile profile=null)
     {
         if (definitions == null) throw new ArgumentNullException(nameof(definitions));
         var errors = new List<string>();
@@ -31,7 +32,7 @@ public sealed class PrologueSectorStreamModel
             index++;
         }
 
-        PrologueSectorId[] sectorIds = Enum.GetValues<PrologueSectorId>();
+        PrologueSectorId[] sectorIds = profile?.SectorIds.ToArray() ?? Enum.GetValues<PrologueSectorId>();
         if (_definitions.Count != sectorIds.Length)
             errors.Add($"sector graph must contain exactly {sectorIds.Length} unique definitions");
         foreach (PrologueSectorId id in sectorIds)

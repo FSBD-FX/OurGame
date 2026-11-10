@@ -110,9 +110,9 @@ public static class ResidentVoidStreamRuntimeTests
         }
     }
     private static bool Cross(Probe probe)=>ResidentVoidContact.Crossed(probe.Body,probe.Shape,probe.Before);
-    private sealed record Probe(CharacterBody2D Body,CollisionShape2D Shape,Transform2D Before);
+    internal sealed record Probe(CharacterBody2D Body,CollisionShape2D Shape,Transform2D Before);
 
-    private sealed class Fixture
+    internal sealed class Fixture
     {
         private readonly SceneTree _tree;
         private World2D _physics;
@@ -186,6 +186,12 @@ public static class ResidentVoidStreamRuntimeTests
         public PrologueSector Sector(SeamlessPrologueWorld world,PrologueSectorId id)
         {
             TestAssert.True(world.TryGetMountedSector(id,out PrologueSector sector),"actual registry contains "+id);return sector;
+        }
+        public void MountActor(PrologueSector sector, CharacterBody2D actor)
+        {
+            CloneShapes(actor);
+            sector.GetNode("Gameplay/Actors").AddChild(actor);
+            Freeze(actor);
         }
         public Probe Probe(PrologueSector owner,Vector2 end)
         {

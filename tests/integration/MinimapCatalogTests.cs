@@ -32,9 +32,9 @@ public static class MinimapCatalogTests
             var saved = formal.GetNode<PrologueMinimapController>("MinimapController").Catalog;
             Equal(built, saved);
             TestAssert.True(built.SerializedValues.AsSpan().SequenceEqual(saved.SerializedValues), "actual saved catalog bytes remain exact after extraction validation");
-            TestAssert.True(saved.SolidCount == 130 && saved.CellCount == 518400 && saved.WorldBounds == new Rect2(0,0,7680,4320),
+            TestAssert.True(saved.SolidCount == 143 && saved.CellCount == 518400 && saved.WorldBounds == new Rect2(0,0,7680,4320),
                 "PackedCatalogMatchesAuthoredShapes: independent authored count and full definitions envelope");
-            int[] expectedCounts = {11,27,26,54,12};
+            int[] expectedCounts = {6,37,31,57,12};
             int cursor = 0;
             for (int sector = 0; sector < 5; sector++)
             {

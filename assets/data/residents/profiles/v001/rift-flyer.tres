@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="ResidentSubtypeProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSubtypeProfile.cs" id="1_mwntf"]
+
+[resource]
+script = ExtResource("1_mwntf")
+SubtypeId = "rift-flyer"
+Archetype = 2
+Carrier = 3

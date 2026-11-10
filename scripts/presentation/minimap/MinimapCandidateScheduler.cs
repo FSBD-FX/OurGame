@@ -11,7 +11,7 @@ namespace Knight.Presentation.Minimap;
 internal sealed class MinimapCandidateScheduler
 {
     internal const int MaximumNodeExpansionsPerStamp = 256;
-    private const int LocalSide = 43;
+    private readonly int _localRadius;
     private struct Node : IComparable<Node>
     {
         internal double X, Y, MinX, MinY, MaxX, MaxY;
@@ -46,9 +46,11 @@ internal sealed class MinimapCandidateScheduler
     internal MinimapCandidateScheduler(MinimapTerrainCatalog catalog)
     {
         _catalog = catalog;
+        _localRadius = (int)Math.Ceiling(160d / catalog.CellSize) + 1;
+        int localSide = 2 * _localRadius + 1;
         _cellAttempts = new ulong[catalog.CellCount];
         _nodes = new Node[catalog.BoundaryCount];
-        _heap = new Entry[catalog.BoundaryCount + LocalSide * LocalSide];
+        _heap = new Entry[catalog.BoundaryCount + localSide * localSide];
         for (int i = 0; i < _nodes.Length; i++)
         {
             MinimapBoundary b = catalog.Boundary(i); MinimapSolid solid = catalog.Solid(b.ShapeId);
@@ -133,11 +135,11 @@ internal sealed class MinimapCandidateScheduler
     private void RebuildQuery()
     {
         LastQueryRebuilds++; _heapCount = 0;
-        int x = (int)Math.Floor(((double)_actor.X - _catalog.WorldBounds.Position.X) / 8);
-        int y = (int)Math.Floor(((double)_actor.Y - _catalog.WorldBounds.Position.Y) / 8);
+        int x = (int)Math.Floor(((double)_actor.X - _catalog.WorldBounds.Position.X) / _catalog.CellSize);
+        int y = (int)Math.Floor(((double)_actor.Y - _catalog.WorldBounds.Position.Y) / _catalog.CellSize);
         int localCount = 0;
-        for (int row = Math.Max(0, y - 21); row <= Math.Min(_catalog.Rows - 1, y + 21); row++)
-        for (int column = Math.Max(0, x - 21); column <= Math.Min(_catalog.Columns - 1, x + 21); column++)
+        for (int row = Math.Max(0, y - _localRadius); row <= Math.Min(_catalog.Rows - 1, y + _localRadius); row++)
+        for (int column = Math.Max(0, x - _localRadius); column <= Math.Min(_catalog.Columns - 1, x + _localRadius); column++)
         {
             int id = row * _catalog.Columns + column; localCount++;
             if (_cellAttempts[id] == _epoch) continue;
@@ -170,7 +172,7 @@ internal sealed class MinimapCandidateScheduler
     private void Push(Entry entry)
     {
         // Every frontier entry represents at least one distinct remaining
-        // candidate. Capacity is B+1849, never a resizing/truncating queue.
+        // candidate. Capacity is B+localSide² (1849 at grid8), never a resizing/truncating queue.
         if (_heapCount == _heap.Length) throw new InvalidOperationException("Candidate frontier invariant violated.");
         int at = _heapCount++;
         while (at > 0)

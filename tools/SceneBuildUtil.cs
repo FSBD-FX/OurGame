@@ -42,8 +42,17 @@ public static class SceneBuildUtil
         Error packError = packed.Pack(root);
         if (packError != Error.Ok) return packError;
         Node copy = packed.Instantiate();
+#if REFCOUNTED_FATAL_IDENTITY
+        Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveCensusRangedSettings(copy,resourcePath,"census-pack-roundtrip-settings");
+#endif
         int actual = Count(copy);
+#if REFCOUNTED_FATAL_IDENTITY
+        Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("pack-copy-free-enter:"+resourcePath);
+#endif
         copy.Free();
+#if REFCOUNTED_FATAL_IDENTITY
+        Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("pack-copy-free-return:"+resourcePath);
+#endif
         if (actual != expected)
         {
             return Error.InvalidData;

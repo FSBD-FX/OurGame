@@ -12,6 +12,24 @@ public sealed record PrologueSaveLoadResult(PrologueSaveLoadStatus Status,
 
 public static class PrologueSaveStore
 {
+    public static PrologueSaveLoadResult LoadCandidate(string path,PrologueWorldProfile profile,MinimapTerrainCatalog mapCatalog=null)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        if(string.IsNullOrWhiteSpace(path))throw new ArgumentException("Selected profile save path required.");
+        if(!File.Exists(path))return new(PrologueSaveLoadStatus.Current,PrologueSaveData.NewForProfile(profile),null);
+        try
+        {
+            string json=File.ReadAllText(path);using var document=JsonDocument.Parse(json);
+            if(document.RootElement.ValueKind!=JsonValueKind.Object || !TryVersion(document.RootElement,out int version) || version!=PrologueSaveData.CurrentVersion)
+                throw new InvalidDataException("Candidate requires current explicit save schema.");
+            return new(PrologueSaveLoadStatus.Current,ReadData(json,document.RootElement,false,mapCatalog,profile),null);
+        }
+        catch(Exception e) when(e is IOException or UnauthorizedAccessException or JsonException or NotSupportedException or InvalidDataException or OverflowException)
+        {
+            var data=PrologueSaveData.NewForProfile(profile);data.WasRecovered=true;
+            return new(PrologueSaveLoadStatus.Recovered,data,null);
+        }
+    }
     public static PrologueSaveLoadResult LoadFullWorld(string path, string legacyPath, MinimapTerrainCatalog mapCatalog = null)
     {
         // Never rewrite either source during inspection. A malformed/foreign new
@@ -97,7 +115,7 @@ public static class PrologueSaveStore
         }
     }
 
-    private static PrologueSaveData ReadData(string json, JsonElement root, bool legacySchema, MinimapTerrainCatalog mapCatalog)
+    private static PrologueSaveData ReadData(string json, JsonElement root, bool legacySchema, MinimapTerrainCatalog mapCatalog,PrologueWorldProfile profile=null)
     {
         // Current wire metadata is mandatory. Property initializers must not turn
         // an incomplete schema4 payload into an implicitly accepted migration.
@@ -119,7 +137,7 @@ public static class PrologueSaveStore
             data.Version = PrologueSaveData.CurrentVersion;
             MigrateCollectionMetadata(data, root);
         }
-        PrologueSaveData normalized = data.Normalize(); // Core authority is validated first, unchanged.
+        PrologueSaveData normalized = data.Normalize(profile); // Core authority precedes optional map bits.
         if (!legacySchema && mapCatalog != null &&
             ExplorationMapSaveCodec.TryRead(root, mapCatalog, out var map, out _))
             normalized.ExplorationMap = map;
@@ -160,16 +178,18 @@ public static class PrologueSaveStore
         // Neither coordinates nor injected fields grant new collection progress.
         data.CollectionRuleVersion = 1;
         data.CollectedFragmentIds = [];
+        // Schemas predating this feature cannot attest obtained materials, even if a future field was injected.
+        data.ClaimedRewardIds = [];
         data.LegacyCollectionQuotaExempt = data.LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion &&
             (ReadBoolean(root, "bossDefeated") || ReadBoolean(root, "completed") ||
              data.CheckpointId == "canyon.v2.temple-forecourt" && ReadBoolean(root, "hasActivatedCheckpoint"));
     }
 
-    public static void SaveAtomic(string path, PrologueSaveData data, bool preserveExisting = false)
+    public static void SaveAtomic(string path, PrologueSaveData data, bool preserveExisting = false,PrologueWorldProfile profile=null)
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Save path is required.", nameof(path));
         if (data == null) throw new ArgumentNullException(nameof(data));
-        PrologueSaveData normalized = data.Normalize();
+        PrologueSaveData normalized = data.Normalize(profile);
         string fullPath = Path.GetFullPath(path);
         string directory = Path.GetDirectoryName(fullPath) ?? Directory.GetCurrentDirectory();
         Directory.CreateDirectory(directory);

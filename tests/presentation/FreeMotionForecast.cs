@@ -19,6 +19,37 @@ public static class FreeMotionForecast
         PlayerMotionSettings motion, MobilityModuleSettings module, double delta, int maxSteps, float speedThreshold) =>
         Predict(velocity, onFloor, motion, module, delta, maxSteps, speedThreshold, reverse: true);
 
+    public static HorizontalForecastResult HeldThenNeutral(float velocity, float axis, bool onFloor,
+        PlayerMotionSettings motion, MobilityModuleSettings module, double delta,
+        int heldSamples, int maxSteps, float speedThreshold)
+    {
+        if (!double.IsFinite(delta) || delta <= 0d || delta > float.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(delta));
+        if (maxSteps < 0 || heldSamples < 0 || heldSamples > maxSteps)
+            throw new ArgumentOutOfRangeException(nameof(heldSamples));
+        if (!float.IsFinite(speedThreshold) || speedThreshold < 0f)
+            throw new ArgumentOutOfRangeException(nameof(speedThreshold));
+        ThrusterDynamics.Step(new(new Vector2(velocity, 0f), axis, onFloor,
+            Vector2.Zero, 0f, ApplyGravity: false), module, motion, 0d);
+        float sign = velocity == 0f ? Mathf.Sign(axis) : Mathf.Sign(velocity);
+        float distance = 0f, peak = 0f;
+        int steps = 0;
+        bool reached = Mathf.Abs(velocity) <= speedThreshold, crossed = false;
+        while (steps < maxSteps && (steps < heldSamples || !reached))
+        {
+            var result = ThrusterDynamics.Step(new(new Vector2(velocity, 0f),
+                steps < heldSamples ? axis : 0f, onFloor, Vector2.Zero, 0f, ApplyGravity: false),
+                module, motion, delta);
+            velocity = result.Velocity.X;
+            distance += velocity * (float)delta;
+            peak = Mathf.Max(peak, distance * sign);
+            steps++;
+            crossed |= result.BrakeReachedZero;
+            reached = Mathf.Abs(velocity) <= speedThreshold;
+        }
+        return new(distance, peak, velocity, steps, reached, crossed);
+    }
+
     private static HorizontalForecastResult Predict(float velocity, bool onFloor,
         PlayerMotionSettings motion, MobilityModuleSettings module, double delta,
         int maxSteps, float speedThreshold, bool reverse)

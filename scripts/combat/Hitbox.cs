@@ -22,6 +22,11 @@ public partial class Hitbox : Area2D
     // this attack's per-target identity; unconfigured hitboxes keep their old rules.
     public Func<Hurtbox, bool> TargetFilter { get; set; }
 
+    // Optional source-owned lifetime veto, independent of caller-composed target
+    // rules. Check again after callbacks and before spending target identity.
+    // Only configured sources opt in; all other hitboxes retain their old rules.
+    internal Func<bool> SourcePermission { get; set; }
+
     private ulong _attackId;
     private readonly HashSet<ulong> _hitInstances = new();
 
@@ -53,7 +58,8 @@ public partial class Hitbox : Area2D
 
     public bool TryConnect(Hurtbox hurtbox)
     {
-        if (IsOwnHurtbox(hurtbox) || TargetFilter?.Invoke(hurtbox) == false ||
+        if (IsOwnHurtbox(hurtbox) || SourcePermission?.Invoke() == false ||
+            TargetFilter?.Invoke(hurtbox) == false || SourcePermission?.Invoke() == false ||
             !_hitInstances.Add(hurtbox.GetInstanceId())) return false;
         Vector2 direction = GlobalPosition.DirectionTo(hurtbox.GlobalPosition);
         if (hurtbox.Receive(new DamageRequest(Damage, direction, Knockback, _attackId, GetInstanceId(), GuardClass)))

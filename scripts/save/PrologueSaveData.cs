@@ -16,12 +16,21 @@ public sealed class PrologueSaveData
 
     public int Version { get; set; } = CurrentVersion;
     public int LayoutVersion { get; set; }
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public string WorldProfileId {get;set;}
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public int? WorldProfileSaveRuleVersion {get;set;}
+    public static PrologueSaveData NewForProfile(PrologueWorldProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        return new PrologueSaveData {LayoutVersion=PrologueWorldProfile.LayoutVersion,WorldProfileId=profile.Id,
+            WorldProfileSaveRuleVersion=profile.SaveRuleVersion,CheckpointId=profile.Start.StableId}.Normalize(profile);
+    }
     public string CheckpointId { get; set; } = "canyon.v2.start";
     public List<string> OpenShortcuts { get; set; } = [];
     public List<string> ActivatedMechanisms { get; set; } = [];
     public int CollectionRuleVersion { get; set; } = 1;
     public bool LegacyCollectionQuotaExempt { get; set; }
     public List<string> CollectedFragmentIds { get; set; } = [];
+    public List<string> ClaimedRewardIds { get; set; } = [];
 
     public static PrologueSaveData NewLayoutV2() => new()
     {
@@ -57,19 +66,34 @@ public sealed class PrologueSaveData
     [JsonIgnore]
     public bool WasRecovered { get; set; }
 
-    public PrologueSaveData Normalize()
+    public PrologueSaveData Normalize(PrologueWorldProfile profile=null)
     {
         if (Version != CurrentVersion)
             throw new InvalidDataException($"Unsupported prologue save version {Version}.");
+        if(profile==null && (LayoutVersion==PrologueWorldProfile.LayoutVersion || WorldProfileId!=null || WorldProfileSaveRuleVersion.HasValue) ||
+            profile!=null && (LayoutVersion!=PrologueWorldProfile.LayoutVersion || WorldProfileId!=profile.Id || WorldProfileSaveRuleVersion!=profile.SaveRuleVersion))
+            throw new InvalidDataException("World profile save context does not match.");
         if (CollectionRuleVersion != 1)
             throw new InvalidDataException("Unsupported quest fragment collection rule version.");
         ValidateIds(CollectedFragmentIds, QuestFragmentCatalog.StableIds, "quest fragment");
+        ValidateIds(ClaimedRewardIds, ResourceRewardCatalog.StableIds, "resource reward");
 
         PrologueSectorId sector = PrologueSectorId.CanyonEntrance;
         Vector2 position = Vector2.Zero;
         if (!float.IsFinite(CheckpointWorldX) || !float.IsFinite(CheckpointWorldY))
             throw new InvalidDataException("Checkpoint world coordinates must be finite before canonicalization.");
-        if (LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion)
+        if(profile!=null)
+        {
+            if(!profile.TryResolveCheckpoint(CheckpointId,out sector,out position))throw new InvalidDataException("Unknown world profile checkpoint.");
+            ValidateIds(OpenShortcuts,Array.Empty<string>(),"profile shortcut");
+            ValidateIds(ActivatedMechanisms,Array.Empty<string>(),"profile mechanism");
+            ValidateIds(Discoveries,Array.Empty<string>(),"profile discovery");
+            ValidateIds(CompletedTutorials,Array.Empty<string>(),"profile tutorial");
+            if(Completed || BossDefeated || LegacyCollectionQuotaExempt || ShortcutOpen ||
+                BestHumanCompletionSeconds!=-1d || BestHumanDeaths!=-1 || Objective!=nameof(PrologueObjective.Wake))
+                throw new InvalidDataException("Development world cannot attest formal completion or legacy progress.");
+        }
+        else if (LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion)
         {
             if (!CanyonWorldLayout.TryResolveCheckpoint(CheckpointId, out sector, out position))
                 throw new InvalidDataException("Unknown canyon checkpoint ID.");
@@ -102,13 +126,17 @@ public sealed class PrologueSaveData
         {
             Version = CurrentVersion,
             LayoutVersion = LayoutVersion,
+            WorldProfileId = WorldProfileId,
+            WorldProfileSaveRuleVersion = WorldProfileSaveRuleVersion,
             CheckpointId = CheckpointId,
             OpenShortcuts = NormalizeStrings(OpenShortcuts),
             ActivatedMechanisms = NormalizeStrings(ActivatedMechanisms),
             CollectionRuleVersion = CollectionRuleVersion,
             LegacyCollectionQuotaExempt = LegacyCollectionQuotaExempt,
             CollectedFragmentIds = NormalizeStrings(CollectedFragmentIds),
-            HasActivatedCheckpoint = LayoutVersion == 2 ? CheckpointId != "canyon.v2.start" : HasActivatedCheckpoint,
+            ClaimedRewardIds = NormalizeStrings(ClaimedRewardIds),
+            HasActivatedCheckpoint = profile!=null ? CheckpointId!=profile.Start.StableId :
+                LayoutVersion == 2 ? CheckpointId != "canyon.v2.start" : HasActivatedCheckpoint,
             CheckpointSector = sector.ToString(),
             CheckpointWorldX = position.X,
             CheckpointWorldY = position.Y,

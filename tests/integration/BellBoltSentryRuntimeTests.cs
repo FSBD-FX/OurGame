@@ -7,7 +7,10 @@ using Knight.Abilities;
 using Knight.Audio;
 using Knight.Combat;
 using Knight.Enemies.Sentry;
+using Knight.Enemies.Skitter;
 using Knight.Player;
+using Knight.Prologue.Residents;
+using Knight.Prologue.Seamless;
 using Knight.Presentation;
 using Knight.Shared;
 using Knight.Tests.Presentation;
@@ -17,6 +20,582 @@ namespace Knight.Tests.Integration;
 
 public static class BellBoltSentryRuntimeTests
 {
+    public static async Task RunRetiredProjectilePermission(SceneTree tree)
+    {
+        // Controlled queued-delivery simulation: saved player, real native
+        // receiver/Health, Motor disabled and invulnerability0. Not a claim of
+        // natural projectile overlap or user-visible flight reproduction.
+        Fixture f = await CreatePlayerFixture(tree, "RetiredProjectilePermission");
+        BellBoltProjectile retired = null;
+        Hitbox hitbox = null;
+        int retiredEvents = 0, connected = 0;
+        bool callbackConnected = false;
+        void OnRetired(BellBoltProjectile bolt)
+        {
+            retiredEvents++;
+            callbackConnected |= hitbox.TryConnect(f.Hurtbox);
+        }
+        void OnConnected(Hurtbox target) { if (target == f.Hurtbox) connected++; }
+        try
+        {
+            retired = await AddProjectile(tree, f.Root, f.Hurtbox.GlobalPosition + Vector2.Right * 90f,
+                Vector2.Left, 9301UL);
+            hitbox = retired.GetNode<Hitbox>("Hitbox");
+            hitbox.Connected += OnConnected; retired.Retired += OnRetired;
+            int before = f.Health.CurrentHealth;
+            TestAssert.True(!retired.IsRetired && retired.Visible && hitbox.Monitoring && !f.Shield.IsActive,
+                "retirement test begins with genuinely launched live normal bolt and unshielded saved player");
+            retired.Retire();
+            TestAssert.True(retired.IsRetired && !retired.Visible && !retired.IsPhysicsProcessing() && retiredEvents == 1,
+                "logical/invisible retirement occurs before deferred physics completion");
+            bool afterReturn = hitbox.TryConnect(f.Hurtbox);
+            TestAssert.True(!callbackConnected && !afterReturn && connected == 0 && f.Health.CurrentHealth == before,
+                $"RETIRED_BOLT_LOGICAL_HIT_RED: retired stale delivery must not connect or damage; " +
+                $"callback={callbackConnected} after_return={afterReturn} connected={connected} hp={before}->{f.Health.CurrentHealth} " +
+                $"native_monitoring={hitbox.Monitoring} retired={retired.IsRetired} visible={retired.Visible}");
+            retired.Retire(); await Frames(tree, 2);
+            TestAssert.True(retiredEvents == 1 && !hitbox.TryConnect(f.Hurtbox) && connected == 0 && f.Health.CurrentHealth == before,
+                "retirement is idempotent and remains revoked after deferred completion");
+            GD.Print("BELL_BOLT_RETIRE_PERMISSION_OK callback_rejected=true same_frame_rejected=true deferred_rejected=true " +
+                "retired_events=1 connected=0 damage=0 native_receiver=true queued_delivery_simulation=true natural_overlap=false");
+        }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(retired)) retired.Retired -= OnRetired;
+            if (GodotObject.IsInstanceValid(hitbox)) hitbox.Connected -= OnConnected;
+            f.Root.QueueFree(); await Frames(tree, 2);
+        }
+    }
+
+    public static async Task RunProjectilePermissionControls(SceneTree tree)
+    {
+        Fixture f = await CreatePlayerFixture(tree, "ProjectilePermissionControls");
+        try
+        {
+            Vector2 position = f.Hurtbox.GlobalPosition + Vector2.Right * 90f;
+            int initial = f.Health.CurrentHealth;
+            BellBoltProjectile live = await AddProjectile(tree, f.Root, position, Vector2.Left, 9310UL);
+            Hitbox liveHitbox = live.GetNode<Hitbox>("Hitbox");
+            TestAssert.True(liveHitbox.TryConnect(f.Hurtbox) && !liveHitbox.TryConnect(f.Hurtbox) &&
+                f.Health.CurrentHealth == initial - 1 && live.IsRetired,
+                "live normal bolt still causes exactly one real Health damage before retirement revokes contact");
+
+            bool permitted = false; int permissionCalls = 0;
+            BellBoltProjectile custom = await AddProjectile(tree, f.Root, position, Vector2.Left, 9311UL,
+                targetFilter: target => { permissionCalls++; return permitted; },
+                beforeLaunch: (_, hitbox) =>
+                {
+                    // Caller composition must preserve the pre-Ready target rule;
+                    // source lifetime permission stays independent of this chain.
+                    Func<Hurtbox, bool> previous = hitbox.TargetFilter;
+                    hitbox.TargetFilter = target => previous(target) && target == f.Hurtbox;
+                });
+            Hitbox customHitbox = custom.GetNode<Hitbox>("Hitbox");
+            TestAssert.True(!customHitbox.TryConnect(f.Hurtbox) && permissionCalls == 1 &&
+                !custom.IsRetired && f.Health.CurrentHealth == initial - 1,
+                "pre-Ready deny filter and caller-composed rule are preserved without spending target identity");
+            permitted = true;
+            TestAssert.True(customHitbox.TryConnect(f.Hurtbox) && permissionCalls == 2 &&
+                custom.IsRetired && f.Health.CurrentHealth == initial - 2 &&
+                !customHitbox.TryConnect(f.Hurtbox) && permissionCalls == 2,
+                "later permission accepts same target once; retired source short-circuits target rules afterward");
+
+            BellBoltProjectile reentrant = null; int reentrantCalls = 0;
+            reentrant = await AddProjectile(tree, f.Root, position, Vector2.Left, 9312UL,
+                targetFilter: target => { reentrantCalls++; reentrant.Retire(); return true; });
+            TestAssert.True(!reentrant.GetNode<Hitbox>("Hitbox").TryConnect(f.Hurtbox) &&
+                reentrant.IsRetired && reentrantCalls == 1 && f.Health.CurrentHealth == initial - 2,
+                "upstream permission which retires its own source cannot return a stale damage grant");
+
+            bool available = false; int availabilityCalls = 0;
+            Func<bool> availability = () => { availabilityCalls++; return available; };
+            Rect2 area = new(position - new Vector2(64, 64), new Vector2(128, 128));
+            BellBoltProjectile resident = await AddProjectile(tree, f.Root, position, Vector2.Left, 9313UL,
+                beforeLaunch: (bolt, _) => bolt.SetResidentAuthority(area, availability));
+            Hitbox residentHitbox = resident.GetNode<Hitbox>("Hitbox");
+            TestAssert.True(!residentHitbox.TryConnect(f.Hurtbox) && availabilityCalls == 1 && !resident.IsRetired,
+                "resident available=false remains a live synchronous permission veto");
+            available = true;
+            resident.SetResidentAuthority(new Rect2(position - new Vector2(3, 3), new Vector2(6, 6)), availability);
+            TestAssert.True(!residentHitbox.TryConnect(f.Hurtbox) && availabilityCalls == 2 && !resident.IsRetired,
+                "center inside territory is insufficient when full projectile circle does not fit");
+            resident.SetResidentAuthority(area, availability);
+            TestAssert.True(residentHitbox.TryConnect(f.Hurtbox) && availabilityCalls == 3 &&
+                resident.IsRetired && f.Health.CurrentHealth == initial - 3 &&
+                !residentHitbox.TryConnect(f.Hurtbox) && availabilityCalls == 3,
+                "restored resident availability/whole circle accepts unspent target once and retire revokes before callbacks");
+
+            BellBoltProjectile invalid = await AddProjectile(tree, f.Root, position, Vector2.Left, 9314UL);
+            using var settings = new BellBoltSentrySettings();
+            invalid.Launch(position, Vector2.Zero, 9315UL, settings);
+            TestAssert.True(invalid.IsRetired && !invalid.Visible &&
+                !invalid.GetNode<Hitbox>("Hitbox").TryConnect(f.Hurtbox) && f.Health.CurrentHealth == initial - 3,
+                "invalid launch retires and cannot reuse the previous live attack's damage permission");
+            // Preserve the public API's logical reset without claiming physical
+            // pooling: no physics tick occurs while relaunched, then contact
+            // immediately retires it again. Deferred collider revival is not tested.
+            invalid.Launch(position, Vector2.Left, 9316UL, settings);
+            TestAssert.True(!invalid.IsRetired && invalid.GetNode<Hitbox>("Hitbox").TryConnect(f.Hurtbox) &&
+                invalid.IsRetired && f.Health.CurrentHealth == initial - 4 &&
+                !invalid.GetNode<Hitbox>("Hitbox").TryConnect(f.Hurtbox),
+                "a later valid logical Launch resets retirement and target identity without dropping the lifetime gate");
+            GD.Print("BELL_BOLT_PERMISSION_CONTROLS_OK live_damage=1 custom_damage=1 resident_damage=1 " +
+                "denied_identity_preserved=true composed_filter=true reentrant_retire_rejected=true " +
+                "resident_available=true resident_full_circle=true invalid_launch_rejected=true logical_relaunch_damage=1 " +
+                "native_receiver=true natural_overlap=false pooling_certified=false");
+        }
+        finally { f.Root.QueueFree(); await Frames(tree, 2); }
+    }
+
+    public static async Task RunPostLaunchProjectilePermission(SceneTree tree)
+    {
+        Fixture f = await CreatePlayerFixture(tree, "PostLaunchProjectilePermission");
+        BellBoltProjectile bolt = null; Hitbox hitbox = null;
+        int calls = 0, connected = 0;
+        void OnConnected(Hurtbox target) { if (target == f.Hurtbox) connected++; }
+        try
+        {
+            Vector2 position = f.Hurtbox.GlobalPosition + Vector2.Right * 90f;
+            bool permitted = false; int permissionCalls = 0;
+            BellBoltProjectile live = await AddProjectile(tree, f.Root, position, Vector2.Left, 9321UL);
+            Hitbox liveHitbox = live.GetNode<Hitbox>("Hitbox");
+            Func<Hurtbox, bool> livePrevious = liveHitbox.TargetFilter;
+            liveHitbox.TargetFilter = target =>
+            {
+                permissionCalls++;
+                return (livePrevious?.Invoke(target) ?? true) && permitted;
+            };
+            int initial = f.Health.CurrentHealth;
+            TestAssert.True(!liveHitbox.TryConnect(f.Hurtbox) && permissionCalls == 1 &&
+                !live.IsRetired && f.Health.CurrentHealth == initial,
+                "post-Launch configurable deny retains the unspent target and live source");
+            permitted = true;
+            TestAssert.True(liveHitbox.TryConnect(f.Hurtbox) && permissionCalls == 2 &&
+                live.IsRetired && f.Health.CurrentHealth == initial - 1,
+                "post-Launch configurable allow still delivers one real damage to the formerly denied target");
+            bolt = await AddProjectile(tree, f.Root, f.Hurtbox.GlobalPosition + Vector2.Right * 90f,
+                Vector2.Left, 9320UL, targetFilter: _ => true);
+            hitbox = bolt.GetNode<Hitbox>("Hitbox"); hitbox.Connected += OnConnected;
+            Func<Hurtbox, bool> previous = hitbox.TargetFilter;
+            hitbox.TargetFilter = target =>
+            {
+                calls++;
+                if (!(previous?.Invoke(target) ?? true)) return false;
+                bolt.Retire();
+                return true;
+            };
+            int before = f.Health.CurrentHealth;
+            bool accepted = hitbox.TryConnect(f.Hurtbox);
+            TestAssert.True(!accepted && calls == 1 && connected == 0 && bolt.IsRetired &&
+                !bolt.Visible && f.Health.CurrentHealth == before,
+                $"POST_LAUNCH_RETIRE_PERMISSION_RED: composed live callback retirement must revoke damage; " +
+                $"accepted={accepted} calls={calls} connected={connected} hp={before}->{f.Health.CurrentHealth} " +
+                $"retired={bolt.IsRetired} visible={bolt.Visible}");
+            TestAssert.True(!hitbox.TryConnect(f.Hurtbox) && calls == 1 && connected == 0 &&
+                f.Health.CurrentHealth == before, "retired source rejects before invoking post-Launch filter again");
+            GD.Print("BELL_BOLT_POST_LAUNCH_PERMISSION_OK composed_after_launch=true callback_retired=true " +
+                "connected=0 damage=0 repeat_filter_calls=0 post_launch_live_damage=1 denied_identity_preserved=true " +
+                "native_receiver=true natural_overlap=false");
+        }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(hitbox)) hitbox.Connected -= OnConnected;
+            f.Root.QueueFree(); await Frames(tree, 2);
+        }
+    }
+
+    public static async Task RunSteamDiagonalGuardArc(SceneTree tree)
+    {
+        // Existing controlled projectile fixture: Motor disabled and invulnerability
+        // zero. This proves native Input/Shield/Hitbox contact, not ordinary movement.
+        Fixture f = await CreatePlayerFixture(tree, "SteamDiagonalGuardArc");
+        KeyboardRouteInputDriver driver = null;
+        int guarded = 0, connected = 0;
+        void OnGuard(PlayerShieldResult result, ulong transition)
+        { if (result.Guarded && result.DamageAmount == 0 && !result.BrokeGuard) guarded++; }
+        void OnConnected(Hurtbox target) { if (target == f.Hurtbox) connected++; }
+        BellBoltProjectile front = null, back = null;
+        try
+        {
+            driver = KeyboardRouteInputDriver.Begin(f.Player);
+            driver.PointerButton(MouseButton.Right, true, f.Player, f.Player.GlobalPosition + new Vector2(100f, 100f));
+            await Frames(tree, 2);
+            TestAssert.True(f.Input.Current.KeyboardActions && Input.IsPhysicalKeyPressed(Key.L) &&
+                f.Input.Current.ShieldHeld && f.Shield.IsActive &&
+                f.Shield.GuardDirection.Dot(new Vector2(1f, 1f).Normalized()) > .99f,
+                "diagonal arc fixture consumes actual keyboard L and diagonal direction");
+            Vector2 actualGuard = f.Shield.GuardDirection;
+            int before = f.Health.CurrentHealth;
+            f.Shield.ShieldResolved += OnGuard;
+            front = await AddProjectile(tree, f.Root, f.Hurtbox.GlobalPosition + Vector2.Right * 90f, Vector2.Left, 9201UL);
+            front.GetNode<Hitbox>("Hitbox").Connected += OnConnected;
+            await Frames(tree, 25);
+            TestAssert.True(front.IsRetired && connected == 1 && guarded == 1 && f.Health.CurrentHealth == before,
+                "native normal BellBolt from cardinal right is truly guarded at diagonal45 inside approved150 arc");
+            back = await AddProjectile(tree, f.Root, f.Hurtbox.GlobalPosition - Vector2.Right * 90f, Vector2.Right, 9202UL);
+            back.GetNode<Hitbox>("Hitbox").Connected += OnConnected;
+            await Frames(tree, 25);
+            TestAssert.True(back.IsRetired && connected == 2 && guarded == 1 && f.Health.CurrentHealth == before - 1,
+                "same unchanged diagonal guard still permits exactly one real rear-projectile damage");
+            float oldDot = actualGuard.Dot(Vector2.Right);
+            GD.Print($"STEAM_DIAGONAL_GUARD_CONTACT_OK front_guarded=1 rear_damage=1 dot={oldDot:R} " +
+                "physical_keyboard=true motor_disabled_control=true saved_sentry_launch=false whole_route=false");
+            TestAssert.True(oldDot < .9f && PrologueCanyonGeneratedMainRouteTests.Task10SentryGuardDirectionAccepted(
+                actualGuard, Vector2.Right * 90f),
+                "STEAM_DIAGONAL_GUARD_ACK_RED: route acknowledgement must accept the front contact production actually guarded");
+            foreach (var row in new[]
+            {
+                (Guard: Vector2.Right, Source: Vector2.Right * 60f, Want: true),
+                (Guard: Vector2.Right, Source: new Vector2(60f,60f), Want: true),
+                (Guard: Vector2.Right, Source: Vector2.Left * 60f, Want: false),
+                (Guard: Vector2.Right, Source: Vector2.Down * 60f, Want: false),
+                (Guard: Vector2.Zero, Source: Vector2.Right * 60f, Want: false),
+                (Guard: Vector2.Right, Source: Vector2.Zero, Want: false),
+                (Guard: new Vector2(float.NaN, 0f), Source: Vector2.Right * 60f, Want: false),
+                (Guard: Vector2.Right, Source: new Vector2(float.PositiveInfinity,0f), Want: false)
+            }) TestAssert.Equal(row.Want,
+                PrologueCanyonGeneratedMainRouteTests.Task10SentryGuardDirectionAccepted(row.Guard,row.Source),
+                "approved front-arc acknowledgement literal direction control");
+            GD.Print("STEAM_DIAGONAL_GUARD_ACK_OK native_front_rear=true literal_controls=8 whole_route=false");
+        }
+        finally
+        {
+            f.Shield.ShieldResolved -= OnGuard;
+            if (GodotObject.IsInstanceValid(front)) front.GetNode<Hitbox>("Hitbox").Connected -= OnConnected;
+            if (GodotObject.IsInstanceValid(back)) back.GetNode<Hitbox>("Hitbox").Connected -= OnConnected;
+            try { driver?.Dispose(); }
+            finally { f.Root.QueueFree(); await Frames(tree, 2); }
+        }
+    }
+
+    // Catch the real mixed-owner regression: a Sentry-only Neutral command
+    // must not erase another live enemy's already observed guard demand.
+    public static async Task RunSteamMixedGuardKeyboard(SceneTree tree, bool sameSide = false, bool nearFireTail = false)
+    {
+        var root = new Node2D { Name = "SteamMixedGuardKeyboard" };
+        var resources = new HashSet<Resource>();
+        var bolts = new Dictionary<ulong, BellBoltProjectile>();
+        var warned = new HashSet<ulong>();
+        var guarded = new HashSet<ulong>();
+        var retired = new HashSet<ulong>();
+        var leaves = new List<AttackTelegraphVisual>();
+        var trace = new Queue<string>();
+        CharacterBody2D player = null;
+        BellBoltSentry sentry = null;
+        CanyonSkitter charger = null;
+        KeyboardRouteInputDriver driver = null;
+        SteamSentryRecoveryDriver recovery = null;
+        PlayerShieldController shield = null;
+        PlayerCombat combat = null;
+        HealthComponent sentryHealth = null;
+        bool realRetirement = false;
+        bool ownedClockProved = false, guardProved = false, sameSideRetreat = false;
+        int guardSamples = 0, sampledTicks = 0;
+        int actualJ = 0, sentryDamage = 0, counterMarginSamples = 0;
+        bool physicalJ = false;
+        int retiredFireReleaseCommands = 0, retiredFireReleaseSamples = 0;
+        int retiredFireOnlySamples = 0;
+        bool liveShotNegative = false, retiredIdentityNegatives = false;
+        ulong firstJPhysics = 0;
+        ulong lastSequence = 0, firstForeignSequence = 0;
+        ulong warningAttack = 0;
+        string previousMixedState = null;
+        void OnAttack(ulong id, int direction)
+        {
+            actualJ++;
+            physicalJ |= Input.IsPhysicalKeyPressed(Key.J);
+            if (firstJPhysics == 0) firstJPhysics = Engine.GetPhysicsFrames();
+        }
+        void OnSentryDamage(int remaining, Vector2 impulse) => sentryDamage++;
+        void OnWarning(AttackPresentationFrame frame)
+        {
+            if (frame.Timeline.Kind == EnemyAttackKind.BellBoltShot &&
+                frame.Timeline.Phase == AttackPhase.Telegraph) warned.Add(frame.Timeline.AttackId);
+        }
+        void OnGuard(PlayerShieldResult result, ulong transition)
+        {
+            if (!result.Guarded || result.DamageAmount != 0) return;
+            foreach (var entry in bolts)
+                if (GodotObject.IsInstanceValid(entry.Value) && !entry.Value.IsRetired)
+                    guarded.Add(entry.Key);
+        }
+        void OnRetired(BellBoltProjectile bolt)
+        {
+            if (bolt.TravelledDistance > 0f && guarded.Contains(bolt.GetInstanceId()) && warningAttack != 0)
+                retired.Add(bolt.GetInstanceId());
+        }
+        void Collect(Node node)
+        {
+            if (node is CollisionShape2D shape && shape.Shape != null) resources.Add(shape.Shape);
+            Godot.Collections.Array<Node> children = node.GetChildren();
+            using Godot.Collections.Array backing = (Godot.Collections.Array)children;
+            foreach (Node child in children) Collect(child);
+        }
+        void Log(string text)
+        {
+            if (trace.Count == 48) trace.Dequeue();
+            trace.Enqueue(text);
+        }
+        try
+        {
+            PackedScene playerScene = ResourceLoader.Load<PackedScene>("res://scenes/player/Player.tscn",
+                cacheMode: ResourceLoader.CacheMode.Ignore);
+            PackedScene sentryScene = ResourceLoader.Load<PackedScene>("res://scenes/enemies/BellBoltSentry.tscn",
+                cacheMode: ResourceLoader.CacheMode.Ignore);
+            resources.Add(playerScene); resources.Add(sentryScene);
+            player = playerScene.Instantiate<CharacterBody2D>();
+            player.Position = new Vector2(nearFireTail ? 360f : sameSide ? 300f : 540f, 293f);
+            player.GetNode<Camera2D>("Camera2D").Enabled = false;
+            player.AddToGroup("player");
+            sentry = sentryScene.Instantiate<BellBoltSentry>();
+            sentry.Name = "canyon_v2_encounter_steam-valves_MixedSentry";
+            sentry.Position = new Vector2(sameSide ? 540f : 300f, 300f);
+            var input = player.GetNode<PlayerInputReader>("Input");
+            combat = player.GetNode<PlayerCombat>("Combat");
+            sentryHealth = sentry.GetNode<HealthComponent>("Health");
+            var energy = player.GetNode<PlayerEnergyController>("Energy");
+            var health = player.GetNode<HealthComponent>("Health");
+            var motor = player.GetNode<PlayerMotor>("Motor");
+            shield = player.GetNode<PlayerShieldController>("Shield");
+            resources.Add(motor.Tuning); resources.Add(energy.Tuning); resources.Add(sentry.Settings);
+            resources.Add(player.GetNode<PlayerPresentationCoordinator>("Presentation").Profile);
+            var floor = new StaticBody2D { Position = new Vector2(580f, 339f),
+                CollisionLayer = CombatCollisionLayers.World, CollisionMask = 0 };
+            floor.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = new Vector2(1100f, 20f) } });
+            root.AddChild(floor); root.AddChild(player); root.AddChild(sentry);
+            Collect(root);
+            sentry.AttackFrameChanged += OnWarning;
+            shield.ShieldResolved += OnGuard;
+            combat.AttackStarted += OnAttack;
+            sentryHealth.Damaged += OnSentryDamage;
+            ulong entryPhysics = Engine.GetPhysicsFrames();
+            const int cap = 1215;
+            tree.Root.AddChild(root);
+            // SceneTree.Initialize runs before the mounted graph's native Ready.
+            // Spend these two samples inside, not before, the fixed global cap.
+            await Frames(tree, 2);
+            driver = KeyboardRouteInputDriver.Begin(player);
+            recovery = new SteamSentryRecoveryDriver(player, sentry, driver);
+            for (int tick = 2; tick < cap; tick++)
+            {
+                TestAssert.True(health.CurrentHealth == 5 && player.IsInsideTree() &&
+                    motor.AcceptedJumpCount == 0 && motor.AcceptedDashCount == 0,
+                    "Steam mixed guard preserves actual default HP5 and no rescue/jump/dash");
+                bool handled = false;
+                PrologueCanyonGeneratedMainRouteTests.Task10EncounterDanger danger = default;
+                if (nearFireTail && sentry.CurrentFrame.State == BellBoltSentryState.Fire &&
+                    bolts.Values.Any(bolt => GodotObject.IsInstanceValid(bolt) && !bolt.IsRetired))
+                {
+                    TestAssert.True(!recovery.HasNativeGoneShotFor(sentry.GetInstanceId(),
+                        sentry.CurrentFrame.AttackTimeline.AttackId, Engine.GetPhysicsFrames()),
+                        "a genuinely live own projectile cannot be exempted from guard");
+                    liveShotNegative = true;
+                }
+                if (nearFireTail && retiredFireReleaseCommands > 0 &&
+                    sentry.CurrentFrame.State == BellBoltSentryState.Recover)
+                {
+                    // A short .12s Fire ended after one sampled release ACK.
+                    // Hold that SAME already-issued neutral command for the
+                    // second ACK; do not advance the recovery attack driver.
+                    // This is still one original tick inside the original cap.
+                    handled = true;
+                }
+                else if (!realRetirement)
+                {
+                    bool ownDanger = sentry.CurrentFrame.State == BellBoltSentryState.Fire ||
+                        sentry.CurrentFrame.AttackTimeline.Phase == AttackPhase.Telegraph &&
+                        sentry.CurrentFrame.AttackTimeline.PhaseRemainingSeconds <= .40f ||
+                        bolts.Values.Any(bolt => GodotObject.IsInstanceValid(bolt) && !bolt.IsRetired);
+                    driver.PointerButton(MouseButton.Right, ownDanger, player,
+                        sentry.GetNode<Node2D>("Muzzle").GlobalPosition);
+                    realRetirement = retired.Count > 0;
+                }
+                else
+                {
+                    var observation = PrologueCanyonGeneratedMainRouteTests.Task10ObserveSteamSentryAmbient(root,
+                        "canyon.v2.encounter.steam-valves", sentry.GetInstanceId(), combat, shield, leaves);
+                    danger = observation.Danger;
+                    TestAssert.True(!recovery.Completed,
+                        "STEAM_FOREIGN_GUARD_HANDOFF_COVERAGE_RED: foreign guard boundary must occur before specialized ownership completes");
+                    SteamSentryAmbientDanger ambient = observation.Ambient;
+                    if (!ownedClockProved && charger != null && recovery.Applications > 0 &&
+                        sentry.CurrentFrame.State == BellBoltSentryState.Stunned &&
+                        charger.CurrentFrame.AttackTimeline.Phase == AttackPhase.Telegraph &&
+                        charger.CurrentFrame.AttackTimeline.PhaseRemainingSeconds > 0f)
+                    {
+                        TestAssert.True(ambient.Observed && ambient.SafeCounterSeconds > 0f &&
+                            ambient.SafeCounterSeconds <= charger.CurrentFrame.AttackTimeline.PhaseRemainingSeconds,
+                            "STEAM_AMBIENT_OWNED_STUN_CLOCK_RED: owned exact K stun must not erase the positive foreign warning clock");
+                        ownedClockProved = true;
+                        Log($"owned_clock_OK physics={Engine.GetPhysicsFrames()} foreign={ambient.SafeCounterSeconds:R} " +
+                            $"warning={charger.CurrentFrame.AttackTimeline.PhaseRemainingSeconds:R} same_side={sameSide}");
+                    }
+                    int beforeAttackEdges = driver.AttackEdges;
+                    handled = recovery.TryFinishRetiredCounter(ambient) || recovery.TryDrive(true, cap - tick, ambient);
+                    if (nearFireTail && charger == null && sentry.CurrentFrame.State == BellBoltSentryState.Fire &&
+                        bolts.Count == 1 && retired.Count == 1 &&
+                        bolts.Values.All(bolt => !GodotObject.IsInstanceValid(bolt)))
+                    {
+                        // Independent native witness: this sole, genuinely
+                        // guarded shot is retired AND already physically freed.
+                        // Same Fire has no second spawn pulse; no foreign actor
+                        // is mounted yet. Do not demand an imaginary live bolt.
+                        ulong owner = sentry.GetInstanceId(), attack = sentry.CurrentFrame.AttackTimeline.AttackId;
+                        ulong now = Engine.GetPhysicsFrames();
+                        TestAssert.True(recovery.HasNativeGoneShotFor(owner, attack, now) &&
+                            !recovery.HasNativeGoneShotFor(owner + 1, attack, now) &&
+                            !recovery.HasNativeGoneShotFor(owner, attack + 1, now) &&
+                            !recovery.HasNativeGoneShotFor(owner, attack, 0),
+                            "known native-gone shot requires its exact owner/attack and later physics, not a global retirement flag");
+                        retiredIdentityNegatives = true;
+                        TestAssert.True(!Input.IsPhysicalKeyPressed(Key.L),
+                            "STEAM_RETIRED_FIRE_TAIL_RED: physically gone own shot must not force raw L through empty Fire tail");
+                        retiredFireReleaseCommands++;
+                    }
+                    if (driver.AttackEdges > beforeAttackEdges)
+                        TestAssert.True(ambient.SafeCounterSeconds >= .30f + 8f / 60f,
+                            "Steam real J command retains a full independently known .30-second attack and eight native samples from every foreign source");
+                    if (!nearFireTail && charger == null && handled && player.IsOnFloor() && MathF.Abs(player.Velocity.X) <= 2f)
+                    {
+                        var type = ResidentSceneRegistry.Select(ResidentContentMode.DevelopmentV001)
+                            .Single(item => item.Id == "scrap-charger");
+                        PackedScene scene = ResourceLoader.Load<PackedScene>(type.ScenePath,
+                            cacheMode: ResourceLoader.CacheMode.Ignore);
+                        resources.Add(scene);
+                        // Native first landing owns .60s Recover before .65s
+                        // warning. Start that clock at real takeover, not after K.
+                        // The normal Sentry stance is x+60; charger is 100 beyond it.
+                        Vector2 spawn = new(sentry.GlobalPosition.X + (sameSide ? 40f : 160f), 329f);
+                        var placement = new ResidentPlacementCandidate(spawn, new Rect2(100f, 220f, 900f, 150f),
+                            new[] { spawn - new Vector2(32f, 0f), spawn + new Vector2(32f, 0f) });
+                        var slot = new ResidentPopulationDefinition("fixture.steam.mixed-charger", type.Id,
+                            CanyonRouteNodeId.SteamValves, PrologueSectorId.CanyonBasin,
+                            ResidentFamily.Scrap, ResidentArchetype.Charger, placement);
+                        charger = (CanyonSkitter)ResidentSceneBinding.Instantiate(scene, type, slot, true);
+                        charger.Position = spawn; // Initial setup only, before mounting.
+                        resources.Add(charger.Settings);
+                        resources.Add(charger.GetNode<ResidentSceneBinding>("ResidentBinding").Profile);
+                        Collect(charger); root.AddChild(charger);
+                        Log($"mount physics={Engine.GetPhysicsFrames()} player={player.GlobalPosition} charger={spawn} stage={recovery.Stage}");
+                    }
+                    if (charger != null)
+                    {
+                        string state = $"{recovery.Stage}/{combat.IsAttacking}/{charger.CurrentFrame.State}/" +
+                            $"{charger.CurrentFrame.AttackTimeline.Phase}/{danger.SourceActorId}/{danger.Phase}";
+                        if (state != previousMixedState)
+                        {
+                            previousMixedState = state;
+                            Log($"state physics={Engine.GetPhysicsFrames()} sequence={input.CurrentFrameSequence} " +
+                                $"stage={state} charger={charger.GlobalPosition} player={player.GlobalPosition} " +
+                                $"resident={charger.ResidenceFrame} warning={charger.CurrentFrame.AttackTimeline.PhaseRemainingSeconds:R} " +
+                                $"energy={energy.EnergyRatio:R} hp={health.CurrentHealth}");
+                        }
+                    }
+                }
+                bool foreignDemand = charger != null && danger.SourceActorId == charger.GetInstanceId() &&
+                    !combat.IsAttacking && PrologueCanyonGeneratedMainRouteTests.Task10MixedDefendWindow(shield, danger);
+                if (handled && foreignDemand)
+                {
+                    guardSamples++;
+                    if (firstForeignSequence == 0) firstForeignSequence = input.CurrentFrameSequence;
+                    Log($"foreign physics={Engine.GetPhysicsFrames()} sequence={input.CurrentFrameSequence} stage={recovery.Stage} " +
+                        $"phase={danger.Phase} attack={danger.AttackId} remaining={danger.RemainingSeconds:R} " +
+                        $"L={Input.IsPhysicalKeyPressed(Key.L)}/{input.Current.ShieldHeld}/{shield.IsActive} " +
+                        $"source={danger.GuardSource} player={player.GlobalPosition} energy={energy.EnergyRatio:R}");
+                    if (guardSamples >= 3 && input.CurrentFrameSequence >= firstForeignSequence + 2)
+                    {
+                        Vector2 direction = danger.GuardSource - player.GlobalPosition;
+                        TestAssert.True(Input.IsPhysicalKeyPressed(Key.L) && input.Current.ShieldHeld && shield.IsActive &&
+                            direction.LengthSquared() > 1f && shield.GuardDirection.Dot(direction.Normalized()) > .9f,
+                            "STEAM_FOREIGN_GUARD_HANDOFF_RED: owned Sentry driver must retain the actual selected foreign guard demand");
+                        if (!guardProved)
+                            GD.Print($"STEAM_FOREIGN_GUARD_HANDOFF_OK samples=3 real_retirements={retired.Count} " +
+                                $"K={recovery.CastCommands}/{recovery.Applications} hp=5 configured_resident=true same_side={sameSide} whole_route=false");
+                        guardProved = true;
+                    }
+                }
+                else { guardSamples = 0; firstForeignSequence = 0; }
+                await Frames(tree, 1);
+                TestAssert.True((driver.ObservedFrames == 0 || input.CurrentFrameSequence > lastSequence) &&
+                    Engine.GetPhysicsFrames() <= entryPhysics + cap,
+                    "Steam mixed handoff uses fresh actual inputs inside one unchanged fixed clock");
+                lastSequence = input.CurrentFrameSequence; sampledTicks++; driver.ObserveFrame();
+                if (retiredFireReleaseCommands > 0 &&
+                    sentry.CurrentFrame.State is BellBoltSentryState.Fire or BellBoltSentryState.Recover &&
+                    bolts.Count == 1 && retired.Count == 1 &&
+                    bolts.Values.All(bolt => !GodotObject.IsInstanceValid(bolt)) &&
+                    !input.Current.ShieldHeld && !shield.IsActive && !Input.IsPhysicalKeyPressed(Key.L))
+                {
+                    retiredFireReleaseSamples++;
+                    if (sentry.CurrentFrame.State == BellBoltSentryState.Fire) retiredFireOnlySamples++;
+                }
+                if (nearFireTail && retiredFireReleaseCommands > 0 && retiredFireReleaseSamples >= 2 &&
+                    sentry.CurrentFrame.State == BellBoltSentryState.Recover)
+                {
+                    TestAssert.True(retiredFireOnlySamples >= 1 && liveShotNegative && retiredIdentityNegatives &&
+                        bolts.Count == 1 && retired.Count == 1 &&
+                        bolts.Values.All(bolt => !GodotObject.IsInstanceValid(bolt)) && actualJ == 0 &&
+                        recovery.CastCommands == 0 && charger == null && health.CurrentHealth == 5,
+                        $"actual retired Fire tail stays unshielded through natural Recover, no extra spawn/counter/rescue/foreign actor; " +
+                        $"commands={retiredFireReleaseCommands} fresh={retiredFireReleaseSamples} bolts={bolts.Count} retired={retired.Count} " +
+                        $"all_gone={bolts.Values.All(bolt => !GodotObject.IsInstanceValid(bolt))} J={actualJ} K={recovery.CastCommands} " +
+                        $"charger_null={charger == null} hp={health.CurrentHealth} phase={sentry.CurrentFrame.State} " +
+                        $"physicalL={Input.IsPhysicalKeyPressed(Key.L)} sampleL={input.Current.ShieldHeld} active={shield.IsActive}");
+                    GD.Print($"STEAM_RETIRED_FIRE_TAIL_OK commands={retiredFireReleaseCommands} " +
+                        $"fresh_samples={retiredFireReleaseSamples} fire_samples={retiredFireOnlySamples} physical_bolt_gone=true hp=5 no_second_spawn=true " +
+                        "full_fire_tail_observed=true recover_ack=true foreign_actor_spawned=false counters=0 " +
+                        "live_negative=true identity_negatives=3");
+                    return;
+                }
+                if (guardProved && sameSide && player.GlobalPosition.X > sentry.GlobalPosition.X - 70f && player.Velocity.X < -2f)
+                    sameSideRetreat = true;
+                if (actualJ > 0 && !combat.IsAttacking && Engine.GetPhysicsFrames() > firstJPhysics)
+                    counterMarginSamples++;
+                if (ownedClockProved && guardProved && actualJ > 0 && physicalJ && sentryDamage > 0 && counterMarginSamples >= 6)
+                {
+                    TestAssert.True(!sameSide || sameSideRetreat,
+                        "same-side mixed guard restores actual stance by real opposite input/motion before completing its counter proof");
+                    GD.Print($"STEAM_MIXED_COUNTER_HANDOFF_OK same_side={sameSide} actual_J={actualJ} physical_J={physicalJ} " +
+                        $"sentry_damage={sentryDamage} six_margin={counterMarginSamples} opposite_motion={sameSideRetreat} " +
+                        "hp=5 full_mixed_fight=false whole_route=false");
+                    return;
+                }
+                Godot.Collections.Array<Node> sentryChildren = sentry.GetChildren();
+                using Godot.Collections.Array sentryChildrenBacking = (Godot.Collections.Array)sentryChildren;
+                foreach (Node child in sentryChildren)
+                    if (child is BellBoltProjectile bolt && !bolt.IsRetired && !bolts.ContainsKey(bolt.GetInstanceId()))
+                    {
+                        warningAttack = sentry.CurrentFrame.AttackTimeline.AttackId;
+                        TestAssert.True(warned.Contains(warningAttack), "mixed fixture real typed warning precedes its physical bolt");
+                        bolts.Add(bolt.GetInstanceId(), bolt); Collect(bolt); bolt.Retired += OnRetired;
+                    }
+            }
+            TestAssert.True(false, $"STEAM_FOREIGN_GUARD_HANDOFF_COVERAGE_RED: no three real foreign-demand samples within original {cap}; " +
+                $"retired={retired.Count} mounted={charger != null} stage={recovery.Stage} sampled={sampledTicks}");
+        }
+        finally
+        {
+            foreach (string row in trace) GD.Print("STEAM_MIXED_HANDOFF_TRACE " + row);
+            if (GodotObject.IsInstanceValid(sentry)) sentry.AttackFrameChanged -= OnWarning;
+            if (GodotObject.IsInstanceValid(shield)) shield.ShieldResolved -= OnGuard;
+            if (GodotObject.IsInstanceValid(combat)) combat.AttackStarted -= OnAttack;
+            if (GodotObject.IsInstanceValid(sentryHealth)) sentryHealth.Damaged -= OnSentryDamage;
+            foreach (var bolt in bolts.Values)
+                if (GodotObject.IsInstanceValid(bolt)) bolt.Retired -= OnRetired;
+            try { recovery?.Dispose(); }
+            finally
+            {
+                try { driver?.Dispose(); }
+                finally
+                {
+                    if (root.IsInsideTree()) { root.QueueFree(); await Frames(tree, 3); }
+                    else root.Free();
+                    foreach (Resource resource in resources) resource.Dispose();
+                }
+            }
+        }
+    }
+
     // A legitimate old-policy kill before any real bolt retirement must never
     // transfer ownership to the still-unarmed recovery helper.
     public static async Task RunSteamRecoveryPreArmBaseline(SceneTree tree)
@@ -1099,6 +1678,112 @@ public static class BellBoltSentryRuntimeTests
         }
     }
 
+    public static async Task RunTask10SentryDanger(SceneTree tree)
+    {
+        const string encounter = "canyon.v2.encounter.controlled-abyss";
+        var root = new Node2D { Name = "Task10SavedSentryDanger" };
+        var floorShape = new RectangleShape2D { Size = new Vector2(1100f, 20f) };
+        var floor = new StaticBody2D { Name = "Floor", Position = new Vector2(580f, 339f),
+            CollisionLayer = CombatCollisionLayers.World, CollisionMask = 0 };
+        floor.AddChild(new CollisionShape2D { Shape = floorShape });
+        CharacterBody2D player = null;
+        BellBoltSentry sentry = null;
+        KeyboardRouteInputDriver driver = null;
+        try
+        {
+            player = GD.Load<PackedScene>("res://scenes/player/Player.tscn").Instantiate<CharacterBody2D>();
+            player.Position = new Vector2(540f, 293f);
+            player.GetNode<Camera2D>("Camera2D").Enabled = false;
+            player.AddToGroup("player");
+            sentry = GD.Load<PackedScene>("res://scenes/enemies/BellBoltSentry.tscn").Instantiate<BellBoltSentry>();
+            sentry.Name = "canyon_v2_encounter_controlled-abyss_DangerSentry";
+            sentry.Position = new Vector2(300f, 300f);
+            root.AddChild(floor); root.AddChild(player); root.AddChild(sentry);
+            tree.Root.AddChild(root);
+            await Frames(tree, 2);
+            HealthComponent health = player.GetNode<HealthComponent>("Health");
+            PlayerShieldController shield = player.GetNode<PlayerShieldController>("Shield");
+            var leaves = new List<AttackTelegraphVisual>(8);
+            int guarded = 0;
+            shield.ShieldResolved += OnGuard;
+            void OnGuard(PlayerShieldResult resolution, ulong source) { if (resolution.Guarded) guarded++; }
+            try
+            {
+                for (int count = 0; count < 30 && sentry.CurrentFrame.State != BellBoltSentryState.Telegraph; count++)
+                    await Frames(tree, 1);
+                TestAssert.True(health.CurrentHealth == 5 &&
+                    player.GetNode<PlayerMotor>("Motor").IsPhysicsProcessing() &&
+                    sentry.CurrentFrame.State == BellBoltSentryState.Telegraph,
+                    "SENTRY_DANGER_SETUP: normal saved Player and saved Sentry naturally warn on actual floor");
+                TestAssert.True(PrologueCanyonGeneratedMainRouteTests.Task10EnemyThreat(sentry, false, leaves),
+                    "SENTRY_WARNING_DANGER_RED: real non-steam Sentry warning is a threat");
+                foreach (Node2D selected in new Node2D[] { null, sentry })
+                {
+                    var warning = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(
+                        root, encounter, selected, false, leaves);
+                    TestAssert.True(warning.Threat && warning.HasRanged &&
+                        warning.SourceActorId == sentry.GetInstanceId() && warning.AttackId == 1 &&
+                        warning.Phase == AttackPhase.Telegraph && warning.RemainingSeconds > 0f,
+                        "SENTRY_WARNING_DANGER_RED: typed warning must reach encounter policy independently of selected actor");
+                }
+                tree.Paused = true;
+                try
+                {
+                    TestAssert.True(!PrologueCanyonGeneratedMainRouteTests.Task10EnemyThreat(sentry, false, leaves) &&
+                        !PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(root, encounter, sentry, false, leaves).Threat,
+                        "paused Sentry warning has no current gameplay authority");
+                }
+                finally { tree.Paused = false; }
+                TestAssert.True(!PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(
+                    root, "another.encounter", sentry, false, leaves).Threat,
+                    "foreign encounter cannot borrow a live Sentry warning");
+                for (int count = 0; count < 100 && sentry.CurrentFrame.State != BellBoltSentryState.Recover; count++)
+                    await Frames(tree, 1);
+                BellBoltProjectile bolt = null;
+                for (int index = 0; index < sentry.GetChildCount(); index++)
+                    if (sentry.GetChild(index) is BellBoltProjectile candidate && !candidate.IsRetired) bolt = candidate;
+                TestAssert.True(sentry.CurrentFrame.State == BellBoltSentryState.Recover && bolt != null &&
+                    health.CurrentHealth == 5, "SENTRY_TAIL_SETUP: genuine actor-owned bolt remains in flight before contact");
+                var tail = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(
+                    root, encounter, null, false, leaves);
+                TestAssert.True(tail.Threat && tail.HasRanged && tail.SourceActorId == sentry.GetInstanceId() &&
+                    tail.Phase == AttackPhase.Active && tail.GuardSource.DistanceTo(bolt.GlobalPosition) < .001f &&
+                    tail.SafeCounterSeconds == 0f && tail.AttackId == 0,
+                    "SENTRY_LIVE_BOLT_DANGER_RED: real Recovery tail stays Active danger, never a free counter");
+                driver = KeyboardRouteInputDriver.Begin(player);
+                for (int count = 0; count < 80 && !bolt.IsRetired; count++)
+                {
+                    var current = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(
+                        root, encounter, null, false, leaves);
+                    driver.PointerButton(MouseButton.Right,
+                        PrologueCanyonGeneratedMainRouteTests.Task10MixedDefendWindow(shield, current),
+                        player, current.GuardSource);
+                    await Frames(tree, 1);
+                }
+                TestAssert.True(bolt.IsRetired && guarded == 1 && health.CurrentHealth == 5,
+                    "SENTRY_TAIL_GUARD_RED: actual keyboard guard consumes one native late bolt without HP/reset writes");
+                var retired = PrologueCanyonGeneratedMainRouteTests.Task10ObserveEncounterDanger(
+                    root, encounter, null, false, leaves);
+                TestAssert.True(!retired.Threat && !PrologueCanyonGeneratedMainRouteTests.Task10EnemyThreat(sentry, false, leaves),
+                    "retired Sentry bolt cannot remain a phantom danger during actor Recovery");
+                GD.Print("TASK10_SENTRY_DANGER_OK saved_player_sentry=true ordinary_motor_hp=true selected_independent=true " +
+                    "warning=true recovery_tail=true paused_and_foreign_rejected=true native_guard=1 hp=5 retired_clear=true whole_route=false human=false");
+            }
+            finally { shield.ShieldResolved -= OnGuard; }
+        }
+        finally
+        {
+            tree.Paused = false;
+            try { driver?.Dispose(); }
+            finally
+            {
+                if (root.IsInsideTree()) { root.QueueFree(); await Frames(tree, 3); }
+                else root.Free();
+                floorShape.Dispose();
+            }
+        }
+    }
+
     private static async Task ActorOwnedBoltDamagesExactlyOnceDuringRecovery(SceneTree tree)
     {
         Fixture fixture = await CreatePlayerFixture(tree, "BellBoltActorOwnedLateDamage");
@@ -1367,7 +2052,8 @@ public static class BellBoltSentryRuntimeTests
     }
 
     private static async Task<BellBoltProjectile> AddProjectile(SceneTree tree, Node2D root,
-        Vector2 position, Vector2 direction, ulong attackId)
+        Vector2 position, Vector2 direction, ulong attackId, Func<Hurtbox, bool> targetFilter = null,
+        Action<BellBoltProjectile, Hitbox> beforeLaunch = null)
     {
         var bolt = new BellBoltProjectile
         {
@@ -1384,6 +2070,7 @@ public static class BellBoltSentryRuntimeTests
             CollisionMask = CombatCollisionLayers.Player, Damage = 1, Knockback = 120f,
             GuardClass = DamageGuardClass.Normal, Monitoring = false, Monitorable = false
         };
+        hitbox.TargetFilter = targetFilter;
         hitbox.AddChild(new CollisionShape2D
         {
             Name = "HitCollider", Shape = new CircleShape2D { Radius = 7f }
@@ -1391,6 +2078,7 @@ public static class BellBoltSentryRuntimeTests
         bolt.AddChild(hitbox);
         root.AddChild(bolt);
         await Frames(tree, 1);
+        beforeLaunch?.Invoke(bolt, hitbox);
         bolt.Launch(position, direction, attackId, new BellBoltSentrySettings());
         return bolt;
     }

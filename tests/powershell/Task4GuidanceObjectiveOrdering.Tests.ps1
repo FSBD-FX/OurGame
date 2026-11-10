@@ -8,8 +8,8 @@ $ErrorActionPreference = 'Stop'
 
 $script:ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $script:EvidenceRoot = Join-Path $script:ProjectRoot 'screenshots\task4-capture-exit'
-$script:GodotPath = 'G:\godot\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
-$dotnetRoot = 'G:\godot\dotnet-sdk'
+$script:GodotPath = 'G:\knight\Tools\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
+$dotnetRoot = 'G:\knight\Tools\dotnet-sdk'
 $env:DOTNET_ROOT = $dotnetRoot
 $env:DOTNET_ROOT_X64 = $dotnetRoot
 $env:DOTNET_ROLL_FORWARD = 'LatestMajor'

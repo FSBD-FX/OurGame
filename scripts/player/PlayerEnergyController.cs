@@ -20,6 +20,17 @@ public partial class PlayerEnergyController : Node
     public bool IsOverheated => _state.Overheated;
     public bool IsShieldSustained => _frame.ShieldSustained;
 
+    // Query the same captured settings and exact budget as the eventual spend;
+    // do not apply the projected state or publish an energy change here.
+    public bool CanAffordAttack
+    {
+        get
+        {
+            EnsureInitialized();
+            return _model.TrySpendAttack(_state, out _);
+        }
+    }
+
     public override void _Ready()
     {
         EnsureInitialized();

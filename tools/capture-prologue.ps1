@@ -15,8 +15,8 @@ $project = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'EvidenceChecks.ps1')
 . (Join-Path $PSScriptRoot 'Task6AviStreaming.ps1')
 . (Join-Path $PSScriptRoot 'Task6ImportRetry.ps1')
-$godot = 'G:\godot\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
-$dotnetRoot = 'G:\godot\dotnet-sdk'
+$godot = 'G:\knight\Tools\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
+$dotnetRoot = 'G:\knight\Tools\dotnet-sdk'
 $env:DOTNET_ROOT = $dotnetRoot
 $env:DOTNET_ROOT_X64 = $dotnetRoot
 $env:DOTNET_ROLL_FORWARD = 'LatestMajor'

@@ -16,6 +16,7 @@ public static class SecondaryMotionModelTests
         SpringMatchesClosedFormBeforeSteadyState();
         PartitionEquivalenceSurvivesTargetChangeWithVelocity();
         HugeFiniteDeltaSettlesToTargetWithoutResettingOrigin();
+        GroundAttackTargetsAreBoundedIndependentAndInertial();
     }
 
     private static void CapeLanternSpoolAndTetherLagDifferentInputs()
@@ -193,6 +194,60 @@ public static class SecondaryMotionModelTests
         PlayerActionPhase threadPhase = PlayerActionPhase.None,
         float threadEnergy = 0f) =>
         new(velocity, acceleration, turn, landingImpulse, contactImpulse, threadPhase, threadEnergy);
+
+    private static void GroundAttackTargetsAreBoundedIndependentAndInertial()
+    {
+        SecondaryMotionInput Drive(Vector2 value) => Input() with { GroundAttackDrive = value };
+        var steady = new SecondaryMotionModel().Step(Drive(Vector2.Right), 5f);
+        TestAssert.Near(-3.6f, steady.Lantern.Position.X, .0001f,
+            "ground sweep has its own bounded lantern target, not a fake hit");
+        TestAssert.Near(-1.98f, steady.Tether.Position.X, .0001f,
+            "energy tether inherits the independent lantern target separation");
+        TestAssert.Near(-.12f, steady.Lantern.RotationRadians, .0001f,
+            "horizontal attack supplies a restrained opposite lantern rotation");
+        TestAssert.Equal(PoseTransform2D.Identity, steady.ShoulderSpool,
+            "ground swing cannot wind a thread-only spool");
+        var up = new SecondaryMotionModel().Step(Drive(Vector2.Up), 5f);
+        TestAssert.Near(2.4f, up.Lantern.Position.Y, .0001f,
+            "upward ground swing has vertical reaction rather than an arbitrary horizontal shove");
+        TestAssert.Near(0f, up.Lantern.Position.X, .0001f,
+            "upward ground swing adds no horizontal attack source");
+
+        var invalid = new SecondaryMotionModel().Step(Drive(new(float.NaN, float.PositiveInfinity)), .1f);
+        TestAssert.Equal(SecondaryMotionFrame.Identity, invalid,
+            "invalid attack source cannot contaminate the original quiet channels");
+        var extreme = new SecondaryMotionModel().Step(Drive(new(float.MaxValue, -float.MaxValue)), .1f);
+        var clamped = new SecondaryMotionModel().Step(Drive(new(1f, -1f)), .1f);
+        TestAssert.Equal(clamped, extreme, "finite attack extremes are clamped before combination");
+
+        var model = new SecondaryMotionModel();
+        var first = model.Step(Drive(Vector2.Right), 1f / 60f);
+        var coast = model.Step(Input(), 1f / 60f);
+        TestAssert.True(coast.Lantern.Position.X < first.Lantern.Position.X,
+            "removed ground load retains actual spring momentum instead of snapping to neutral");
+        for (int tick = 0; tick < 180; tick++) coast = model.Step(Input(), 1f / 60f);
+        TestAssert.True(coast.Lantern.Position.Length() < .001f && coast.Tether.Position.Length() < .001f,
+            "ground swing attachments return to rest without a retained attack clock");
+
+        var coarse = new SecondaryMotionModel(); var fine = new SecondaryMotionModel();
+        SecondaryMotionFrame a = default, b = default;
+        var driven = Input(acceleration: new(-620, 260), contactImpulse: .25f,
+            threadPhase: PlayerActionPhase.Contact, threadEnergy: .85f) with { GroundAttackDrive = new(.7f, -.4f) };
+        for (int index = 0; index < 60; index++) a = coarse.Step(driven, 1f / 60f);
+        for (int index = 0; index < 120; index++) b = fine.Step(driven, 1f / 120f);
+        AssertNear(a.Mantle, b.Mantle, SecondaryMotionLimits.PartitionTolerance, "combined ground mantle");
+        AssertNear(a.Lantern, b.Lantern, SecondaryMotionLimits.PartitionTolerance, "combined ground lantern");
+        AssertNear(a.Tether, b.Tether, SecondaryMotionLimits.PartitionTolerance, "combined ground tether");
+        TestAssert.Equal(a, coarse.Step(Drive(Vector2.Left), 0),
+            "zero time neither applies a new ground source nor advances existing motion");
+        coarse.ReflectHorizontalBasis();
+        var reflected = coarse.Step(Input(), 0);
+        TestAssert.Near(-a.Lantern.Position.X, reflected.Lantern.Position.X, .0001f,
+            "basis reflection also re-expresses attack-driven lantern inertia");
+        TestAssert.Near(a.Lantern.Position.Y, reflected.Lantern.Position.Y, .0001f,
+            "reflection leaves vertical attack inertia unchanged");
+        GD.Print("GROUND_ATTACK_SECONDARY_MODEL_OK bounded=true invalid_closed=true no_spool=true partitions=true zero_delta=true inertia=true human=false");
+    }
 
     private static void AssertBounded(PoseTransform2D value, Vector2 positionLimit,
         float rotationLimit, string channel)

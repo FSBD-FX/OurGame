@@ -34,9 +34,15 @@ public static class BossAdmissionRuntimeTests
             tree.Root.AddChild(level);
             await Frames(tree, 5);
             flow.StartNew();
-            await Frames(tree, 5);
+            // Five frames no longer establish a committed session: the startup
+            // owns resident preparation and may reject a competing restore.
+            await BasinAscentCameraRuntimeTests.WaitForPlaying(tree, level);
+            TestAssert.True(File.Exists(paths.SavePath) && flow.HasSave && flow.LastRejectedTransition.Length == 0,
+                "Boss admission fixture first commits a normal isolated startup before changing the controlled quota");
             level.RestoreFromSave(Snapshot(5, true, true));
             await Frames(tree, 8);
+            TestAssert.True(flow.State == PrologueGameFlowState.Playing && level.Player.GetNode<PlayerMotor>("Motor").IsPhysicsProcessing(),
+                $"Boss admission controlled restore retains a committed player session: flow={flow.State} rejected={flow.LastRejectedTransition}");
             var arena = level.CurrentSectorRoot.GetNode<BossArenaController>("Gameplay/BossArenaController");
             var entry = level.CurrentSectorRoot.GetNode<CollisionShape2D>("Gameplay/Doors/Entry/Collision");
             TestAssert.True(level.Progress.CollectedFragmentIds.Count == 5 &&
@@ -191,20 +197,71 @@ public static class BossAdmissionRuntimeTests
 
             // Explicit high-pose negative, not proof that every route to this pose is reachable.
             // It is above the old Entry's roof and exercises the actual keyboard K path.
-            Place(level, new Vector2(6120, 800));
-            await Frames(tree, 2);
-            var claw = level.Player.GetNode<MechanicalClawController>("MechanicalClaw");
+            var highPlayer = level.Player;
+            var highBody = highPlayer.GetNode<CollisionShape2D>("BodyCollider");
+            var highHealth = highPlayer.GetNode<HealthComponent>("Health");
+            var highInput = highPlayer.GetNode<PlayerInputReader>("Input");
+            var claw = highPlayer.GetNode<MechanicalClawController>("MechanicalClaw");
+            int highHp = highHealth.CurrentHealth;
+            int highDamage = 0, highRequests = 0, highRecoveries = 0;
+            int highSamples = 0, activeDashSamples = 0, leftShapeSlides = 0, dashesBefore = -1;
+            ulong dashIssueSample = 0;
+            string highObservationFailure = null;
+            (ulong Physics, ulong Input, float CapsuleBottom, float EntryTop, Vector2 Normal)? westWitness = null;
+            void HighDamaged(int _, Vector2 __) => highDamage++;
+            void HighRequested(string _) => highRequests++;
+            void HighRecovered(string _) => highRecoveries++;
+            void ObserveHighPostMotor()
+            {
+                if (highObservationFailure != null) return;
+                try
+                {
+                    highSamples++;
+                    TestAssert.True(level.Player == highPlayer && highBody.GetParent() == highPlayer && !highBody.Disabled &&
+                        !arena.IsEncounterActive && !entry.Disabled && !exit.Disabled && HullDisabled(false) &&
+                        highHealth.CurrentHealth == highHp && highPlayer.GlobalPosition.IsFinite() &&
+                        highPlayer.GlobalPosition.X + 20 <= 6142.5f,
+                        "high west probe retains the original living capsule on the safe side of all still-closed doors");
+                    ulong inputSample = highInput.CurrentFrameSequence;
+                    if (dashesBefore < 0 || inputSample <= dashIssueSample || highPlayer.IsOnFloor() ||
+                        motor.AcceptedDashCount != dashesBefore + 1 || !motor.IsDashing ||
+                        motor.ThrusterState.BurnDirection.Dot(Vector2.Right) <= .999f ||
+                        !Input.IsPhysicalKeyPressed(Key.D) || !Input.IsPhysicalKeyPressed(Key.Shift)) return;
+                    activeDashSamples++;
+                    float capsuleBottom = highBody.ToGlobal(new Vector2(0f, 36f)).Y;
+                    float entryTop = Rect(entry).Position.Y;
+                    for (int index = 0; index < highPlayer.GetSlideCollisionCount(); index++)
+                    {
+                        var slide = highPlayer.GetSlideCollision(index); // Borrowed native result.
+                        if (slide.GetLocalShape() != highBody || slide.GetCollider() != admissionBody ||
+                            admissionBody.ShapeOwnerGetOwner(admissionBody.ShapeFindOwner(slide.GetColliderShapeIndex())) != barrier)
+                            continue;
+                        leftShapeSlides++;
+                        Vector2 normal = slide.GetNormal();
+                        if (capsuleBottom <= entryTop - 2f && normal.IsFinite() && normal.X < -.99f && Mathf.Abs(normal.Y) <= .05f)
+                            westWitness ??= (Engine.GetPhysicsFrames(), inputSample, capsuleBottom, entryTop, normal);
+                    }
+                }
+                catch (Exception error) { highObservationFailure = error.Message; }
+            }
             bool rejectedNoTarget = false;
             void Observe(MechanicalClawFrame frame, GrappleSurface2D target)
             { if (frame.Failure == MechanicalClawFailure.NoTarget) rejectedNoTarget = true; }
             TestAssert.True(barrier.GetParent().GetNode<GrappleSurface2D>("GrappleSurfaceProfile").Material ==
                 GrappleSurfaceMaterial.Forbidden, "admission collision's authored material is explicitly forbidden");
-            claw.ClawFrameChanged += Observe;
-            KeyEvent(Key.D, true); KeyEvent(Key.S, true);
-            await Frames(tree, 2);
-            KeyEvent(Key.K, true);
+            var highObserver = new ThrusterPostMotorObserver { ProcessPhysicsPriority = 100, Observe = ObserveHighPostMotor };
+            level.AddChild(highObserver);
+            highHealth.Damaged += HighDamaged;
+            level.RecoveryRequested += HighRequested;
+            level.RecoveryCompleted += HighRecovered;
             try
             {
+                Place(level, new Vector2(6120, 800));
+                await Frames(tree, 2);
+                claw.ClawFrameChanged += Observe;
+                KeyEvent(Key.D, true); KeyEvent(Key.S, true);
+                await Frames(tree, 2);
+                KeyEvent(Key.K, true);
                 // First observe the ordinary K edge without dash suppressing the
                 // cast; then separately challenge the collision with dash/jump.
                 for (int tick = 0; tick < 6; tick++)
@@ -216,7 +273,8 @@ public static class BossAdmissionRuntimeTests
                 }
                 KeyEvent(Key.K, false); KeyEvent(Key.S, false);
                 await Frames(tree, 1);
-                int dashesBefore = motor.AcceptedDashCount;
+                dashesBefore = motor.AcceptedDashCount;
+                dashIssueSample = highInput.CurrentFrameSequence;
                 KeyEvent(Key.Shift, true); KeyEvent(Key.Space, true);
                 for (int tick = 0; tick < 8; tick++)
                 {
@@ -229,6 +287,10 @@ public static class BossAdmissionRuntimeTests
             }
             finally
             {
+                highObserver.Observe = null;
+                highHealth.Damaged -= HighDamaged;
+                level.RecoveryRequested -= HighRequested;
+                level.RecoveryCompleted -= HighRecovered;
                 ReleaseKeys(); claw.ClawFrameChanged -= Observe;
             }
             GD.Print($"BOSS_ADMISSION_ROOF_OBSERVATION position={level.Player.GlobalPosition} forbidden_material=true rejected_no_target={rejectedNoTarget} claw={claw.CurrentFrame.State} failure={claw.CurrentFrame.Failure}");
@@ -237,6 +299,14 @@ public static class BossAdmissionRuntimeTests
             TestAssert.True(rejectedNoTarget && level.Player.GlobalPosition.Y + 36 < 936,
                 "actual keyboard K finds no eligible target through the forbidden barrier while the whole capsule remains above the old door roof");
             GD.Print("BOSS_ADMISSION_NATIVE_ROOF_NEGATIVE_OK keyboard_k=true forbidden_material=true rejected_no_target=true all_reachable_routes=false");
+            TestAssert.True(highObservationFailure == null && westWitness.HasValue && highSamples > 0 &&
+                highDamage == 0 && highRequests == 0 && highRecoveries == 0 && recoveries == 0 &&
+                highHealth.CurrentHealth == highHp && highHp == health,
+                $"BOSS_ADMISSION_FINITE_WEST_INGRESS_RED: requires native left-shape horizontal blocking above the combat door during the actual dash, with no damage or recovery; " +
+                $"samples={highSamples} active_dash_samples={activeDashSamples} left_shape_slides={leftShapeSlides} " +
+                $"damage={highDamage} recovery={highRequests}/{highRecoveries} failure={highObservationFailure}");
+            var west = westWitness.Value;
+            GD.Print(FormattableString.Invariant($"BOSS_ADMISSION_FINITE_WEST_INGRESS_OK controlled_pose=true dash=1 dash_active=true native_left=true above_combat_entry=true damage_events=0 recovery_requests=0 recovery_completions=0 player={highPlayer.GetInstanceId()} barrier={admissionBody.GetInstanceId()} shape={barrier.GetInstanceId()} physics={west.Physics} input={west.Input} capsule_bottom={west.CapsuleBottom:R} entry_top={west.EntryTop:R} normal_x={west.Normal.X:R} normal_y={west.Normal.Y:R}"));
 
             // These are controlled exterior poses, not claimed natural route arrivals.
             // Actual keyboard air dashes must collide with the specific roof/right shape.
@@ -326,9 +396,11 @@ public static class BossAdmissionRuntimeTests
             TestAssert.True(level.Progress.TryCollectFragment("canyon.v2.fragment.courtyard"),
                 "controlled sixth unique fragment updates public durable state");
             await Frames(tree, 3);
-            TestAssert.True(entry.Disabled && HullDisabled(true) && !exit.Disabled &&
+            TestAssert.True(level.Progress.CollectedFragmentIds.Count == 6 && entry.Disabled &&
+                barrier.Disabled && top.Disabled && right.Disabled && HullDisabled(true) && !exit.Disabled &&
                 arena.CurrentBoss.GetInstanceId() == originalBoss && !arena.IsEncounterActive,
                 "same mounted five-to-six state opens physical entry without reset/rebinding/new Boss");
+            GD.Print("BOSS_ADMISSION_SIXTH_HULL_RELEASE_OK controlled_metadata=true fragments=6 left_disabled=true roof_disabled=true right_disabled=true same_boss=true entry_open=true exit_closed=true");
             await AssertSnapshot(Snapshot(5, true, true), false, "same-frame sixth fragment activation prerequisite");
             originalBoss = arena.CurrentBoss.GetInstanceId();
             TestAssert.True(level.Progress.TryCollectFragment("canyon.v2.fragment.courtyard"),

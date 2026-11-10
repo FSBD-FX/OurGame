@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$GodotPath = 'G:\godot\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe',
+    [string]$GodotPath = 'G:\knight\Tools\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe',
     [string]$RouteLog = 'task3-round3-stale-target-route.log'
 )
 

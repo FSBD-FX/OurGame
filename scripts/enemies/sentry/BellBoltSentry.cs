@@ -15,7 +15,11 @@ public partial class BellBoltSentry : CharacterBody2D, IThreadPullReceiver, IEnc
 {
     [Export] public NodePath HealthPath { get; set; } = new("Health");
     [Export] public NodePath MuzzlePath { get; set; } = new("Muzzle");
+#if REFCOUNTED_FATAL_IDENTITY
+    [Export] public BellBoltSentrySettings Settings { get; set; } = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveOriginalDefault(new BellBoltSentrySettings(), "scripts/enemies/sentry/BellBoltSentry.cs:Settings");
+#else
     [Export] public BellBoltSentrySettings Settings { get; set; } = new();
+#endif
 
     public event Action Defeated;
     public event Action<AttackPresentationFrame> AttackFrameChanged;

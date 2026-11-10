@@ -45,14 +45,20 @@ public static class FragmentSixAdmissionRuntimeTests
             tree.Root.AddChild(level);
             await Frames(tree, 5);
             flow.StartNew();
-            await Frames(tree, 8);
+            // Do not move the Player into a new resident sector before the
+            // original new session has committed its preparation and slot.
+            await BasinAscentCameraRuntimeTests.WaitForPlaying(tree, level);
+            TestAssert.True(flow.HasSave && File.Exists(paths.SavePath),
+                "sixth-fragment producer has a committed isolated session before controlled placement");
             var world = level.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors");
             TestAssert.True(world.RestoreCheckpoint(PrologueSectorId.LostTemple, new Vector2(5920, 1080)),
                 "controlled placement mounts the authored Temple forecourt, not a JSON seed");
             await Frames(tree, 10);
-            TestAssert.True(flow.Save.CheckpointId == Forecourt && flow.Save.HasActivatedCheckpoint &&
+            TestAssert.True(flow.State == PrologueGameFlowState.Playing && flow.Save.CheckpointId == Forecourt && flow.Save.HasActivatedCheckpoint &&
                 world.CheckpointId == Forecourt && level.Progress.RestoreCheckpoint().CheckpointId == Forecourt,
-                "actual forecourt lamp contact commits the producer checkpoint before locking its slot");
+                $"actual forecourt lamp contact commits the producer checkpoint before locking its slot: " +
+                $"flow={flow.State} rejected={flow.LastRejectedTransition} player={level.Player.GlobalPosition} " +
+                $"save={flow.Save.CheckpointId} world={world.CheckpointId} live={level.Progress.RestoreCheckpoint().CheckpointId}");
             TestAssert.True(level.Progress.ActivateMechanism(Seal), "controlled setup activates original seal prerequisite");
             level.RecordShortcutOpened(Bell); // Production persistence also saves the controlled seal prerequisite.
             foreach (string id in FirstFive)
@@ -172,25 +178,58 @@ public static class FragmentSixAdmissionRuntimeTests
                 string sourceHash = Hash(source);
                 var paths = IsolatedPrologueFixture.Configure(level, "fragment-six-cold-" + tag);
                 File.Copy(source, paths.SavePath, overwrite: false);
+                DateTime lastWrite = File.GetLastWriteTimeUtc(paths.SavePath);
+                string slotFailure = null;
+                void ObserveSlot(string stage)
+                {
+                    if (slotFailure != null) return;
+                    try
+                    {
+                        bool exists = File.Exists(paths.SavePath);
+                        bool sameBytes = exists && Hash(paths.SavePath) == sourceHash;
+                        bool sameWrite = exists && File.GetLastWriteTimeUtc(paths.SavePath) == lastWrite;
+                        bool noTemps = NoTemporarySaves(paths);
+                        if (!sameBytes || !sameWrite || !noTemps)
+                            slotFailure = $"{stage} physics={Engine.GetPhysicsFrames()} exists={exists} " +
+                                $"same_bytes={sameBytes} same_write_time={sameWrite} no_temps={noTemps}";
+                    }
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                    { slotFailure = $"{stage} physics={Engine.GetPhysicsFrames()} {error.GetType().Name}: {error.Message}"; }
+                }
                 TestAssert.True(DiskAgrees(paths.SavePath, count) && Hash(paths.SavePath) == sourceHash,
                     "cold fixture copies actual producer bytes into a fresh process-owned slot");
                 var flow = ConfigureFlow(level);
+                var player = level.GetNode<CharacterBody2D>("PlayerRoot/Player");
+                ulong playerId = player.GetInstanceId();
                 int sessions = 0, requested = 0, recovered = 0;
+                int commitTicks = 0, supportTicks = 0;
                 bool restoredAtSession = false;
                 Vector2 initial = default;
+                bool SamePlayer() => GodotObject.IsInstanceValid(player) && level.Player == player &&
+                    player.GetInstanceId() == playerId;
+                bool Committed() => sessions == 1 && flow.State == PrologueGameFlowState.Playing &&
+                    !level.ResidentPreparationPending;
+                string ColdFacts() => $"kind={tag} state={flow.State} rejected={flow.LastRejectedTransition} " +
+                    $"pending={level.ResidentPreparationPending} preparation_failure={level.ResidentPreparationFailure} " +
+                    $"sessions={sessions} restored_at_session={restoredAtSession} requested={requested} recovered={recovered} " +
+                    $"commit_ticks={commitTicks} support_ticks={supportTicks} same_player={SamePlayer()} " +
+                    $"initial={initial} position={(SamePlayer() ? player.GlobalPosition : default)} " +
+                    $"on_floor={SamePlayer() && player.IsOnFloor()} slot_failure={slotFailure ?? "none"}";
                 level.RecoveryRequested += _ => requested++;
                 level.RecoveryCompleted += _ => recovered++;
                 flow.SessionStarted += () =>
                 {
                     sessions++;
-                    initial = level.Player.GlobalPosition;
-                    restoredAtSession = StateAgrees(level, paths.SavePath, count) && initial == new Vector2(5920, 1080);
+                    initial = SamePlayer() ? player.GlobalPosition : default;
+                    ObserveSlot("session-started");
+                    restoredAtSession = SamePlayer() && StateAgrees(level, paths.SavePath, count) && initial == new Vector2(5920, 1080);
                 };
                 tree.Root.AddChild(level);
                 await Frames(tree, 5);
+                ObserveSlot("title");
                 TestAssert.True(flow.State == PrologueGameFlowState.Title && flow.HasSave && sessions == 0 &&
-                    flow.LoadResult.Status == PrologueSaveLoadStatus.Current && Hash(paths.SavePath) == sourceHash,
-                    "cold current-schema producer offers Continue without rewriting its bytes");
+                    flow.LoadResult.Status == PrologueSaveLoadStatus.Current && slotFailure == null,
+                    "cold current-schema producer offers Continue without rewriting its slot: " + ColdFacts());
                 var start = level.GetNode<Button>("ProductUi/MainMenu/Panel/Buttons/Start");
                 var resume = level.GetNode<Button>("ProductUi/MainMenu/Panel/Buttons/Continue");
                 TestAssert.True(start.HasFocus() && !resume.Disabled, "cold title initially focuses Start and enables Continue");
@@ -201,10 +240,34 @@ public static class FragmentSixAdmissionRuntimeTests
                 KeyEvent(Key.Enter, true);
                 await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
                 KeyEvent(Key.Enter, false);
-                await Frames(tree, 12);
-                TestAssert.True(sessions == 1 && restoredAtSession && flow.State == PrologueGameFlowState.Playing &&
-                    level.Player.GlobalPosition.DistanceTo(initial) < 2f && Supported(level, shelf: false) &&
-                    Hash(paths.SavePath) == sourceHash, "only native title keys restore exact producer state before gameplay");
+                ObserveSlot("continue-input");
+                // Restore/attachment can span multiple physics frames. Playing is
+                // committed only after the real SessionStarted and resident commit.
+                while (commitTicks < 180 && !Committed() && sessions <= 1 && requested == 0 && recovered == 0 &&
+                    slotFailure == null && string.IsNullOrEmpty(flow.LastRejectedTransition) &&
+                    (flow.State is PrologueGameFlowState.Intro or PrologueGameFlowState.Title))
+                {
+                    await Frames(tree, 1);
+                    commitTicks++;
+                    ObserveSlot("continue-commit");
+                }
+                TestAssert.True(Committed() && restoredAtSession && SamePlayer() && requested == 0 && recovered == 0 &&
+                    slotFailure == null, "only native title keys commit the exact producer session: " + ColdFacts());
+
+                // SessionStarted restores the exact pose, before native floor
+                // contacts necessarily exist. Observe support without relocating it.
+                bool supported = false;
+                while (!supported && supportTicks < 30 && Committed() && SamePlayer() && requested == 0 && recovered == 0 &&
+                    player.GlobalPosition.DistanceTo(initial) < 2f && slotFailure == null)
+                {
+                    await Frames(tree, 1);
+                    supportTicks++;
+                    ObserveSlot("checkpoint-support");
+                    supported = Committed() && SamePlayer() && player.GlobalPosition.DistanceTo(initial) < 2f &&
+                        Supported(level, shelf: false);
+                }
+                TestAssert.True(supported && requested == 0 && recovered == 0 && slotFailure == null,
+                    "committed cold Continue settles the same player on its authored checkpoint support: " + ColdFacts());
                 AssertState(level, paths.SavePath, count, "cold " + tag + " Continue");
                 var fragment = level.CurrentSectorRoot.GetNode<QuestFragment>("Gameplay/QuestFragments/temple-upper");
                 AssertAuthoredFragment(level, fragment);
@@ -213,10 +276,33 @@ public static class FragmentSixAdmissionRuntimeTests
                     "cold producer state restores original sixth pickup availability without reward replay");
                 int health = level.Player.GetNode<HealthComponent>("Health").CurrentHealth;
                 using var gate = new GateObservation(level);
-                if (count == 5) await RefuseAtGate(tree, level, gate, paths.SavePath, sourceHash, paths.CaseRoot);
-                else await EnterAtGate(tree, level, gate, paths.SavePath, sourceHash, paths.CaseRoot);
+                bool observedSixEntry = false;
+                void ObserveGateSlot()
+                { if (!observedSixEntry) ObserveSlot("pretrigger"); }
+                void ObserveNativeTrigger(Node2D body)
+                {
+                    if (count != 6 || body != player || observedSixEntry) return;
+                    ObserveSlot("native-six-entry");
+                    observedSixEntry = true;
+                }
+                ObserveGateSlot();
+                tree.PhysicsFrame += ObserveGateSlot;
+                gate.Trigger.BodyEntered += ObserveNativeTrigger;
+                try
+                {
+                    if (count == 5) await RefuseAtGate(tree, level, gate, paths.SavePath, sourceHash, paths.CaseRoot);
+                    else await EnterAtGate(tree, level, gate, paths.SavePath, sourceHash, paths.CaseRoot);
+                }
+                finally
+                {
+                    tree.PhysicsFrame -= ObserveGateSlot;
+                    gate.Trigger.BodyEntered -= ObserveNativeTrigger;
+                }
+                if (count == 5) ObserveSlot("five-refusal-finished");
+                TestAssert.True((count == 5 || observedSixEntry) && slotFailure == null,
+                    "cold slot remains unmodified through refusal or actual native six entry: " + ColdFacts());
                 AssertState(level, paths.SavePath, count, "cold " + tag + " physical admission result");
-                TestAssert.True(requested == 0 && recovered == 0 && sessions == 1 &&
+                TestAssert.True(requested == 0 && recovered == 0 && sessions == 1 && SamePlayer() &&
                     level.Player.GetNode<HealthComponent>("Health").CurrentHealth == health && Hash(source) == sourceHash,
                     "cold admission uses no recovery/damage/new session and never mutates its producer input");
                 if (count == 5) TestAssert.Equal(sourceHash, Hash(paths.SavePath), "refused cold five slot stays byte-identical");

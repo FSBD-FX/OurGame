@@ -436,9 +436,10 @@ public partial class PrologueFormalHud : Control
         Label glyph = GetNodeOrNull<Label>("Prompt/Glyph");
         if (glyph != null)
         {
+            glyph.AddThemeFontSizeOverride("font_size", Mathf.RoundToInt(19f * scale));
+            glyph.UpdateMinimumSize();
             glyph.Position = new Vector2(12f, 8f) * scale;
             glyph.Size = new Vector2(112f, 40f) * scale;
-            glyph.AddThemeFontSizeOverride("font_size", Mathf.RoundToInt(19f * scale));
         }
         Label promptText = GetNodeOrNull<Label>("Prompt/Text");
         if (promptText != null)

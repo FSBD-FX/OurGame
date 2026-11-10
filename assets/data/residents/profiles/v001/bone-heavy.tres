@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="ResidentSubtypeProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSubtypeProfile.cs" id="1_bd13q"]
+
+[resource]
+script = ExtResource("1_bd13q")
+SubtypeId = "bone-heavy"
+Family = 3
+Archetype = 5
+Carrier = 4
+BoneWeakness = 1

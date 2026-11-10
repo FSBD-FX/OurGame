@@ -12,6 +12,14 @@ public partial class RunTask10Tests : SceneTree
     {
         try
         {
+            if (HasArgument("--shield-flash"))
+            {
+                await PrologueAudioDirectorTests.ShieldBurstsRespectReducedFlashes(this);
+                GD.Print("KNIGHT_SHIELD_FLASH_OK cues=5 setting_path=true keyboard=true");
+                Quit(0);
+                return;
+            }
+
             if (HasArgument("--guidance-protection"))
             {
                 try
@@ -78,6 +86,7 @@ public partial class RunTask10Tests : SceneTree
 
             if (HasArgument("--cue-vfx"))
             {
+                await PrologueAudioDirectorTests.ShieldBurstsRespectReducedFlashes(this);
                 PrologueAudioManifestTests.Task10TypedCueNamesExist();
                 PrologueAudioDirector cueAudio = PrologueAudioDirector.CreateRuntimeTree();
                 Root.AddChild(cueAudio);

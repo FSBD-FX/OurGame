@@ -4,6 +4,9 @@ using System.Threading.Tasks;
 using Godot;
 using Knight.Combat;
 using Knight.Enemies.Ranged;
+using Knight.Player;
+using Knight.Shared;
+using Knight.Tests.Presentation;
 
 namespace Knight.Tests.Integration;
 
@@ -31,6 +34,147 @@ public static class RangedAttackGeometryRuntimeTests
             GD.Print("RANGED_ATTACK_GEOMETRY_NATIVE_OK independent_world=true actual_hurtbox=true thin_wall=true");
         }
         finally { await fixture.DisposeAsync(); }
+        var calibration = await ActualPlayerHopNativeCalibration(tree);
+        // Assert only after the calibration's async locals and owned scene
+        // lifetimes have ended; the result carries integers, never scene roots.
+        TestAssert.Equal(0, calibration.Forced, "HOP_NATIVE_SYNC_FORCE_CONTROL native queries see the current saved capsule after treatment");
+        TestAssert.Equal(0, calibration.Baseline, "HOP_NATIVE_SYNC_RED native queries must not trail the real Motor's current saved Hurtbox");
+        GD.Print("HOP_NATIVE_SYNC_OK variants=2 actual_samples=16 saved_player=true actual_keyboard_jump=true native_query=true main_accepted=false");
+    }
+
+    // Characterizes the real saved-player/native-query boundary. The forced
+    // variant is a diagnostic treatment, never a silent production repair.
+    private static async Task<(int Baseline, int Forced)> ActualPlayerHopNativeCalibration(SceneTree tree)
+    {
+        int baselineMismatches = 0, forcedMismatches = 0;
+        foreach (bool force in new[] { false, true })
+        {
+            var fixture = new NativeFixture(tree);
+            KeyboardRouteInputDriver driver = null;
+            RangedHopNativeSyncObserver before = null, after = null;
+            try
+            {
+                CharacterBody2D player = fixture.SavedHopPlayer();
+                for (int frame = 0; frame < 12; frame++)
+                {
+                    await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+                    await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                }
+                var input = player.GetNode<PlayerInputReader>("Input");
+                var motor = player.GetNode<PlayerMotor>("Motor");
+                var health = player.GetNode<HealthComponent>("Health");
+                var hurtbox = player.GetNode<Hurtbox>("Hurtbox");
+                var collider = hurtbox.GetNode<CollisionShape2D>("HurtboxCollider");
+                TestAssert.True(player.IsOnFloor() && !collider.Disabled &&
+                    PhysicsServer2D.AreaGetShapeCount(hurtbox.GetRid()) == 1,
+                    "HOP_NATIVE_SYNC_SETUP saved Player naturally settles with one live Hurtbox capsule");
+                var capsule = ReadSavedCapsuleDimensions(hurtbox.GetRid());
+                TestAssert.True(collider.GlobalTransform.X.IsEqualApprox(Vector2.Right) &&
+                    collider.GlobalTransform.Y.IsEqualApprox(Vector2.Down),
+                    "HOP_NATIVE_SYNC_SETUP current capsule has the fixture's actual unit world basis");
+                RangedSweepResult positive = RangedAttackGeometry.Sweep(fixture.Space,
+                    collider.GlobalTransform.Origin, Vector2.Zero, .25f);
+                RangedSweepResult negative = RangedAttackGeometry.Sweep(fixture.Space,
+                    collider.GlobalTransform.Origin + Vector2.Up * 300, Vector2.Zero, .25f);
+                TestAssert.True(positive.Target == hurtbox && !positive.WorldHit &&
+                    negative.Target == null && !negative.WorldHit && !negative.StartedInWorld,
+                    "HOP_NATIVE_SYNC_CONTROLS deep overlap selects exact saved Hurtbox and far separation selects none");
+                int hp = health.CurrentHealth, jumps = motor.AcceptedJumpCount, dashes = motor.AcceptedDashCount;
+                int samples = 0, mismatches = 0, faults = 0;
+                string firstFault = null;
+                ulong prePhysics = 0;
+                Transform2D preCollider = default, preNative = default;
+                before = new RangedHopNativeSyncObserver { ProcessPhysicsPriority = motor.ProcessPhysicsPriority - 1 };
+                after = new RangedHopNativeSyncObserver { ProcessPhysicsPriority = motor.ProcessPhysicsPriority + 1 };
+                before.Sample = _ =>
+                {
+                    if (samples >= 8) return;
+                    prePhysics = Engine.GetPhysicsFrames();
+                    preCollider = player.GlobalTransform * hurtbox.Transform * collider.Transform;
+                    preNative = PhysicsServer2D.AreaGetTransform(hurtbox.GetRid());
+                };
+                after.Sample = delta =>
+                {
+                    if (samples >= 8 || motor.AcceptedJumpCount == jumps) return;
+                    try
+                    {
+                        TestAssert.True(prePhysics == Engine.GetPhysicsFrames() && delta > 0 && double.IsFinite(delta) &&
+                            motor.AcceptedJumpCount == jumps + 1 && motor.AcceptedDashCount == dashes &&
+                            !player.IsOnFloor() && player.Velocity.Y < 0 && input.Current.KeyboardActions &&
+                            !input.Current.ShieldHeld && health.CurrentHealth == hp,
+                            "HOP_NATIVE_SYNC_SAMPLE same-frame actual single upward keyboard jump, unchanged HP/dash");
+                        Transform2D cpuBeforeForce = collider.GlobalTransform;
+                        Transform2D nativeBeforeForce = PhysicsServer2D.AreaGetTransform(hurtbox.GetRid());
+                        Transform2D bodyBeforeForce = player.GlobalTransform;
+                        Transform2D expected = bodyBeforeForce * hurtbox.Transform * collider.Transform;
+                        if (force) hurtbox.ForceUpdateTransform();
+                        Transform2D cpu = collider.GlobalTransform;
+                        Transform2D native = PhysicsServer2D.AreaGetTransform(hurtbox.GetRid());
+                        Transform2D nativeShape = native * PhysicsServer2D.AreaGetShapeTransform(hurtbox.GetRid(), 0);
+                        TestAssert.True(preCollider.Origin.Y - expected.Origin.Y > 2 && player.GlobalTransform == bodyBeforeForce,
+                            "HOP_NATIVE_SYNC_SAMPLE treatment does not move the body or manufacture the actual upward step");
+                        Vector2 newlyOccupied = expected * new Vector2(0, -capsule.Height * .5f + 1);
+                        Vector2 vacated = preCollider * new Vector2(0, capsule.Height * .5f - 1);
+                        RangedSweepResult leading = RangedAttackGeometry.Sweep(fixture.Space, newlyOccupied, Vector2.Zero, .25f);
+                        RangedSweepResult trailing = RangedAttackGeometry.Sweep(fixture.Space, vacated, Vector2.Zero, .25f);
+                        TestAssert.True(!leading.WorldHit && !trailing.WorldHit && !leading.StartedInWorld && !trailing.StartedInWorld,
+                            "HOP_NATIVE_SYNC_SAMPLE probes are separated from the World, not hidden by a floor tie");
+                        bool currentHit = leading.Target == hurtbox, oldHit = trailing.Target == hurtbox;
+                        if (!currentHit || oldHit) mismatches++;
+                        GD.Print($"HOP_NATIVE_SYNC_SAMPLE force={force} treatment=Hurtbox index={samples} physics={Engine.GetPhysicsFrames()} " +
+                            $"sequence={input.CurrentFrameSequence} delta={delta:R} motor_priority={motor.ProcessPhysicsPriority} " +
+                            $"pre_priority={before.ProcessPhysicsPriority} post_priority={after.ProcessPhysicsPriority} " +
+                            $"pre_composed={preCollider} pre_native={preNative} cpu_before_force={cpuBeforeForce} " +
+                            $"native_before_force={nativeBeforeForce} expected_composed={expected} cpu={cpu} native_shape={nativeShape} " +
+                            $"new_probe={newlyOccupied} old_probe={vacated} current_hit={currentHit} vacated_hit={oldHit} " +
+                            $"hp={health.CurrentHealth} velocity={player.Velocity} actual_jump_delta={motor.AcceptedJumpCount-jumps}");
+                        samples++;
+                    }
+                    catch (Exception error) { faults++; firstFault ??= error.Message; }
+                };
+                player.AddChild(before); player.AddChild(after);
+                driver = KeyboardRouteInputDriver.Begin(player);
+                driver.Command(InputActions.Jump, true);
+                for (int frame = 0; frame < 23; frame++)
+                    await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+                driver.Command(InputActions.Jump, false);
+                for (int frame = 0; frame < 32; frame++)
+                    await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+                TestAssert.True(faults == 0 && samples == 8,
+                    $"HOP_NATIVE_SYNC_OBSERVATION eight paired live samples required: {firstFault}");
+                TestAssert.True(player.IsOnFloor() && health.CurrentHealth == hp && motor.AcceptedJumpCount == jumps + 1 &&
+                    motor.AcceptedDashCount == dashes && driver.AttackEdges == 0 && driver.ClawEdges == 0 && driver.ShieldEdges == 0,
+                    "HOP_NATIVE_SYNC_RETURN one naturally landed jump with no damage, extra action or pose writes");
+                if (force) forcedMismatches = mismatches; else baselineMismatches = mismatches;
+                GD.Print($"HOP_NATIVE_SYNC_VARIANT force={force} samples={samples} mismatches={mismatches} " +
+                    $"settings={motor.MotionSettings} no_projectile_order_claim=true no_main_claim=true");
+            }
+            finally
+            {
+                driver?.Dispose();
+                if (GodotObject.IsInstanceValid(before)) { before.Sample = null; before.Free(); }
+                if (GodotObject.IsInstanceValid(after)) { after.Sample = null; after.Free(); }
+                await fixture.DisposeAsync();
+            }
+        }
+        return (baselineMismatches, forcedMismatches);
+    }
+
+    private static (float Radius, float Height) ReadSavedCapsuleDimensions(Rid area)
+    {
+        // Inspect only the live mounted RID. Do not create or dispose a
+        // borrowed Shape2D wrapper just to capture two scalar dimensions.
+        Rid shape = PhysicsServer2D.AreaGetShape(area, 0);
+        TestAssert.True(PhysicsServer2D.ShapeGetType(shape) == PhysicsServer2D.ShapeType.Capsule,
+            "HOP_NATIVE_SYNC_SETUP saved Hurtbox's mounted shape is a capsule");
+        using Variant data = PhysicsServer2D.ShapeGetData(shape);
+        TestAssert.True(data.VariantType == Variant.Type.Vector2,
+            "HOP_NATIVE_SYNC_SETUP native capsule data has the documented height/radius vector");
+        Vector2 dimensions = data.AsVector2(); // Native format: height, radius.
+        TestAssert.True(float.IsFinite(dimensions.X) && float.IsFinite(dimensions.Y) &&
+            dimensions.Y > 2 && dimensions.X >= 2 * dimensions.Y,
+            "HOP_NATIVE_SYNC_SETUP saved collider is an actual nondegenerate capsule");
+        return (dimensions.Y, dimensions.X);
     }
 
     // Catches endpoint-only collision, a Player-first query, or treating World
@@ -288,6 +432,19 @@ public static class RangedAttackGeometryRuntimeTests
             AfterFakePlayer = Player("GenuinePlayerAfterFakes", new Vector2(100f, 760f));
         }
 
+        public CharacterBody2D SavedHopPlayer()
+        {
+            Wall("HopCalibrationFloor", new Vector2(0, 60), new Vector2(800, 20));
+            // Own a private source graph, never invalidate a shared cached
+            // wrapper. The instance retains its own native shape references.
+            using var scene = ResourceLoader.Load<PackedScene>("res://scenes/player/Player.tscn",
+                cacheMode: ResourceLoader.CacheMode.Ignore);
+            var player = scene.Instantiate<CharacterBody2D>();
+            player.Position = new Vector2(0, 14); // Initial fixture placement, before entering the tree.
+            _scope.AddChild(player);
+            return player;
+        }
+
         public async Task Sync()
         {
             for (int frame = 0; frame < 3; frame++)
@@ -377,9 +534,17 @@ public static class RangedAttackGeometryRuntimeTests
             if (GodotObject.IsInstanceValid(_viewport)) _viewport.QueueFree();
             await _tree.ToSignal(_tree, SceneTree.SignalName.ProcessFrame);
             await _tree.ToSignal(_tree, SceneTree.SignalName.ProcessFrame);
+            await _tree.ToSignal(_tree, SceneTree.SignalName.PhysicsFrame);
             foreach (Shape2D shape in _ownedShapes) shape.Dispose();
             _ownedShapes.Clear();
             _world.Dispose();
+            await _tree.ToSignal(_tree, SceneTree.SignalName.PhysicsFrame);
         }
     }
+}
+
+internal partial class RangedHopNativeSyncObserver : Node
+{
+    internal Action<double> Sample;
+    public override void _PhysicsProcess(double delta) => Sample?.Invoke(delta);
 }

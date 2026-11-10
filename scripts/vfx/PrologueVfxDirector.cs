@@ -26,6 +26,7 @@ public readonly record struct VfxCueStyle(
 public partial class PrologueVfxDirector : Node2D
 {
     public const string VfxGroup = "prologue_vfx";
+    private const float ReducedShieldBurstOpacity = .42f;
     public static readonly string[] Task10EffectRootNames =
     [
         "ShieldFan", "ShieldBlockFlash", "ShieldHeavyBreak",
@@ -170,7 +171,17 @@ public partial class PrologueVfxDirector : Node2D
     {
         GameSettingsData normalized = (settings ?? new GameSettingsData()).Normalize();
         ShakeScale = normalized.ScreenShake;
+        bool shieldOpacityChanged = _reduceFlashes != normalized.ReduceFlashes;
         _reduceFlashes = normalized.ReduceFlashes;
+        if (shieldOpacityChanged)
+        {
+            foreach (var entry in _task10Effects)
+            {
+                PrologueVfxBurst burst = entry.Value;
+                if (IsShieldBurstCue(entry.Key.Cue) && GodotObject.IsInstanceValid(burst) &&
+                    !burst.IsQueuedForDeletion()) ApplyShieldBurstOpacity(burst);
+            }
+        }
         if (GodotObject.IsInstanceValid(_thrusterEffect)) _thrusterEffect.ConfigureThrusterFlash(_reduceFlashes);
         if (_cameraFeedback != null) _cameraFeedback.IntensityScale = ShakeScale;
         if (_reduceFlashes) ApplyFlash(0f);
@@ -408,9 +419,22 @@ public partial class PrologueVfxDirector : Node2D
             Direction = direction.LengthSquared() > .001f ? direction.Normalized() : Vector2.Right,
             LifetimeSeconds = cue is PrologueAudioCue.ShieldOverheat ? .45f : .22f
         };
+        if (IsShieldBurstCue(cue)) ApplyShieldBurstOpacity(burst);
         parent.AddChild(burst);
         _bursts.Add(burst);
         _task10Effects[key] = burst;
+    }
+
+    private static bool IsShieldBurstCue(PrologueAudioCue cue) => cue is
+        PrologueAudioCue.ShieldRaise or PrologueAudioCue.ShieldBlock or PrologueAudioCue.ShieldHeavyBreak or
+        PrologueAudioCue.ShieldOverheat or PrologueAudioCue.ShieldReady;
+
+    private void ApplyShieldBurstOpacity(PrologueVfxBurst burst)
+    {
+        // The burst draws its own lifetime fade; scale the CanvasItem instead of overwriting that fade.
+        Color modulation = burst.SelfModulate;
+        modulation.A = _reduceFlashes ? ReducedShieldBurstOpacity : 1f;
+        burst.SelfModulate = modulation;
     }
 
     public void PresentClawFrame(MechanicalClawFrame frame, Vector2 worldPosition)

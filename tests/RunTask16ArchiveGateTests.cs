@@ -98,12 +98,12 @@ public partial class RunTask16ArchiveGateTests : SceneTree
         if (!Path.IsPathFullyQualified(raw)) throw new ArgumentException("Storage must be absolute.");
         string storage = Path.GetFullPath(raw).TrimEnd(Path.DirectorySeparatorChar);
         string evidence = Path.GetFullPath(
-            "E:/OurGame/Knight/.evidence/september09-continuous-canyon/task16b")
+            "G:/knight/验证证据/september09-continuous-canyon/task16b")
             .TrimEnd(Path.DirectorySeparatorChar);
         string project = Path.GetFullPath(ProjectSettings.GlobalizePath("res://"))
             .TrimEnd(Path.DirectorySeparatorChar);
         string expectedProject = Path.GetFullPath(
-            "E:/OurGame/Knight/.worktrees/task6-certified-final-20260902T0555")
+            "G:/knight/Knight")
             .TrimEnd(Path.DirectorySeparatorChar);
         string caseRoot = Path.GetDirectoryName(storage) ?? "";
         string expectedTemp = Path.Combine(caseRoot, "unit-temp");

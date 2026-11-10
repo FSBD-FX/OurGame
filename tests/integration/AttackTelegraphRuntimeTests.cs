@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
+using System.Threading.Tasks;
 using Godot;
 using Knight.Boss;
 using Knight.Combat;
@@ -7,11 +9,159 @@ using Knight.Enemies;
 using Knight.Enemies.Laborer;
 using Knight.Enemies.Moth;
 using Knight.Presentation;
+using Knight.Presentation.Fog;
 
 namespace Knight.Tests.Integration;
 
 public static class AttackTelegraphRuntimeTests
 {
+    public static void RunMothLampCues()
+    {
+        TestAssert.Equal("headless", DisplayServer.GetName(), "Moth lamp fixture must never open a visible window");
+        MothRuntimeLocksSweptDiveAndPublishesPostMoveActiveCircle();
+        MothLampClearsOnThreadHurtAndCheckpointReset();
+        GD.Print("MOTH_LAMP_CUES_OK saved_actor=true authoritative_timeline=true gold=true bounded_white=true cancellation=true geometry_retained=true pixels=false human=false");
+    }
+
+    public static async Task RunFogEdgeCommands(SceneTree tree)
+    {
+        TestAssert.Equal("headless", DisplayServer.GetName(), "edge command fixture must never open a visible window");
+        // Own this fixture's physics world explicitly instead of lazily creating
+        // or borrowing ScreenRoot's World2D when the native wall enters it.
+        var ownedWorld = new World2D();
+        var viewport = new SubViewport { Size = new Vector2I(128, 128), World2D = ownedWorld };
+        var world = new Node2D { Name = "FogEdgeCommandFixture" };
+        var source = new AttackTelegraphVisual { Position = new Vector2(144, 64) };
+        var overlay = new FogReadabilityOverlay();
+        var layer = new CanvasLayer { Layer = 2, FollowViewportEnabled = true };
+        HeadlampOcclusionSampler sampler = null;
+        try
+        {
+            world.AddChild(source); layer.AddChild(overlay); world.AddChild(layer);
+            viewport.AddChild(world); tree.Root.AddChild(viewport);
+            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            sampler = new HeadlampOcclusionSampler(world);
+            HeadlampOcclusionFrame snapshot = sampler.Capture();
+            TestAssert.True(snapshot.IsComplete, "edge fixture uses a current complete native snapshot");
+            TestAssert.Equal(new Vector2(128, 128), viewport.GetVisibleRect().Size,
+                "edge fixture's logical viewport is independently fixed at 128 by 128");
+            source.Present(new AttackPresentationFrame(
+                new AttackTimelineFrame(1, EnemyAttackKind.RustShellThrust, AttackPhase.Telegraph, 1, .5f,
+                    new Vector2(144, 64), true),
+                new AttackShapeFrame(AttackShapeKind.Rectangle, new Vector2(144, 64), new Vector2(20, 9),
+                    0, Array.Empty<Vector2>())));
+            overlay.PresentAttack(source, new Vector2(64, 64), snapshot);
+            TestAssert.Equal(1, overlay.PresentedCueCount,
+                "FOG_EDGE_ORIGIN_CULL: actual rectangle spans x124..164 into viewport despite source x144 outside");
+            AttackShapeFrame Shape(AttackShapeKind kind, Vector2 origin, Vector2 extent, float rotation = 0) =>
+                new(kind, origin, extent, rotation, Array.Empty<Vector2>());
+            var edge = Shape(AttackShapeKind.Rectangle, new Vector2(144, 64), new Vector2(20, 9));
+            AttackPresentationFrame Frame(AttackShapeFrame shape, AttackPhase phase = AttackPhase.Telegraph) =>
+                new(new AttackTimelineFrame(1, EnemyAttackKind.RustShellThrust, phase, 1, .5f, shape.Origin, true), shape);
+            void Expect(AttackShapeFrame shape, int expected, string reason, Vector2? actor = null,
+                HeadlampOcclusionFrame current = null)
+            {
+                source.Present(Frame(shape));
+                overlay.PresentAttack(source, actor ?? new Vector2(64, 64), current ?? snapshot);
+                TestAssert.Equal(expected, overlay.PresentedCueCount, reason);
+            }
+            source.Position = new Vector2(-16, 64);
+            Expect(Shape(AttackShapeKind.Rectangle, source.Position, new Vector2(20, 9)), 1, "left edge overlaps x0..4");
+            source.Position = new Vector2(64, -16);
+            Expect(Shape(AttackShapeKind.Rectangle, source.Position, new Vector2(9, 20)), 1, "top edge overlaps y0..4");
+            source.Position = new Vector2(64, 144);
+            Expect(Shape(AttackShapeKind.Rectangle, source.Position, new Vector2(9, 20)), 1, "bottom edge overlaps y124..128");
+            Expect(Shape(AttackShapeKind.Capsule, source.Position, new Vector2(20, 2)), 1,
+                "short capsule Y<X draws a radius20 circle and reaches y124, not y142");
+            source.Position = new Vector2(144, 64);
+            Expect(Shape(AttackShapeKind.GroundBand, source.Position, new Vector2(9, 20), Mathf.Pi / 2), 1,
+                "rotated ground band has horizontal half-size20");
+            Expect(Shape(AttackShapeKind.Circle, source.Position, new Vector2(9, 20), Mathf.Pi / 2), 1,
+                "rotated ellipse reaches x124 with its long radius20");
+            Expect(Shape(AttackShapeKind.Capsule, source.Position, new Vector2(8, 40), Mathf.Pi / 2), 1,
+                "horizontal capsule reaches x104 from total half-height40");
+            source.Rotation = .4f; source.Scale = new Vector2(1.3f, .7f);
+            Expect(new AttackShapeFrame(AttackShapeKind.ConvexPolygon, new Vector2(800, 900), Vector2.Zero, .7f,
+                new[] { new Vector2(124, 60), new Vector2(164, 60), new Vector2(164, 68), new Vector2(124, 68) }), 1,
+                "polygon world points intersect regardless of source local transform and unused frame extent/origin");
+            source.Rotation = 0; source.Scale = Vector2.One;
+            viewport.CanvasTransform = new Transform2D(new Vector2(2, 0), new Vector2(0, 2), new Vector2(-200, -64));
+            source.Position = new Vector2(170, 64);
+            Expect(Shape(AttackShapeKind.Rectangle, source.Position, new Vector2(8, 4)), 1,
+                "logical scale2 and offset project world162..178 to x124..156", new Vector2(132, 64));
+            // Rotation/shear need all four AABB corners: transforming only its
+            // position/end projects both diagonal corners to x140, falsely offscreen.
+            viewport.CanvasTransform = new Transform2D(new Vector2(1, .5f), new Vector2(-1, .5f), new Vector2(140, 0));
+            source.Position = new Vector2(64, 64);
+            Expect(Shape(AttackShapeKind.Rectangle, source.Position, new Vector2(20, 20)), 1,
+                "offscreen diagonal x140 still has other corners at x100 and x180");
+            viewport.CanvasTransform = Transform2D.Identity; source.Position = new Vector2(144, 64);
+            Expect(Shape(AttackShapeKind.Rectangle, new Vector2(200, 64), new Vector2(20, 9)), 0,
+                "entire geometry x180..220 outside withdraws previous commands");
+            source.Position = new Vector2(64, 64);
+            Expect(Shape(AttackShapeKind.Rectangle, new Vector2(200, 64), new Vector2(20, 9)), 0,
+                "onscreen source origin alone cannot authorize entirely offscreen geometry");
+            source.Position = new Vector2(144, 64);
+            Expect(edge, 1, "edge remains eligible before cancellation controls");
+            source.Present(default); overlay.PresentAttack(source, new Vector2(64, 64), snapshot);
+            TestAssert.Equal(0, overlay.PresentedCueCount, "None cancels previous protected commands");
+            source.Present(Frame(edge, AttackPhase.Recovery));
+            overlay.PresentAttack(source, new Vector2(64, 64), snapshot);
+            TestAssert.Equal(0, overlay.PresentedCueCount, "Recovery never keeps a Telegraph danger cue");
+            Expect(edge, 0, "620 source distance gate remains", new Vector2(-500, 64));
+            Expect(edge, 0, "incomplete snapshot withdraws commands", current:
+                new HeadlampOcclusionFrame(Array.Empty<HeadlampOccluder>(), false, "negative control"));
+            source.Visible = false; Expect(edge, 0, "hidden source never paints above fog"); source.Visible = true;
+            tree.Paused = true; Expect(edge, 0, "paused tree clears commands"); tree.Paused = false;
+            Expect(edge, 1, "unpaused live edge can submit again");
+            Expect(Shape(AttackShapeKind.Rectangle, new Vector2(float.MaxValue, 64),
+                new Vector2(float.MaxValue, 9)), 0, "finite input with overflowing bounds fails closed");
+            source.Present(Frame(edge));
+            var foreign = new AttackTelegraphVisual { Position = new Vector2(144, 64) };
+            // Keep both test-owned worlds under explicitly freed viewports;
+            // mounting this negative source directly under ScreenRoot creates
+            // a persistent root 2D world unrelated to the fixture's lifetime.
+            var foreignViewport = new SubViewport { Size = new Vector2I(128, 128), World2D = ownedWorld };
+            foreignViewport.AddChild(foreign); tree.Root.AddChild(foreignViewport);
+            try
+            {
+                foreign.Present(Frame(edge)); overlay.PresentAttack(foreign, new Vector2(64, 64), snapshot);
+                TestAssert.Equal(0, overlay.PresentedCueCount, "different viewport cannot submit into this one");
+            }
+            finally { foreignViewport.QueueFree(); }
+            var wallShape = new RectangleShape2D { Size = new Vector2(8, 40) };
+            try
+            {
+                var wall = new StaticBody2D { Position = new Vector2(104, 64), CollisionLayer = CombatCollisionLayers.World,
+                    CollisionMask = CombatCollisionLayers.None };
+                wall.AddChild(new CollisionShape2D { Shape = wallShape }); world.AddChild(wall);
+                await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                snapshot = sampler.Capture();
+                TestAssert.True(snapshot.IsComplete && snapshot.Shapes.Count == 1, "negative control contains one actual native wall");
+                Expect(edge, 0, "intervening native world wall still vetoes edge cue");
+                wall.QueueFree();
+                await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                snapshot = sampler.Capture(); Expect(edge, 1, "removing actual wall restores current eligibility");
+            }
+            finally { wallShape.Dispose(); }
+            source.QueueFree(); Expect(edge, 0, "queued source immediately withdraws prior commands");
+            world.QueueFree(); overlay.PresentAttack(source, new Vector2(64, 64), snapshot);
+            TestAssert.Equal(0, overlay.PresentedCueCount, "queued consumer ancestor cannot repaint stale geometry");
+            GD.Print("FOG_EDGE_COMMANDS_OK actual_leaf=true shape_bounds=true logical_canvas=true fail_closed=true pixels=false human=false");
+        }
+        finally
+        {
+            tree.Paused = false; sampler?.Dispose();
+            if (GodotObject.IsInstanceValid(viewport) && !viewport.IsQueuedForDeletion()) viewport.QueueFree();
+            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            ownedWorld.Dispose();
+        }
+    }
+
     public static void Run()
     {
         FactoryCopiesRealWorldCollisionBounds();
@@ -84,6 +234,10 @@ public static class AttackTelegraphRuntimeTests
     {
         RuntimeFixture<GraveLampMoth> fixture = CreateFixture<GraveLampMoth>(
             "res://scenes/enemies/GraveLampMoth.tscn", new Vector2(0f, 140f));
+        try
+        {
+        var lamp = fixture.Actor.GetNode<EnemyFormalVisualPart>("VisualRoot/Formal/Lamp");
+        Color neutral = ReadMothLampPaint(lamp);
         TestAssert.Equal(CombatCollisionLayers.World, fixture.Actor.CollisionMask,
             "Moth presentation fixture preserves the packed scene production World collision mask");
         AttackPresentationFrame published = default;
@@ -93,6 +247,7 @@ public static class AttackTelegraphRuntimeTests
         fixture.Actor._PhysicsProcess(.45);
         TestAssert.True(published.Timeline.Phase == AttackPhase.Telegraph && published.Timeline.HasLockedTarget,
             "Moth publishes a locked red dive warning before Active");
+        AssertMothGold(lamp, "MOTH_GOLD_EYE: real Telegraph must paint a gold eye, not the neutral cyan lamp");
         Vector2 locked = published.Timeline.LockedWorldTarget;
         Vector2 lockedStart = fixture.Collider.GlobalPosition;
         float realRadius = ((CircleShape2D)fixture.Collider.Shape).Radius;
@@ -108,11 +263,13 @@ public static class AttackTelegraphRuntimeTests
         fixture.Actor._PhysicsProcess(.10);
         TestAssert.Equal(AttackPhase.Telegraph, published.Timeline.Phase,
             "player crossing keeps Moth in its locked Telegraph window");
+        AssertMothGold(lamp, "locked Telegraph preserves gold after a crossing target");
         AssertBoundsNear(lockedPath, PresentationBounds(published.Shape),
             "locked Moth trajectory and landing do not chase a crossing player");
         Rect2 beforeActiveMovement = CollisionBounds(fixture.Collider.Shape, fixture.Collider.GlobalTransform);
         fixture.Actor._PhysicsProcess(.15);
         AssertActive(fixture, published, "Grave-Lamp Moth");
+        AssertMothPaint(lamp, Colors.White, "Moth actual Active start paints its existing brief contact flash white");
         TestAssert.True(published.Timeline.LockedWorldTarget.DistanceTo(locked) < .01f,
             "locked Moth dive does not chase a player who moves after lock");
         TestAssert.Equal(AttackShapeKind.Circle, published.Shape.Kind,
@@ -129,7 +286,89 @@ public static class AttackTelegraphRuntimeTests
         AssertRecovery(fixture, published, "Grave-Lamp Moth");
         TestAssert.True(!fixture.Telegraph.GoldVisible && !fixture.Telegraph.DangerVisible &&
             !fixture.Telegraph.ImpactVisible, "Moth Recovery clears every warning and impact layer");
-        fixture.Free();
+        AssertMothPaint(lamp, neutral, "Moth Recovery clears gold and the bounded contact flash");
+        }
+        finally { fixture.Free(); }
+    }
+
+    private static void MothLampClearsOnThreadHurtAndCheckpointReset()
+    {
+        foreach (int facing in new[] { -1, 1 })
+        {
+            var fixture = CreateFixture<GraveLampMoth>("res://scenes/enemies/GraveLampMoth.tscn",
+                new Vector2(facing * 30, 140));
+            try
+            {
+                var formal = fixture.Actor.GetNode<GraveLampMothFormalVisual>("VisualRoot/Formal");
+                var lamp = formal.GetNode<EnemyFormalVisualPart>("Lamp");
+                Color neutral = ReadMothLampPaint(lamp);
+                fixture.Actor._PhysicsProcess(.01);
+                fixture.Actor._PhysicsProcess(.01);
+                fixture.Actor._PhysicsProcess(.45);
+                TestAssert.Equal(AttackPhase.Telegraph, formal.CurrentAttackFrame.Timeline.Phase,
+                    "interruption fixture first reaches a real Telegraph");
+                TestAssert.Equal(facing, fixture.Actor.Facing, "gold lamp is tested on both actual facings");
+                AssertMothGold(lamp, "both actor facings paint a gold warning");
+
+                fixture.Actor.ApplyThreadPull(new Vector2(-facing * 20, 0));
+                fixture.Actor._PhysicsProcess(.01);
+                TestAssert.Equal(GraveLampMothState.ThreadStunned, fixture.Actor.CurrentState,
+                    "actual thread pull cancels the enemy attack");
+                AssertMothPaint(lamp, neutral, "thread cancellation cannot leave a gold attack eye");
+
+                var health = fixture.Actor.GetNode<HealthComponent>("Health");
+                TestAssert.True(health.ReceiveDamage(new DamageRequest(1, Vector2.Zero, 0, 90153)),
+                    "saved Moth receives one real nonlethal damage event");
+                TestAssert.Equal(1, health.CurrentHealth, "hurt flash does not alter the saved two-health damage rule");
+                AssertMothPaint(lamp, Colors.White, "real damage event reaches the lamp hurt feedback");
+                formal._PhysicsProcess(.01);
+                formal._PhysicsProcess(.01);
+                AssertMothPaint(lamp, Colors.White, "hurt lamp remains white inside its original three-frame budget");
+                formal._PhysicsProcess(.01);
+                AssertMothPaint(lamp, neutral, "hurt lamp clears at the original third physics frame");
+
+                // These are the existing presentation APIs; no attack or damage is fabricated.
+                var warning = new AttackTimelineFrame(53, EnemyAttackKind.MothDive, AttackPhase.Telegraph,
+                    1, .5f, Vector2.Zero, false);
+                formal.ApplyMothFrame(new GraveLampMothFrame(GraveLampMothState.Telegraph, 0, 0, false, false)
+                    { AttackTimeline = warning }, facing, false);
+                AssertMothGold(lamp, "typed Moth frame drives the same paint without a separate attack callback");
+                formal.PresentAttack(new AttackPresentationFrame(
+                    warning with { Kind = EnemyAttackKind.RustShellThrust }, default));
+                AssertMothPaint(lamp, neutral, "a non-Moth attack frame cannot color the Moth lamp gold");
+                formal.ApplyMothFrame(new GraveLampMothFrame(GraveLampMothState.Telegraph, 0, 0, false, false)
+                    { AttackTimeline = warning }, facing, false);
+                fixture.Actor.ResetForCheckpoint();
+                AssertMothPaint(lamp, neutral, "real checkpoint reset clears the previous lamp phase");
+            }
+            finally { fixture.Free(); }
+        }
+    }
+
+    private static Color ReadMothLampPaint(EnemyFormalVisualPart lamp)
+    {
+        // Before this fix the real MothLamp DrawCircle used Glow directly. Read
+        // that actual legacy paint for RED, never invent gold for a missing API.
+        PropertyInfo paint = typeof(EnemyFormalVisualPart).GetProperty("LampLightColor");
+        if (paint != null) return (Color)paint.GetValue(lamp);
+        FieldInfo legacy = typeof(EnemyFormalVisualPart).GetField("Glow", BindingFlags.Static | BindingFlags.NonPublic);
+        TestAssert.True(legacy != null, "Moth paint observer requires a known actual renderer paint source");
+        return (Color)legacy!.GetValue(null);
+    }
+
+    private static void AssertMothGold(EnemyFormalVisualPart lamp, string message)
+    {
+        Color paint = ReadMothLampPaint(lamp);
+        TestAssert.True(paint.R > paint.G + .05f && paint.G > paint.B + .1f && paint.A > .95f,
+            $"{message}; actual={paint}");
+    }
+
+    private static void AssertMothPaint(EnemyFormalVisualPart lamp, Color expected, string message)
+    {
+        Color paint = ReadMothLampPaint(lamp);
+        TestAssert.True(Mathf.Abs(paint.R - expected.R) < .005f && Mathf.Abs(paint.G - expected.G) < .005f &&
+            Mathf.Abs(paint.B - expected.B) < .005f && Mathf.Abs(paint.A - expected.A) < .005f,
+            $"{message}; actual={paint}, expected={expected}");
     }
 
     private static void LaborerRuntimeUsesAnAuthoritativeLockedFanOnBothFacings()

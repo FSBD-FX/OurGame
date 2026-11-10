@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using Godot;
 using Knight.Audio;
 using Knight.Boss;
@@ -58,11 +59,34 @@ public partial class PrologueGameFlowController : Node
     private PrologueVfxDirector _vfx;
     private PrologueGuidanceController _guidance;
     private bool _awaitingLayoutChoice;
-    private bool _preserveReplacedSlot;
+    private sealed record StartupAttempt(long Version, PrologueSaveData Draft, bool WriteSlot, bool PreserveReplacedSlot);
+    private StartupAttempt _startup;
+    private long _entryVersion;
+
+    internal sealed class SupplyClaim(PrologueLevelController level, PrologueSaveData save,
+        long entryVersion, string savePath, string discoveryId)
+    {
+        internal readonly PrologueLevelController Level = level;
+        internal readonly PrologueSaveData Save = save;
+        internal readonly long EntryVersion = entryVersion;
+        internal readonly string SavePath = savePath;
+        internal readonly string DiscoveryId = discoveryId;
+        internal bool Finished;
+    }
     private PrologueMinimapController _minimap;
     private ConfirmationDialog _completionSaveFailure;
     private bool _ownsCompletionPause;
     private bool _completionRetryArmed;
+    public bool IsApplicationQuitting { get; private set; }
+    private Task<AudioQuitDrainResult> _applicationQuitPreparation;
+    private bool _applicationExitRequested;
+    private ulong _applicationQuitGeneration;
+    private ulong _applicationQuitRequestGeneration;
+    private SceneTree _applicationWindowTree;
+    private Window _applicationWindow;
+    private bool _previousAutoAcceptQuit;
+    private const string ApplicationQuitWindowOwnerKey = "_knight_application_quit_window_owner";
+    private const string ApplicationQuitWindowBaselineKey = "_knight_application_quit_auto_baseline";
 
     public override void _Ready()
     {
@@ -89,10 +113,15 @@ public partial class PrologueGameFlowController : Node
         if (returnButton != null) returnButton.Pressed += ReturnToTitle;
         if (replayButton != null) replayButton.Pressed += StartNew;
         Callable.From(InitializeAfterLevelReady).CallDeferred();
+        Callable.From(BindApplicationWindowQuit).CallDeferred();
     }
 
     public override void _ExitTree()
     {
+        _startup = null;
+        _applicationQuitGeneration++;
+        ReleaseApplicationWindowQuit();
+        if (IsInstanceValid(_level)) _level.CancelResidentPreparation();
         ReleaseCompletionPause();
         if (IsInstanceValid(_ui))
         {
@@ -116,53 +145,63 @@ public partial class PrologueGameFlowController : Node
 
     public void StartNew()
     {
+        if (IsApplicationQuitting) return;
         if (!BasinQualitySampleMode && !_awaitingLayoutChoice && !CanWriteFullWorldSlot()) return;
         if (!TryState(PrologueGameFlowState.Intro, PrologueGameFlowState.Title, PrologueGameFlowState.Completed)) return;
-        _preserveReplacedSlot = _awaitingLayoutChoice && LoadResult?.Status == PrologueSaveLoadStatus.Recovered;
-        AcceptLayoutChoice();
-        PrologueSaveData previous = Save;
-        Save = BasinQualitySampleMode ? new PrologueSaveData() :
-            PrologueSaveData.NewForLayout(CanyonWorldLayout.CurrentLayoutVersion);
-        if (!BasinQualitySampleMode)
+        _entryVersion++;
+        PrologueSaveData draft = NewSelectedSave();
+        if (!BasinQualitySampleMode && SelectedProfile==null)
         {
-            Save.BestHumanCompletionSeconds = previous.BestHumanCompletionSeconds;
-            Save.BestHumanDeaths = previous.BestHumanDeaths;
+            draft.BestHumanCompletionSeconds = Save.BestHumanCompletionSeconds;
+            draft.BestHumanDeaths = Save.BestHumanDeaths;
         }
+        var attempt = new StartupAttempt(_level.BeginResidentPreparation(), draft, WriteSlot: true,
+            PreserveReplacedSlot: _awaitingLayoutChoice && LoadResult?.Status == PrologueSaveLoadStatus.Recovered);
+        _startup = attempt;
+        _level.SetGameplayActive(false);
         _completion.ResetSession();
         _minimap?.StartNewExploration();
         SetCheckpointSaveFailure(false);
-        _level.StartNewGame();
-        PersistProgress("new-game");
-        BeginPlaying();
+        _level.StartNewGame(activateGameplay: false);
+        BeginPlayingAfterResidents(attempt);
     }
 
     public void Continue()
     {
+        if (IsApplicationQuitting) return;
         if (State != PrologueGameFlowState.Title || !HasSave)
         {
             Reject(PrologueGameFlowState.Playing);
             return;
         }
+        State = PrologueGameFlowState.Intro;
+        _entryVersion++;
         bool mappedChoice = _awaitingLayoutChoice && LoadResult?.Status == PrologueSaveLoadStatus.MigratableLegacy;
-        AcceptLayoutChoice();
+        var attempt = new StartupAttempt(_level.BeginResidentPreparation(), mappedChoice ? SelectedNormalize(Save) : Save,
+            WriteSlot: mappedChoice, PreserveReplacedSlot: false);
+        _startup = attempt;
+        _level.SetGameplayActive(false);
         _completion.ResetSession();
-        _minimap?.RestoreExploration(Save.ExplorationMap);
+        _minimap?.RestoreExploration(attempt.Draft.ExplorationMap);
         SetCheckpointSaveFailure(false);
-        _level.RestoreFromSave(Save);
+        _level.RestoreFromSave(attempt.Draft, activateGameplay: false);
+        if (!OwnsStartup(attempt)) return;
         if (BasinQualitySampleMode && _level.Progress.BossDefeated)
             _level.CurrentSectorRoot?.GetNodeOrNull<BossArenaController>("Gameplay/BossArenaController")
                 ?.RestoreDefeatedEncounter();
-        if (!BasinQualitySampleMode &&
-            Enum.TryParse(Save.Objective, ignoreCase: false, out PrologueObjective objective) &&
+        if (!BasinQualitySampleMode && SelectedProfile==null &&
+            Enum.TryParse(attempt.Draft.Objective, ignoreCase: false, out PrologueObjective objective) &&
             Enum.IsDefined(objective)) _completion.RestoreSession(objective,
-                completeMappedLegacyBossResult: mappedChoice && Save.BossDefeated);
-        if (mappedChoice) PersistProgress("mapped-continue");
-        BeginPlaying();
+                completeMappedLegacyBossResult: mappedChoice && attempt.Draft.BossDefeated);
+        BeginPlayingAfterResidents(attempt);
     }
 
     public void ReturnToTitle()
     {
+        if (IsApplicationQuitting) return;
         if (State == PrologueGameFlowState.Recovering) return;
+        _startup = null;
+        _level.CancelResidentPreparation();
         _completionSaveFailure?.Hide();
         ReleaseCompletionPause();
         GetTree().Paused = false;
@@ -178,6 +217,7 @@ public partial class PrologueGameFlowController : Node
 
     public void ApplySettings(GameSettingsData settings)
     {
+        if (IsApplicationQuitting) return;
         Settings = (settings ?? new GameSettingsData()).Normalize();
         if (BasinQualitySampleMode) Settings.GuidanceEnabled = false;
         GameSettingsStore.SaveAtomic(Absolute(SettingsPath), Settings);
@@ -212,7 +252,8 @@ public partial class PrologueGameFlowController : Node
 
     internal bool TryComplete()
     {
-        if (BasinQualitySampleMode) return false;
+        if (IsApplicationQuitting) return false;
+        if (BasinQualitySampleMode || SelectedProfile!=null) return false;
         if (State is not (PrologueGameFlowState.Playing or PrologueGameFlowState.CompletionSaveFailed))
         { Reject(PrologueGameFlowState.Completed); return false; }
         PrologueSaveData candidate;
@@ -223,8 +264,8 @@ public partial class PrologueGameFlowController : Node
             candidate.Completed = true;
             candidate.Objective = nameof(PrologueObjective.Complete);
             if (_minimap != null) candidate.ExplorationMap = _minimap.CaptureExploration();
-            candidate = candidate.Normalize();
-            PrologueSaveStore.SaveAtomic(Absolute(SavePath), candidate, _preserveReplacedSlot);
+            candidate = SelectedNormalize(candidate);
+            SaveSelected(candidate);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
             InvalidDataException or NotSupportedException or ArgumentException or System.Security.SecurityException)
@@ -232,7 +273,6 @@ public partial class PrologueGameFlowController : Node
 
         // Only a durable commit may become a success notification/terminal state.
         Save = candidate;
-        _preserveReplacedSlot = false;
         HasSave = false;
         State = PrologueGameFlowState.Completed;
         LastRejectedTransition = string.Empty;
@@ -286,12 +326,14 @@ public partial class PrologueGameFlowController : Node
 
     public override void _Process(double delta)
     {
+        if (IsApplicationQuitting) return;
         if (State == PrologueGameFlowState.CompletionSaveFailed && !Input.IsActionPressed("ui_accept"))
             _completionRetryArmed = true;
     }
 
     private void RetryCompletionSave()
     {
+        if (IsApplicationQuitting) return;
         if (!_completionRetryArmed || State != PrologueGameFlowState.CompletionSaveFailed) return;
         _completionRetryArmed = false;
         _completion.RetryPendingCompletion();
@@ -326,6 +368,7 @@ public partial class PrologueGameFlowController : Node
 
     public FragmentCollectionResult TryCollectFragment(string stableId)
     {
+        if (IsApplicationQuitting) return FragmentCollectionResult.Unavailable;
         if (!QuestFragmentCatalog.IsKnown(stableId)) return FragmentCollectionResult.InvalidId;
         if (!IsInsideTree() || IsQueuedForDeletion() || !IsInstanceValid(_level) ||
             !_level.IsInsideTree() || _level.IsQueuedForDeletion() || !IsInstanceValid(_level.Player) ||
@@ -352,9 +395,9 @@ public partial class PrologueGameFlowController : Node
                 candidate.BestHumanCompletionSeconds = -1d;
                 candidate.BestHumanDeaths = -1;
             }
-            candidate = candidate.Normalize();
+            candidate = SelectedNormalize(candidate);
             // No live mutation, signal or await until the durable write commits.
-            PrologueSaveStore.SaveAtomic(Absolute(SavePath), candidate, _preserveReplacedSlot);
+            SaveSelected(candidate);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
             InvalidDataException or NotSupportedException or ArgumentException or System.Security.SecurityException)
@@ -363,7 +406,6 @@ public partial class PrologueGameFlowController : Node
         if (!_level.Progress.TryCollectFragment(stableId))
             throw new InvalidOperationException("Committed fragment unexpectedly already exists in live progress.");
         Save = candidate;
-        _preserveReplacedSlot = false;
         HasSave = IsContinueSaveAllowed();
         RefreshFragmentHud();
         return FragmentCollectionResult.Collected;
@@ -371,20 +413,25 @@ public partial class PrologueGameFlowController : Node
 
     internal bool TryCommitCheckpoint(string stableId)
     {
+        if (IsApplicationQuitting) return false;
         if (!IsInsideTree() || IsQueuedForDeletion() || !IsInstanceValid(_level) ||
             !_level.IsInsideTree() || _level.IsQueuedForDeletion() || !IsInstanceValid(_level.Player) ||
             !_level.Player.IsInsideTree() || _level.Player.IsQueuedForDeletion() || GetTree().Paused ||
             State != PrologueGameFlowState.Playing || _awaitingLayoutChoice || BasinQualitySampleMode ||
-            Save.LayoutVersion != CanyonWorldLayout.CurrentLayoutVersion ||
-            _level.Player.GetNodeOrNull<HealthComponent>("Health") is not { CurrentHealth: > 0 } ||
-            !CanyonWorldLayout.TryResolveCheckpoint(stableId, out var sector, out var position) ||
-            sector == PrologueSectorId.CanyonEntrance) return false;
+            _level.Player.GetNodeOrNull<HealthComponent>("Health") is not { CurrentHealth: > 0 }) return false;
+        PrologueSectorId sector;Vector2 position;
+        if(SelectedProfile!=null)
+        {
+            if(Save.LayoutVersion!=3 || !SelectedProfile.TryResolveCheckpoint(stableId,out sector,out position) || stableId==SelectedProfile.Start.StableId)return false;
+        }
+        else if(Save.LayoutVersion!=CanyonWorldLayout.CurrentLayoutVersion ||
+            !CanyonWorldLayout.TryResolveCheckpoint(stableId,out sector,out position) || sector==PrologueSectorId.CanyonEntrance)return false;
 
         var old = _level.Progress.RestoreCheckpoint();
         if (old.HasActivatedCheckpoint && old.CheckpointId == stableId)
         { SetCheckpointSaveFailure(false); return true; }
-        if (old.HasActivatedCheckpoint && old.SectorId == PrologueSectorId.LostTemple &&
-            sector == PrologueSectorId.CanyonBasin) return false;
+        if(SelectedProfile!=null ? !SelectedProfile.CanAdvanceCheckpoint(old.CheckpointId,stableId) :
+            old.HasActivatedCheckpoint && old.SectorId==PrologueSectorId.LostTemple && sector==PrologueSectorId.CanyonBasin)return false;
 
         PrologueSaveData candidate;
         try
@@ -398,8 +445,8 @@ public partial class PrologueGameFlowController : Node
             candidate.CheckpointWorldY = position.Y;
             candidate.Objective = _completion.CurrentObjective.ToString();
             if (_minimap != null) candidate.ExplorationMap = _minimap.CaptureExploration();
-            candidate = candidate.Normalize();
-            PrologueSaveStore.SaveAtomic(Absolute(SavePath), candidate, _preserveReplacedSlot);
+            candidate = SelectedNormalize(candidate);
+            SaveSelected(candidate);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
             InvalidDataException or NotSupportedException or ArgumentException or System.Security.SecurityException)
@@ -409,7 +456,6 @@ public partial class PrologueGameFlowController : Node
         if (!_level.Progress.ActivateCheckpoint(stableId))
             throw new InvalidOperationException("Committed checkpoint unexpectedly rejected by live progress.");
         Save = candidate;
-        _preserveReplacedSlot = false;
         HasSave = IsContinueSaveAllowed();
         SetCheckpointSaveFailure(false);
         return true;
@@ -426,52 +472,136 @@ public partial class PrologueGameFlowController : Node
         PersistProgressIfEligible(reason);
     }
 
+    internal SupplyClaim BeginSupplyClaim(PrologueLevelController level, string discoveryId)
+    {
+        if (State != PrologueGameFlowState.Playing || IsApplicationQuitting || _startup != null ||
+            !ReferenceEquals(_level, level) || string.IsNullOrWhiteSpace(discoveryId)) return null;
+        return new SupplyClaim(level, Save, _entryVersion, SavePath, discoveryId);
+    }
+
+    internal bool OwnsSupplyClaim(SupplyClaim claim) => claim != null && !claim.Finished &&
+        IsInstanceValid(this) && IsInsideTree() && !IsQueuedForDeletion() && !IsApplicationQuitting &&
+        IsInstanceValid(_level) && _level.IsInsideTree() && !_level.IsQueuedForDeletion() &&
+        ReferenceEquals(claim.Level, _level) && ReferenceEquals(claim.Save, Save) &&
+        claim.EntryVersion == _entryVersion && string.Equals(claim.SavePath, SavePath, StringComparison.Ordinal) &&
+        _startup == null && State != PrologueGameFlowState.Intro &&
+        _level.Progress.Discoveries.Contains(claim.DiscoveryId);
+
+    internal void FinishSupplyClaim(SupplyClaim claim)
+    {
+        if (!OwnsSupplyClaim(claim)) return;
+        claim.Finished = true;
+        if (State == PrologueGameFlowState.Title)
+        {
+            // A real Playing claim may finish across a title-only callback.
+            // Any accepted Start/Continue, even one that later aborts, revokes it.
+            bool hadSave = HasSave;
+            if (!TryWriteTitleSupplyClaim()) return;
+            if (HasSave != hadSave) _ui.UpdateContinueAvailability(HasSave);
+        }
+        // The existing gameplay listener saves normal claims. In Title it
+        // still refuses generic writes, so this already committed claim is not saved twice.
+        _level.EmitSignal(PrologueLevelController.SignalName.ProgressPersistRequested, "discovery");
+    }
+
     private bool PersistProgressIfEligible(string reason)
     {
-        if (State == PrologueGameFlowState.CompletionSaveFailed) return false;
-        if (_awaitingLayoutChoice) return false;
-        if (!BasinQualitySampleMode && !CanWriteFullWorldSlot()) return false;
-        PrologueCheckpointSnapshot snapshot = _level.Progress.RestoreCheckpoint();
-        Save.HasActivatedCheckpoint = snapshot.HasActivatedCheckpoint;
-        Save.CheckpointSector = snapshot.SectorId.ToString();
-        Save.CheckpointWorldX = snapshot.WorldPosition.X;
-        Save.CheckpointWorldY = snapshot.WorldPosition.Y;
-        Save.ShortcutOpen = snapshot.ShortcutOpen;
-        if (!BasinQualitySampleMode)
-        {
-            Save.CheckpointId = snapshot.CheckpointId;
-            Save.OpenShortcuts.Clear();
-            foreach (string id in _level.Progress.OpenShortcuts) Save.OpenShortcuts.Add(id);
-            Save.ActivatedMechanisms.Clear();
-            foreach (string id in _level.Progress.ActivatedMechanisms) Save.ActivatedMechanisms.Add(id);
-        }
-        Save.Discoveries.Clear();
-        foreach (string discovery in snapshot.Progress.Discoveries) Save.Discoveries.Add(discovery);
-        Save.BossDefeated = snapshot.Progress.BossDefeated;
-        Save.CollectionRuleVersion = snapshot.Progress.CollectionRuleVersion;
-        Save.LegacyCollectionQuotaExempt = snapshot.Progress.LegacyCollectionQuotaExempt;
-        Save.CollectedFragmentIds.Clear();
-        foreach (string id in snapshot.Progress.CollectedFragmentIds) Save.CollectedFragmentIds.Add(id);
-        Save.Objective = BasinQualitySampleMode
-            ? nameof(PrologueObjective.Wake) : _completion.CurrentObjective.ToString();
-        if (BasinQualitySampleMode)
-        {
-            Save.Completed = false;
-            Save.BestHumanCompletionSeconds = -1d;
-            Save.BestHumanDeaths = -1;
-        }
-        Save.CompletedTutorials.Clear();
-        foreach (StringName tutorial in _level.Progress.CompletedTutorials)
-            Save.CompletedTutorials.Add(tutorial.ToString());
-        // Preserve original core mutations/failure policy, but never commit an
-        // unsaved map DTO into Save until its detached candidate actually lands.
-        PrologueSaveData candidate = _minimap == null ? Save : Save.Normalize();
-        if (_minimap != null) candidate.ExplorationMap = _minimap.CaptureExploration();
-        PrologueSaveStore.SaveAtomic(Absolute(SavePath), candidate, _preserveReplacedSlot);
+        if (IsApplicationQuitting) return false;
+        if (State is PrologueGameFlowState.Title or PrologueGameFlowState.Intro or
+            PrologueGameFlowState.CompletionSaveFailed) return false;
+        return WriteAcceptedProgress();
+    }
+
+    private bool WriteAcceptedProgress()
+    {
+        if (!CanWriteAcceptedProgress()) return false;
+        PrologueSaveData candidate = WriteProgressSnapshot(Save, preserveReplacedSlot: false);
         if (_minimap != null) Save.ExplorationMap = candidate.ExplorationMap;
-        _preserveReplacedSlot = false;
         HasSave = IsContinueSaveAllowed();
         return true;
+    }
+
+    private bool CanWriteAcceptedProgress() => !_awaitingLayoutChoice &&
+        (BasinQualitySampleMode || CanWriteFullWorldSlot());
+
+    private bool TryWriteTitleSupplyClaim()
+    {
+        PrologueSaveData candidate;
+        try
+        {
+            if (!CanWriteAcceptedProgress()) return RejectTitleSupplySave();
+            candidate = WriteProgressSnapshot(SelectedNormalize(Save), preserveReplacedSlot: false);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or
+            InvalidDataException or NotSupportedException or ArgumentException or System.Security.SecurityException)
+        { return RejectTitleSupplySave(); }
+
+        // No user callback between serialization and publication. Keep the
+        // accepted object's identity, but publish none of these fields on failure.
+        PopulateProgressSnapshot(Save);
+        if (_minimap != null) Save.ExplorationMap = candidate.ExplorationMap;
+        HasSave = IsContinueSaveAllowed();
+        return true;
+    }
+
+    private bool RejectTitleSupplySave()
+    {
+        LastRejectedTransition = "supply-save: previous slot retained";
+        if (_ui.GetNodeOrNull<Label>("MainMenu/Panel/Footer") is { } footer)
+            footer.Text = Settings.Language == GameLanguage.ChineseSimplified
+                ? (HasSave ? "补给领取未能保存；继续将使用上一次存档。" : "补给领取未能保存；没有可继续的存档。")
+                : (HasSave ? "SUPPLY COULD NOT BE SAVED. CONTINUE WILL USE THE PREVIOUS SAVE."
+                    : "SUPPLY COULD NOT BE SAVED. NO SAVE IS AVAILABLE TO CONTINUE.");
+        return false;
+    }
+
+    private void PopulateProgressSnapshot(PrologueSaveData draft)
+    {
+        PrologueCheckpointSnapshot snapshot = _level.Progress.RestoreCheckpoint();
+        draft.HasActivatedCheckpoint = snapshot.HasActivatedCheckpoint;
+        draft.CheckpointSector = snapshot.SectorId.ToString();
+        draft.CheckpointWorldX = snapshot.WorldPosition.X;
+        draft.CheckpointWorldY = snapshot.WorldPosition.Y;
+        draft.ShortcutOpen = snapshot.ShortcutOpen;
+        if (!BasinQualitySampleMode)
+        {
+            draft.CheckpointId = snapshot.CheckpointId;
+            draft.OpenShortcuts.Clear();
+            foreach (string id in _level.Progress.OpenShortcuts) draft.OpenShortcuts.Add(id);
+            draft.ActivatedMechanisms.Clear();
+            foreach (string id in _level.Progress.ActivatedMechanisms) draft.ActivatedMechanisms.Add(id);
+        }
+        draft.Discoveries.Clear();
+        foreach (string discovery in snapshot.Progress.Discoveries) draft.Discoveries.Add(discovery);
+        draft.BossDefeated = snapshot.Progress.BossDefeated;
+        draft.CollectionRuleVersion = snapshot.Progress.CollectionRuleVersion;
+        draft.LegacyCollectionQuotaExempt = snapshot.Progress.LegacyCollectionQuotaExempt;
+        draft.CollectedFragmentIds.Clear();
+        foreach (string id in snapshot.Progress.CollectedFragmentIds) draft.CollectedFragmentIds.Add(id);
+        draft.ClaimedRewardIds.Clear();
+        foreach (string id in _level.Progress.ClaimedRewardIds) draft.ClaimedRewardIds.Add(id);
+        draft.Objective = BasinQualitySampleMode || SelectedProfile!=null
+            ? nameof(PrologueObjective.Wake) : _completion.CurrentObjective.ToString();
+        if (BasinQualitySampleMode || SelectedProfile!=null)
+        {
+            draft.Completed = false;
+            draft.BestHumanCompletionSeconds = -1d;
+            draft.BestHumanDeaths = -1;
+        }
+        draft.CompletedTutorials.Clear();
+        foreach (StringName tutorial in _level.Progress.CompletedTutorials)
+            draft.CompletedTutorials.Add(tutorial.ToString());
+    }
+
+    private PrologueSaveData WriteProgressSnapshot(PrologueSaveData draft, bool preserveReplacedSlot)
+    {
+        PopulateProgressSnapshot(draft);
+        // Preserve original core mutations/failure policy, but never commit an
+        // unsaved map DTO into Save until its detached candidate actually lands.
+        PrologueSaveData candidate = _minimap == null && SelectedProfile==null ? draft : SelectedNormalize(draft);
+        if (_minimap != null) candidate.ExplorationMap = _minimap.CaptureExploration();
+        SaveSelected(candidate, preserveReplacedSlot);
+        return candidate;
     }
 
     public bool TrySaveBeforeQuit(out string failure)
@@ -490,8 +620,14 @@ public partial class PrologueGameFlowController : Node
 
     private void InitializeAfterLevelReady()
     {
+        if (IsApplicationQuitting) return;
         _minimap = _level.GetNodeOrNull<PrologueMinimapController>("MinimapController");
-        if (BasinQualitySampleMode) Save = PrologueSaveStore.LoadOrNew(Absolute(SavePath), mapCatalog: _minimap?.Catalog);
+        if(SelectedProfile!=null)
+        {
+            LoadResult=PrologueSaveStore.LoadCandidate(Absolute(SavePath),SelectedProfile,_minimap?.Catalog);
+            Save=LoadResult.Data;_awaitingLayoutChoice=LoadResult.Status!=PrologueSaveLoadStatus.Current;
+        }
+        else if (BasinQualitySampleMode) Save = PrologueSaveStore.LoadOrNew(Absolute(SavePath), mapCatalog: _minimap?.Catalog);
         else
         {
             // Resolve the sibling legacy slot from the selected path. Injected
@@ -520,6 +656,7 @@ public partial class PrologueGameFlowController : Node
 
     private void BeginPlaying()
     {
+        if (IsApplicationQuitting) return;
         State = PrologueGameFlowState.Playing;
         _ui.Visible = false;
         _level.SetGameplayActive(true);
@@ -527,6 +664,63 @@ public partial class PrologueGameFlowController : Node
         // RestoreSession resets HUD too, so refresh only after that operation.
         RefreshFragmentHud();
         EmitSignal(SignalName.SessionStarted);
+    }
+
+    private bool OwnsStartup(StartupAttempt attempt) => ReferenceEquals(_startup, attempt) &&
+        IsInstanceValid(this) && IsInsideTree() && !IsQueuedForDeletion() && !IsApplicationQuitting &&
+        State == PrologueGameFlowState.Intro && IsInstanceValid(_level) &&
+        _level.HasResidentPreparationVersion(attempt.Version);
+
+    private async void BeginPlayingAfterResidents(StartupAttempt attempt)
+    {
+        if (!OwnsStartup(attempt)) return;
+        if (_level.ResidentPreparationPending)
+        {
+            bool ready;
+            try { ready = await _level.PrepareResidents(attempt.Version); }
+            catch (Exception error)
+            {
+                if (OwnsStartup(attempt)) AbortResidentPreparation(error.Message);
+                return;
+            }
+            if (!OwnsStartup(attempt)) return;
+            if (!ready || !_level.CommitResidentPreparation(attempt.Version))
+            { AbortResidentPreparation(_level.ResidentPreparationFailure); return; }
+        }
+        if (!OwnsStartup(attempt)) return;
+        if (attempt.WriteSlot)
+        {
+            try
+            {
+                if (!BasinQualitySampleMode && !CanWriteSelectedSlot(attempt.PreserveReplacedSlot))
+                { AbortStartupSave("slot is not eligible for writing"); return; }
+                Save = WriteProgressSnapshot(attempt.Draft, attempt.PreserveReplacedSlot);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or
+                InvalidDataException or NotSupportedException or ArgumentException or System.Security.SecurityException)
+            { AbortStartupSave(error.Message); return; }
+        }
+        _startup = null;
+        AcceptLayoutChoice();
+        HasSave = IsContinueSaveAllowed();
+        BeginPlaying();
+    }
+
+    private void AbortStartupSave(string reason)
+    {
+        LastRejectedTransition = "startup-save: " + reason;
+        ReturnToTitle();
+        _ui.GetNode<Label>("MainMenu/Panel/Footer").Text = Settings.Language == GameLanguage.ChineseSimplified
+            ? "无法保存本次游戏，请重试。" : "COULD NOT SAVE THIS SESSION. PLEASE RETRY.";
+    }
+
+    internal void AbortResidentPreparation(string reason)
+    {
+        LastRejectedTransition = "resident-preparation: " + reason;
+        if (State == PrologueGameFlowState.Recovering) State = PrologueGameFlowState.Title;
+        ReturnToTitle();
+        _ui.GetNode<Label>("MainMenu/Panel/Footer").Text = Settings.Language == GameLanguage.ChineseSimplified
+            ? "区域准备失败，请重试。" : "AREA PREPARATION FAILED. PLEASE RETRY.";
     }
 
     private void OnPaused()
@@ -537,6 +731,7 @@ public partial class PrologueGameFlowController : Node
 
     private void OnResumed()
     {
+        if (IsApplicationQuitting) return;
         if (State != PrologueGameFlowState.Paused) return;
         State = PrologueGameFlowState.Playing;
         _audio.SetPaused(false);
@@ -544,6 +739,8 @@ public partial class PrologueGameFlowController : Node
 
     internal bool AllowsRecoveryRequest()
     {
+        if (IsApplicationQuitting) return false;
+        if (_level.ResidentPreparationPending) return false;
         if (State is not (PrologueGameFlowState.Completed or PrologueGameFlowState.CompletionSaveFailed)) return true;
         Reject(PrologueGameFlowState.Recovering);
         return false;
@@ -556,8 +753,9 @@ public partial class PrologueGameFlowController : Node
 
     private void OnRecoveryCompleted(string reason)
     {
+        if (IsApplicationQuitting) return;
         if (State == PrologueGameFlowState.Recovering) State = PrologueGameFlowState.Playing;
-        if (BasinQualitySampleMode) _completion.RefreshDisplay();
+        if (BasinQualitySampleMode || SelectedProfile!=null) _completion.RefreshDisplay();
     }
 
     private bool IsContinueSaveAllowed()
@@ -565,6 +763,7 @@ public partial class PrologueGameFlowController : Node
         if (_awaitingLayoutChoice) return LoadResult?.Status == PrologueSaveLoadStatus.MigratableLegacy &&
             !Save.Completed;
         if (!File.Exists(Absolute(SavePath)) || Save.WasRecovered || Save.Completed) return false;
+        if(SelectedProfile!=null)return Save.LayoutVersion==3 && Save.WorldProfileId==SelectedProfile.Id && Save.WorldProfileSaveRuleVersion==SelectedProfile.SaveRuleVersion;
         if (!BasinQualitySampleMode) return Save.LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion;
         return Save.HasActivatedCheckpoint &&
             Save.BestHumanCompletionSeconds < 0d && Save.BestHumanDeaths < 0 &&
@@ -572,8 +771,10 @@ public partial class PrologueGameFlowController : Node
             MatchesAuthoredSampleCheckpoint();
     }
 
-    private bool CanWriteFullWorldSlot() => !_awaitingLayoutChoice && (_preserveReplacedSlot || !File.Exists(Absolute(SavePath)) ||
-        !PrologueSaveStore.LoadOrNew(Absolute(SavePath), CanyonWorldLayout.CurrentLayoutVersion).WasRecovered);
+    private bool CanWriteFullWorldSlot() => !_awaitingLayoutChoice && CanWriteSelectedSlot(preserveReplacedSlot: false);
+    private bool CanWriteSelectedSlot(bool preserveReplacedSlot) => preserveReplacedSlot || !File.Exists(Absolute(SavePath)) ||
+        !(SelectedProfile!=null ? PrologueSaveStore.LoadCandidate(Absolute(SavePath),SelectedProfile).Data :
+            PrologueSaveStore.LoadOrNew(Absolute(SavePath), CanyonWorldLayout.CurrentLayoutVersion)).WasRecovered;
 
     private bool MatchesAuthoredSampleCheckpoint()
     {
@@ -627,6 +828,7 @@ public partial class PrologueGameFlowController : Node
 
     private bool TryState(PrologueGameFlowState target, params PrologueGameFlowState[] allowed)
     {
+        if (IsApplicationQuitting) return false;
         foreach (PrologueGameFlowState state in allowed)
             if (State == state) { State = target; LastRejectedTransition = string.Empty; return true; }
         Reject(target);
@@ -639,7 +841,124 @@ public partial class PrologueGameFlowController : Node
         GD.PushWarning($"Rejected prologue flow transition {LastRejectedTransition}.");
     }
 
-    private void OnQuit() => GetTree().Quit();
+    // Scene owners must revoke deferred startup before releasing dependencies.
+    // This is shared by the real quit path and owned-scene retirement, and does
+    // not request a global SceneTree quit or perform an asynchronous drain.
+    internal void BeginSceneRetirement()
+    {
+        IsApplicationQuitting = true;
+        _startup = null;
+        if (IsInstanceValid(_level))
+        {
+            _level.BeginApplicationQuit();
+            _level.SetGameplayActive(false);
+        }
+        if (IsInstanceValid(_audio)) _audio.BeginApplicationQuit();
+    }
+
+    public Task<AudioQuitDrainResult> PrepareApplicationQuitAsync()
+    {
+        if (_applicationQuitPreparation != null) return _applicationQuitPreparation;
+        var completion = new TaskCompletionSource<AudioQuitDrainResult>();
+        _applicationQuitPreparation = completion.Task;
+        IsApplicationQuitting = true;
+        ulong generation = _applicationQuitRequestGeneration = ++_applicationQuitGeneration;
+        try
+        {
+            if (!IsInstanceValid(this) || !IsInsideTree() || !IsInstanceValid(_audio) || !IsInstanceValid(_level))
+                completion.TrySetResult(new(AudioQuitDrainState.Cancelled, 0, 0, false));
+            else
+            {
+                BeginSceneRetirement();
+                _ = FinishApplicationQuitPreparation(completion, generation);
+            }
+        }
+        catch (Exception error) { completion.TrySetException(error); }
+        return _applicationQuitPreparation;
+    }
+
+    private async Task FinishApplicationQuitPreparation(TaskCompletionSource<AudioQuitDrainResult> completion, ulong generation)
+    {
+        try
+        {
+            AudioQuitDrainResult result = await _audio.PrepareApplicationQuitAsync();
+            if (!IsInstanceValid(this) || !IsInsideTree() || generation != _applicationQuitGeneration ||
+                _applicationExitRequested && (GetTree().CurrentScene != _level || _level.GetParent() != GetTree().Root))
+                result = result with { State = AudioQuitDrainState.Cancelled };
+            completion.TrySetResult(result);
+        }
+        catch (Exception error) { completion.TrySetException(error); }
+    }
+
+    public void RequestApplicationQuit() => OnQuit();
+
+    private async void OnQuit()
+    {
+        if (!IsInstanceValid(this) || !IsInsideTree() || GetTree().CurrentScene != _level ||
+            _level.GetParent() != GetTree().Root) return;
+        if (_applicationExitRequested) return;
+        _applicationExitRequested = true;
+        SceneTree applicationTree = GetTree();
+        Task<AudioQuitDrainResult> preparation = PrepareApplicationQuitAsync();
+        ulong generation = _applicationQuitRequestGeneration;
+        try
+        {
+            AudioQuitDrainResult result = await preparation;
+            if (!OwnsApplicationQuit(applicationTree, generation) || result.State == AudioQuitDrainState.Cancelled) return;
+            if (result.State != AudioQuitDrainState.Ready)
+            {
+                GD.PushError($"Application quit audio drain failed: {result}");
+                applicationTree.Quit(1);
+                return;
+            }
+            GD.Print($"APPLICATION_QUIT_PREPARED elapsed_ms={result.ElapsedMilliseconds} process_observations={result.ObservedProcessFrames} mix_observed={result.MixObserved}");
+            applicationTree.Quit(0);
+        }
+        catch (Exception error)
+        {
+            if (!OwnsApplicationQuit(applicationTree, generation))
+            {
+                GD.Print($"APPLICATION_QUIT_RETIRED_FAILURE type={error.GetType().Name} global_quit=false");
+                return;
+            }
+            GD.PushError("Application quit preparation failed: " + error);
+            applicationTree.Quit(1);
+        }
+    }
+
+    private bool OwnsApplicationQuit(SceneTree tree, ulong generation) => IsInstanceValid(this) &&
+        IsInsideTree() && IsInstanceValid(tree) && GetTree() == tree && generation == _applicationQuitGeneration &&
+        tree.CurrentScene == _level && IsInstanceValid(_level) && _level.GetParent() == tree.Root;
+
+    private void BindApplicationWindowQuit()
+    {
+        if (!IsInstanceValid(this) || !IsInsideTree() || IsApplicationQuitting || _applicationWindow != null) return;
+        SceneTree tree = GetTree();
+        if (tree.CurrentScene != _level || _level.GetParent() != tree.Root) return;
+        _applicationWindowTree = tree;
+        _applicationWindow = tree.Root;
+        if (!_applicationWindow.HasMeta(ApplicationQuitWindowOwnerKey))
+            _applicationWindow.SetMeta(ApplicationQuitWindowBaselineKey, tree.AutoAcceptQuit);
+        _previousAutoAcceptQuit = (bool)_applicationWindow.GetMeta(ApplicationQuitWindowBaselineKey);
+        _applicationWindow.SetMeta(ApplicationQuitWindowOwnerKey, (long)GetInstanceId());
+        tree.AutoAcceptQuit = false;
+        _applicationWindow.CloseRequested += OnQuit;
+    }
+
+    private void ReleaseApplicationWindowQuit()
+    {
+        if (IsInstanceValid(_applicationWindow)) _applicationWindow.CloseRequested -= OnQuit;
+        if (IsInstanceValid(_applicationWindow) && IsInstanceValid(_applicationWindowTree) &&
+            _applicationWindow.HasMeta(ApplicationQuitWindowOwnerKey) &&
+            (long)_applicationWindow.GetMeta(ApplicationQuitWindowOwnerKey) == (long)GetInstanceId())
+        {
+            _applicationWindowTree.AutoAcceptQuit = _previousAutoAcceptQuit;
+            _applicationWindow.RemoveMeta(ApplicationQuitWindowOwnerKey);
+            _applicationWindow.RemoveMeta(ApplicationQuitWindowBaselineKey);
+        }
+        _applicationWindow = null;
+        _applicationWindowTree = null;
+    }
 
     private static string Absolute(string path) => path.StartsWith("user://", StringComparison.Ordinal)
         ? ProjectSettings.GlobalizePath(path) : Path.GetFullPath(path);

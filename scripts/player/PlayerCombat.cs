@@ -12,7 +12,11 @@ public partial class PlayerCombat : Node2D
     [Signal]
     public delegate void AttackConnectedEventHandler(Hurtbox hurtbox);
 
+#if REFCOUNTED_FATAL_IDENTITY
+    [Export] public PlayerTuning Tuning { get; set; } = Knight.Tests.Diagnostics.ResidentProfileLifetimeTrace.PlayerTuningCreated(new PlayerTuning(), "combat-default");
+#else
     [Export] public PlayerTuning Tuning { get; set; } = new();
+#endif
 
     private PlayerCombatSettings _settings = null!;
     private PlayerCombatModel _model = null!;
@@ -31,7 +35,13 @@ public partial class PlayerCombat : Node2D
 
     public override void _Ready()
     {
-        Tuning ??= new PlayerTuning();
+        Tuning ??=
+#if REFCOUNTED_FATAL_IDENTITY
+            Knight.Tests.Diagnostics.ResidentProfileLifetimeTrace.PlayerTuningCreated(new PlayerTuning(), "combat-ready-fallback");
+        Knight.Tests.Diagnostics.ResidentProfileLifetimeTrace.PlayerTuningAssigned(Tuning, this, "combat-ready");
+#else
+            new PlayerTuning();
+#endif
         System.Collections.Generic.IReadOnlyList<string> errors = Tuning.Validate();
         if (errors.Count > 0)
             throw new System.InvalidOperationException("Invalid PlayerTuning: " + string.Join("; ", errors));

@@ -334,8 +334,8 @@ public static class PrologueCanyonStructureTests
         WithV2Sectors(AssertV2Sectors);
         AssertV2GraphAndCatalog();
         WithV2Main(mainScene, AssertV2Main);
-        GD.Print("CANYON_V2_STRUCTURE_OK sectors=5 nodes=14 challenges=12 directed_edges=18 " +
-            "logical_edges=16 encounter_groups=12 visual_layers=5 structural_only=true");
+        GD.Print("CANYON_V2_STRUCTURE_OK sectors=5 nodes=15 challenges=12 directed_edges=21 " +
+            "logical_edges=18 encounter_groups=12 visual_layers=5 structural_only=true");
     }
 
     // Independent accepted literals: never build expected data from the layout/catalog/builder.
@@ -350,7 +350,7 @@ public static class PrologueCanyonStructureTests
     [
         new(E, "res://scenes/prologue/sectors/CanyonEntrance.tscn", new(0,0,1280,720), new(0,0), 1, null, new(1278,600)),
         new(D, "res://scenes/prologue/sectors/CanyonDescent.tscn", new(0,0,1280,3600), new(1280,0), 5, new(2,600), new(620,3598)),
-        new(B, "res://scenes/prologue/sectors/CanyonBasin.tscn", new(0,0,3840,720), new(1280,3600), 2, new(620,2), new(2460,2)),
+        new(B, "res://scenes/prologue/sectors/CanyonBasin.tscn", new(0,0,5120,720), new(1280,3600), 2, new(620,2), new(2460,2)),
         new(A, "res://scenes/prologue/sectors/CanyonAscent.tscn", new(0,0,1280,2880), new(3840,720), 3, new(70,2878), new(1278,484)),
         new(T, "res://scenes/prologue/sectors/LostTemple.tscn", new(0,0,2560,720), new(5120,720), 1, new(2,484), null)
     ];
@@ -360,17 +360,18 @@ public static class PrologueCanyonStructureTests
         new(CanyonRouteNodeId.LowCeilingBridge,E,new(0,0,1280,720),false,0),
         new(CanyonRouteNodeId.StaggeredRift,D,new(0,0,1280,1176),false,1),
         new(CanyonRouteNodeId.ControlledAbyss,D,new(640,1176,640,2424),false,2),
-        new(CanyonRouteNodeId.ArchiveSideCave,D,new(0,1176,640,624),true,3,Discovery:"canyon.v2.discovery.archive-side-cave"),
+        new(CanyonRouteNodeId.ArchiveSideCave,D,new(0,1176,704,624),true,3,Discovery:"canyon.v2.discovery.archive-side-cave"),
         new(CanyonRouteNodeId.FrozenDetour,D,new(0,1800,640,1560),true,4,Discovery:"canyon.v2.discovery.frozen-detour"),
         new(CanyonRouteNodeId.BasinCamp,B,new(0,0,800,720),false,-1,Rest:true),
         new(CanyonRouteNodeId.GearPistons,B,new(800,0,960,720),false,5),
-        new(CanyonRouteNodeId.SteamValves,B,new(1760,360,1160,360),true,6),
+        new(CanyonRouteNodeId.SteamValves,B,new(1760,200,1160,520),true,6),
         new(CanyonRouteNodeId.CounterweightLift,A,new(0,2080,1280,800),false,7),
         new(CanyonRouteNodeId.PendulumGallery,A,new(0,1280,1280,800),false,8),
         new(CanyonRouteNodeId.SplitLevelEncounter,A,new(0,480,1280,800),false,9),
         new(CanyonRouteNodeId.SealedCourtyard,T,new(0,0,960,720),false,10),
         new(CanyonRouteNodeId.BossHall,T,new(960,0,1200,720),false,11),
-        new(CanyonRouteNodeId.SafeExit,T,new(2160,0,400,720),false,-1,Rest:true)
+        new(CanyonRouteNodeId.SafeExit,T,new(2160,0,400,720),false,-1,Rest:true),
+        new(CanyonRouteNodeId.IncineratorAnnex,B,new(3840,0,1280,720),true,-1,Discovery:"canyon.v2.discovery.incinerator-annex")
     ];
 
     private static readonly V2Segment[] V2Segments =
@@ -387,6 +388,9 @@ public static class PrologueCanyonStructureTests
         new(B,"steam-valves-to-lift",7,8,TraversalSegmentKind.SingleJump,TraversalAbility.Jump,new(2280,564,160,72),new(3660,-72,140,72)),
         new(B,"basin-to-upper-shortcut",5,10,TraversalSegmentKind.Assisted,TraversalAbility.Jump|TraversalAbility.Thread,new(640,324,120,72),new(2820,-2192,120,72),"Gameplay/Collision/GearEntry/GrappleSurfaceProfile",IsReverse:true),
         new(B,"basin-camp-to-abyss",5,2,TraversalSegmentKind.ClawDrop,TraversalAbility.Thread,new(380,324,120,72),new(880,-112,160,72),"../CanyonDescent/Gameplay/Collision/AbyssBrakeLeft4/GrappleSurfaceProfile","../CanyonDescent/Gameplay/Collision/AbyssSafeBottom",new(-18,290.7278f),new(-1,0),IsReverse:true),
+        new(B,"steam-to-incinerator",7,14,TraversalSegmentKind.GroundTransfer,TraversalAbility.None,new(3320,244,80,72),new(3420,324,120,72)),
+        new(B,"lift-to-incinerator",8,14,TraversalSegmentKind.GroundTransfer,TraversalAbility.None,new(3720,-72,100,72),new(3880,4,80,72),Reverse:"incinerator-to-lift"),
+        new(B,"incinerator-to-lift",14,8,TraversalSegmentKind.SingleJump,TraversalAbility.Jump,new(3840,4,100,72),new(3720,-72,100,72),IsReverse:true),
         new(A,"lift-to-pendulums",8,9,TraversalSegmentKind.Assisted,TraversalAbility.Jump|TraversalAbility.Thread,new(820,2288,160,72),new(560,1568,80,72),"Gameplay/Collision/AscentGrip3/GrappleSurfaceProfile"),
         new(A,"pendulums-to-split-level",9,10,TraversalSegmentKind.Assisted,TraversalAbility.Jump|TraversalAbility.Thread,new(820,1328,160,72),new(560,608,80,72),"Gameplay/Collision/AscentGrip7/GrappleSurfaceProfile"),
         new(A,"split-level-to-courtyard",10,11,TraversalSegmentKind.Assisted,TraversalAbility.Jump|TraversalAbility.Thread,new(560,608,80,72),new(1340,448,220,72),"Gameplay/Collision/AscentFinalCatchGrip/GrappleSurfaceProfile"),
@@ -529,8 +533,8 @@ public static class PrologueCanyonStructureTests
             AssertV2Segments(expected,sector);
             segmentCount += V2Segments.Count(segment=>segment.Owner==expected.Id);
         }
-        TestAssert.Equal(14,markerCount,"V2 fourteen exact route markers");
-        TestAssert.Equal(18,segmentCount,"V2 eighteen exact directed saved segments");
+        TestAssert.Equal(15,markerCount,"V2 fifteen exact route markers including the optional annex");
+        TestAssert.Equal(21,segmentCount,"V2 twenty-one exact directed saved segments");
         TestAssert.Equal(12,encounters.Count,"V2 twelve dormant encounter groups");
         AssertV2AuthoredGates(sectors);
     }
@@ -557,7 +561,11 @@ public static class PrologueCanyonStructureTests
             TestAssert.Equal(Variant.Type.Rect2,marker.GetMeta("local_bounds").VariantType,$"V2 {node.Id} bounds metadata type");
             TestAssert.Equal(node.Bounds,marker.GetMeta("local_bounds").AsRect2(),$"V2 {node.Id} exact marker bounds");
             TestAssert.True(expected.Bounds.Encloses(node.Bounds),$"V2 {node.Id} marker sector enclosure");
-            TestAssert.Equal(node.Bounds.GetCenter(),marker.Position,$"V2 {node.Id} exact marker center");
+            // The annex guide is deliberately over the safe gallery, not its
+            // room centre over the lethal pool; every other marker is unchanged.
+            Vector2 guide=node.Id==CanyonRouteNodeId.IncineratorAnnex ? new(4720,200) : node.Bounds.GetCenter();
+            TestAssert.Equal(guide,marker.Position,node.Id==CanyonRouteNodeId.IncineratorAnnex
+                ? $"V2 {node.Id} exact safe guide position" : $"V2 {node.Id} exact marker center");
             TestAssert.Equal(Variant.Type.Bool,marker.GetMeta("optional_subarea").VariantType,$"V2 {node.Id} optional metadata type");
             TestAssert.Equal(node.Optional,marker.GetMeta("optional_subarea").AsBool(),$"V2 {node.Id} exact optional flag");
             TestAssert.Equal(Variant.Type.Int,marker.GetMeta("route_node_id").VariantType,$"V2 {node.Id} route metadata type");
@@ -643,8 +651,21 @@ public static class PrologueCanyonStructureTests
             TestAssert.Equal(literal.Hit,segment.AssistHitPoint,label+" exact collision-local hit");
             TestAssert.Equal(literal.Normal,segment.AssistHitNormal,label+" exact collision-local normal");
             Rect2 from=V2NodeWorld((CanyonRouteNodeId)literal.From),to=V2NodeWorld((CanyonRouteNodeId)literal.To);
-            TestAssert.True(from.Intersects(V2WorldZone(segment,segment.LaunchZone)),label+" exact From-node overlap");
-            TestAssert.True(to.Intersects(V2WorldZone(segment,segment.LandingZone)),label+" exact To-node overlap");
+            if(literal.Id is "steam-to-incinerator" or "lift-to-incinerator" or "incinerator-to-lift")
+            {
+                // These existing steam/support corridors are outside coarse
+                // room rectangles. Exercise the real, bounded route resolver;
+                // do not extend node rectangles over the intervening void.
+                TestAssert.True(CanyonWorldLayout.TryResolveRouteNode(V2WorldZone(segment,segment.LaunchZone).GetCenter(),out var source) &&
+                    source==(CanyonRouteNodeId)literal.From,label+" exact supported From-node resolution");
+                TestAssert.True(CanyonWorldLayout.TryResolveRouteNode(V2WorldZone(segment,segment.LandingZone).GetCenter(),out var targetNode) &&
+                    targetNode==(CanyonRouteNodeId)literal.To,label+" exact supported To-node resolution");
+            }
+            else
+            {
+                TestAssert.True(from.Intersects(V2WorldZone(segment,segment.LaunchZone)),label+" exact From-node overlap");
+                TestAssert.True(to.Intersects(V2WorldZone(segment,segment.LandingZone)),label+" exact To-node overlap");
+            }
             foreach(string child in new[]{"LaunchZoneVisual","LandingZoneVisual"})
                 TestAssert.True(segment.GetNodeOrNull<CanvasItem>(child) is { Visible:false },label+" inspectable hidden "+child);
             if(literal.Target.Length>0)
@@ -686,8 +707,8 @@ public static class PrologueCanyonStructureTests
     private static void AssertV2GraphAndCatalog()
     {
         TestAssert.Equal(new Rect2(0,0,7680,4320),CanyonWorldLayout.DesignBounds,"V2 literal design bounds");
-        TestAssert.Equal(14,CanyonWorldLayout.Nodes.Count,"V2 layout exact node count");
-        TestAssert.Equal(14,CanyonContentCatalog.All.Count,"V2 catalog exact node count");
+        TestAssert.Equal(15,CanyonWorldLayout.Nodes.Count,"V2 layout exact node count");
+        TestAssert.Equal(15,CanyonContentCatalog.All.Count,"V2 catalog exact node count");
         TestAssert.Equal(12,CanyonContentCatalog.All.Count(node=>node.ChallengeKind.HasValue),"V2 twelve catalog challenges");
         TestAssert.Equal(12,CanyonContentCatalog.All.Where(node=>node.ChallengeKind.HasValue).Select(node=>node.ChallengeKind).Distinct().Count(),"V2 twelve distinct challenge kinds");
         foreach(V2Sector sector in V2Sectors)
@@ -713,7 +734,7 @@ public static class PrologueCanyonStructureTests
 
     private static void AssertV2Edges(IReadOnlyList<CanyonRouteEdge> actual)
     {
-        TestAssert.Equal(16,actual.Count,"V2 sixteen logical edges");
+        TestAssert.Equal(18,actual.Count,"V2 eighteen logical edges including two distinct annex entries");
         foreach(V2Segment segment in V2Segments.Where(segment=>!segment.IsReverse))
         {
             var matches=actual.Where(edge=>edge.TraversalSegmentId==RoutePrefix+segment.Id).ToArray();
@@ -723,7 +744,7 @@ public static class PrologueCanyonStructureTests
                 segment.Gate==CanyonRouteGate.MechanismActivated ? segment.GateId : "",segment.Reverse.Length==0 ? "" : RoutePrefix+segment.Reverse);
             TestAssert.Equal(expected,matches[0],$"V2 graph exact From/To/gate/reverse {segment.Id}");
         }
-        TestAssert.Equal(2,actual.Count(edge=>edge.Bidirectional),"V2 only two declared reverse edges");
+        TestAssert.Equal(3,actual.Count(edge=>edge.Bidirectional),"V2 only three precisely declared reverse edges");
     }
 
     private static void AssertV2AuthoredGates(IReadOnlyDictionary<PrologueSectorId,PrologueSector> sectors)
@@ -872,7 +893,7 @@ public static class PrologueCanyonStructureTests
             int index=edges.FindIndex(edge=>edge.TraversalSegmentId==RoutePrefix+"abyss-to-basin-camp");
             edges[index]=edges[index] with { ReverseTraversalSegmentId=RoutePrefix+"bridge-to-rift" };
         });
-        RejectEdges("sixteen logical edges",edges=>edges.RemoveAt(0));
+        RejectEdges("eighteen logical edges",edges=>edges.RemoveAt(0));
         RejectEdges("graph exact edge ID bridge-to-rift",edges=>edges[1]=edges[0]);
         GD.Print($"CANYON_V2_STRUCTURE_NEGATIVES_OK cases={cases} same_assertions=true copied_edge_records=true");
     }

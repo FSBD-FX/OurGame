@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ResidentSubtypeProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSubtypeProfile.cs" id="1_o1133"]
+
+[resource]
+script = ExtResource("1_o1133")
+SubtypeId = "ghost-diver"
+Family = 4
+Archetype = 3
+Carrier = 3
+GhostHiddenSeconds = 1.2
+GhostManifestSeconds = 4.0

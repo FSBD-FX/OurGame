@@ -8,7 +8,7 @@ if (@($evidenceResult | Where-Object { $_ -ceq 'EVIDENCE_CHECKS_OK' }).Count -ne
     throw "PowerShell evidence checks did not complete successfully: $evidenceTest"
 }
 $evidenceResult
-$preferredDotnetRoot = 'G:\godot\dotnet-sdk'
+$preferredDotnetRoot = 'G:\knight\Tools\dotnet-sdk'
 $fallbackDotnetRoot = 'F:\Documents\' + [string][char]0x6E38 + [char]0x620F + '\tools\runtime\dotnet-9.0.317'
 if (Test-Path -LiteralPath (Join-Path $preferredDotnetRoot 'dotnet.exe')) {
     $dotnetRoot = $preferredDotnetRoot
@@ -17,7 +17,7 @@ if (Test-Path -LiteralPath (Join-Path $preferredDotnetRoot 'dotnet.exe')) {
 } else {
     throw "No supported .NET runtime found. Expected $preferredDotnetRoot or $fallbackDotnetRoot."
 }
-$godot = 'G:\godot\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
+$godot = 'G:\knight\Tools\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
 $env:DOTNET_ROOT = $dotnetRoot
 $env:DOTNET_ROOT_X64 = $dotnetRoot
 $env:DOTNET_ROLL_FORWARD = 'LatestMajor'

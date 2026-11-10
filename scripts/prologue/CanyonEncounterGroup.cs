@@ -38,6 +38,15 @@ public partial class CanyonEncounterGroup : Node, ICheckpointResettable
     private const double ArrivalSeconds = 0.60d;
     private const double SuppressedRetrySeconds = 0.25d;
 
+    internal bool OwnsLiveActor(Node2D actor)
+    {
+        if (!IsActive || IsComplete || _retiring || !GodotObject.IsInstanceValid(actor) ||
+            !actor.IsInsideTree() || actor.IsQueuedForDeletion()) return false;
+        foreach (ActorBinding binding in _actors)
+            if (ReferenceEquals(binding.Node, actor)) return true;
+        return false;
+    }
+
     public override void _Ready()
     {
         ResolveDefinition();

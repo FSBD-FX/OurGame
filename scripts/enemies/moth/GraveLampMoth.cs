@@ -13,7 +13,11 @@ public partial class GraveLampMoth : CharacterBody2D, IThreadPullReceiver, IEnco
 {
     [Export] public NodePath HealthPath { get; set; } = new("Health");
     [Export] public NodePath AttackHitboxPath { get; set; } = new("AttackHitbox");
+#if REFCOUNTED_FATAL_IDENTITY
+    [Export] public EnemyArchetypeTuning Tuning { get; set; } = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveOriginalDefault(new EnemyArchetypeTuning(), "scripts/enemies/moth/GraveLampMoth.cs:Tuning");
+#else
     [Export] public EnemyArchetypeTuning Tuning { get; set; } = new();
+#endif
 
     public event Action<GraveLampMothFrame, int, bool> FrameChanged;
     public event Action<AttackPresentationFrame> AttackFrameChanged;
@@ -21,6 +25,7 @@ public partial class GraveLampMoth : CharacterBody2D, IThreadPullReceiver, IEnco
     public event Action Defeated;
 
     public GraveLampMothState CurrentState { get; private set; } = GraveLampMothState.Hover;
+    internal float AttackTelegraphSeconds => _model?.AttackTelegraphSeconds ?? 0f;
     public GraveLampMothFrame CurrentFrame { get; private set; } =
         new(GraveLampMothState.Hover, 0f, 0f, false, false);
     public int Facing { get; private set; } = 1;

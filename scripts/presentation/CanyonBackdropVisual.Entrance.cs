@@ -6,6 +6,12 @@ public partial class CanyonBackdropVisual
 {
     private void DrawEntranceNaturalApproach(float width, float height)
     {
+        var recessed = BuildEntranceDepthPaintPlan();
+        if (recessed.Count != 0)
+        {
+            foreach (CanyonEntranceDepthPaintCommand command in recessed) command.Submit(this);
+            return;
+        }
         Vector2 scale = new(width / 1280f, height / 720f);
         // Recessed background only. The new Solid skins own the enclosing
         // rock silhouette; do not retain old diagonal stair sockets as false routes.

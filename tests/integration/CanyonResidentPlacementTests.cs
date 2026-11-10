@@ -23,8 +23,230 @@ using Knight.Tools;
 namespace Knight.Tests.Integration;
 
 // Default phase is query-only; candidate phases explicitly prove limited native actor motion.
-public static class CanyonResidentPlacementTests
+public static partial class CanyonResidentPlacementTests
 {
+    // Isolate the original complete patrol controls without the geometry census prefix.
+    public static async Task RunPatrolWorldWindow(SceneTree tree)
+    {
+        var fixture = new NativeFixture(tree);
+        Exception primary = null, cleanup = null;
+        try
+        {
+            fixture.Initialize();
+            fixture.MountSavedSectors();
+            await fixture.Sync();
+            fixture.StopCallbacks();
+            fixture.AssertNativePreconditions();
+            fixture.PopulateControlledCounterexamples();
+            await fixture.Sync();
+            fixture.AssertControlledPreconditions();
+            await RunPatrolEndpointReuse(fixture, RequirePatrolBatchEntry());
+        }
+        catch (Exception error) { primary = error; }
+        try { await fixture.DisposeAsync(); }
+        catch (Exception error) { cleanup = error; }
+        if (primary != null && cleanup != null)
+            throw new AggregateException("Patrol world window primary and fixture cleanup failed.", primary, cleanup);
+        if (primary != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(primary).Throw();
+        if (cleanup != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(cleanup).Throw();
+        GD.Print("RESIDENT_PATROL_WORLD_WINDOW_OK original_controls=true states=3 wall_registration=true full_census=false human=false whole_goal=false");
+    }
+
+    // Ordinary characterization, not a replacement for the complete geometry census.
+    public static Task RunRockLeafStages(SceneTree tree, string admittedStorage) =>
+        RunRockLeafStagesCore(tree, admittedStorage);
+
+    private sealed class RockLeafFaultHooks
+    {
+        public Action<SubViewport> AfterVisible;
+        public Action BeforeOwner;
+        public Action<bool> BeforeResources;
+        public Action AfterResources;
+        public Action AfterRaw;
+    }
+
+    public static async Task RunRockLeafCleanupFaults(SceneTree tree, string admittedStorage)
+    {
+        foreach (bool failBody in new[] { true, false })
+        {
+            string storage = Path.Combine(admittedStorage, failBody ? "body-and-cleanup" : "cleanup-only");
+            Directory.CreateDirectory(storage);
+            var primary = new InvalidOperationException("injected rock visible body failure");
+            var cleanup = new InvalidOperationException("injected rock owner cleanup failure");
+            SubViewport owned = null;
+            bool ownerBeforeResources = false, resourcesReturned = false, rawAfterFixture = false;
+            Node[] others = tree.Root.GetChildren().ToArray();
+            Exception observed = null;
+            try
+            {
+                try
+                {
+                    await RunRockLeafStagesCore(tree, storage, new RockLeafFaultHooks
+                    {
+                        AfterVisible = viewport => { owned = viewport; if (failBody) throw primary; },
+                        BeforeOwner = () => throw cleanup,
+                        BeforeResources = retired => ownerBeforeResources = retired,
+                        AfterResources = () => resourcesReturned = true,
+                        AfterRaw = () => rawAfterFixture = resourcesReturned
+                    });
+                }
+                catch (Exception error) { observed = error; }
+                bool exactErrors = failBody
+                    ? observed is AggregateException aggregate && aggregate.InnerExceptions.Count == 2 &&
+                        ReferenceEquals(aggregate.InnerExceptions[0], primary) && ReferenceEquals(aggregate.InnerExceptions[1], cleanup)
+                    : ReferenceEquals(observed, cleanup);
+                TestAssert.True(exactErrors, "ROCK_LEAF_FAILURE_PRESERVATION_RED: retain the exact body and cleanup exceptions, not a replacement");
+                TestAssert.True(owned != null && !GodotObject.IsInstanceValid(owned) && ownerBeforeResources && resourcesReturned && rawAfterFixture,
+                    "ROCK_LEAF_FAILURE_ORDER_RED: actual owned nodes retire before fixture resources, then raw owner");
+                TestAssert.True((!failBody || !string.IsNullOrEmpty(primary.StackTrace)) && !string.IsNullOrEmpty(cleanup.StackTrace),
+                    "rock failure objects retain the original throw stacks");
+                TestAssert.True(others.All(x => GodotObject.IsInstanceValid(x) && x.GetParent() == tree.Root), "rock failure cleanup does not retire another owner");
+            }
+            finally
+            {
+                // Containment for the RED regression belongs only to this control.
+                if (GodotObject.IsInstanceValid(owned))
+                {
+                    owned.QueueFree();
+                    await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                    await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                }
+            }
+        }
+        GD.Print("ROCK_LEAF_CLEANUP_FAULTS_OK cases=2 real_saved_leaf=true both_errors=true owner_before_resources=true raw_after_fixture=true other_owners_unchanged=true human=false whole_goal=false");
+    }
+
+    private static async Task RunRockLeafStagesCore(SceneTree tree, string admittedStorage, RockLeafFaultHooks faults = null)
+    {
+        int sequence = 0;
+        void Stage(string stage, string edge) => GD.Print($"ROCK_LEAF_STAGE seq={++sequence} stage={stage} edge={edge} " +
+            $"subtype=rock-wanderer physics={Engine.GetPhysicsFrames()} process={Engine.GetProcessFrames()}");
+        async Task Frames(int count)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+                await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            }
+        }
+        var failures = new List<Exception>();
+        void Attempt(Action action)
+        {
+            try { action(); }
+            catch (Exception error) { failures.Add(error); }
+        }
+        CensusLeafSource leafSource = null;
+        CharacterBody2D raw = null, actor = null;
+        World2D world = null;
+        RectangleShape2D floorShape = null;
+        SubViewport viewport = null;
+        try
+        {
+            Stage("package", "enter");
+            string leaves = ResidentSceneBindingTests.BuildCandidatePackage(admittedStorage);
+            Stage("package", "return");
+            ResidentSubtypeDefinition type = CanyonResidentCatalog.Subtypes.Single(x => x.Id == "rock-wanderer");
+            leafSource = new CensusLeafSource(leaves);
+            Stage("raw", "enter");
+            raw = leafSource.Raw(type);
+            TestAssert.True(!raw.IsInsideTree() && !raw.IsQueuedForDeletion(), "single census raw stays detached");
+            ulong rawId = raw.GetInstanceId();
+            Stage("raw", "return");
+            world = new World2D();
+            floorShape = new RectangleShape2D { Size = new(1000, 40) };
+            viewport = new SubViewport { Name = "RockLeafStagesWorld", Size = new(1024, 640), World2D = world };
+            var scope = new Node2D(); viewport.AddChild(scope);
+            var floor = new StaticBody2D { Position = new(500, 360), CollisionLayer = CombatCollisionLayers.World, CollisionMask = 0 };
+            floor.AddChild(new CollisionShape2D { Shape = floorShape }); scope.AddChild(floor);
+            ResidentPopulationDefinition slot = CanyonResidentCatalog.All.First(x => x.SubtypeId == type.Id) with
+            {
+                StableId = "fixture.rock-leaf-stages",
+                Placement = new ResidentPlacementCandidate(new(320, 300), new Rect2(100, 100, 600, 400),
+                    new[] { new Vector2(240, 300), new Vector2(400, 300) })
+            };
+            Stage("configured", "enter");
+            actor = leafSource.Configure(type, slot);
+            ulong actorId = actor.GetInstanceId();
+            TestAssert.True(actorId != rawId && !actor.IsInsideTree() && !actor.IsQueuedForDeletion(), "same saved census source returns a distinct configured root");
+            TestAssert.Equal(type.Id, actor.GetNode<ResidentSceneBinding>("ResidentBinding").Profile.SubtypeId, "configured root retains actual rock leaf binding");
+            Stage("configured", "return");
+            Stage("hidden-ready", "enter");
+            actor.Visible = false; actor.Position = new(320, 300); scope.AddChild(actor); tree.Root.AddChild(viewport);
+            await Frames(6);
+            TestAssert.True(actor.IsInsideTree() && actor.IsNodeReady() && !actor.IsQueuedForDeletion() &&
+                !actor.IsVisibleInTree() && actor.GetWorld2D() == world && world != tree.Root.FindWorld2D(), "configured hidden leaf reaches real Ready in an independent native world");
+            int hp = actor.GetNode<HealthComponent>("Health").CurrentHealth;
+            TestAssert.True(hp > 0, "hidden saved rock initializes real Health");
+            Stage("hidden-ready", "return");
+            Stage("visible", "enter");
+            actor.Visible = true;
+            await Frames(6);
+            TestAssert.True(actor.IsInsideTree() && actor.IsNodeReady() && actor.IsVisibleInTree() &&
+                !actor.IsQueuedForDeletion() && actor.GetInstanceId() == actorId, "visible leaf keeps its real configured native instance");
+            TestAssert.Equal(hp, actor.GetNode<HealthComponent>("Health").CurrentHealth, "two visibility samples keep the same observed health value");
+            Stage("visible", "return");
+            faults?.AfterVisible?.Invoke(viewport);
+        }
+        catch (Exception error) { failures.Add(error); }
+        finally
+        {
+            if (viewport != null || actor != null)
+            {
+                Attempt(() => Stage("owner-teardown", "enter"));
+                Attempt(() => faults?.BeforeOwner?.Invoke());
+                if (GodotObject.IsInstanceValid(viewport))
+                {
+                    if (viewport.IsInsideTree())
+                    {
+                        Attempt(viewport.QueueFree);
+                        for (int i = 0; i < 2; i++)
+                        {
+                            try { await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame); }
+                            catch (Exception error) { failures.Add(error); }
+                        }
+                    }
+                    // A failed queue/await cannot prevent an independent owned-root fallback.
+                    if (GodotObject.IsInstanceValid(viewport)) Attempt(viewport.Free);
+                }
+                if (GodotObject.IsInstanceValid(actor)) Attempt(actor.Free);
+                if (!GodotObject.IsInstanceValid(actor) && !GodotObject.IsInstanceValid(viewport))
+                    Attempt(() => Stage("owner-teardown", "return"));
+                else failures.Add(new InvalidOperationException("Rock owned nodes did not retire; do not dispose their fixture resources."));
+            }
+            bool ownersRetired = !GodotObject.IsInstanceValid(actor) && !GodotObject.IsInstanceValid(viewport);
+            if (world != null || floorShape != null)
+            {
+                Attempt(() => Stage("fixture-resources", "enter"));
+                Attempt(() => faults?.BeforeResources?.Invoke(ownersRetired));
+                if (ownersRetired)
+                {
+                    if (floorShape != null) Attempt(floorShape.Dispose);
+                    if (world != null) Attempt(world.Dispose);
+                    if (!GodotObject.IsInstanceValid(floorShape) && !GodotObject.IsInstanceValid(world))
+                    {
+                        Attempt(() => Stage("fixture-resources", "return"));
+                        Attempt(() => faults?.AfterResources?.Invoke());
+                    }
+                    else failures.Add(new InvalidOperationException("Rock owned fixture resources did not retire."));
+                }
+            }
+            if (leafSource != null)
+            {
+                Attempt(() => Stage("raw-owner", "enter"));
+                Attempt(leafSource.Dispose);
+                if (!GodotObject.IsInstanceValid(raw))
+                {
+                    Attempt(() => Stage("raw-owner", "return"));
+                    Attempt(() => faults?.AfterRaw?.Invoke());
+                }
+                else failures.Add(new InvalidOperationException("Rock detached raw owner did not retire."));
+            }
+        }
+        if (failures.Count == 1) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        if (failures.Count > 1) throw new AggregateException(failures);
+        GD.Print("ROCK_LEAF_STAGES_OK subtype=rock-wanderer package_leaves=24 raw_roots=1 mounted_roots=1 hidden_ready=true visible=true teardown=true same_census_source=true geometry_census=false human=false whole_goal=false");
+    }
+
     public static async Task RunCandidateParent(SceneTree tree,string storage)
     {
         string source=Path.Combine(storage,"candidate-parent-source"),moved=Path.Combine(storage,"candidate-parent-relocated");
@@ -61,8 +283,8 @@ public static class CanyonResidentPlacementTests
             {
                 var legacy=defaults.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors").Definitions;
                 TestAssert.True(legacy.Count==5&&legacy.All(d=>d.Scene.ResourcePath==PrologueCanyonBuildParts.ScenePath(d.Id))&&
-                    defaults.GetNode<PrologueMinimapController>("MinimapController").Catalog.SolidCount==127,"default authoring preserves five canonical references and original127 catalog");
-                GD.Print("RESIDENT_PARENT_DEFAULT_OK canonical_paths=5 original_solids=127 canonical_written=false");
+                    defaults.GetNode<PrologueMinimapController>("MinimapController").Catalog.SolidCount==143,"default authoring uses five current canonical references and matching143 catalog");
+                GD.Print("RESIDENT_PARENT_DEFAULT_OK canonical_paths=5 current_solids=143 canonical_written=false");
             }
             finally{defaults.Free();}
             string parentPath=Path.Combine(source,"PrologueLevel.tscn");
@@ -80,7 +302,7 @@ public static class CanyonResidentPlacementTests
             loaded=ResourceLoader.Load<PackedScene>(Path.Combine(moved,"PrologueLevel.tscn"),cacheMode:ResourceLoader.CacheMode.Ignore).Instantiate<PrologueLevelController>();
             Check(loaded,moved,true);
             TestAssert.True(!File.ReadAllText(Path.Combine(moved,"PrologueLevel.tscn")).Contains(source.Replace('\\','/'),StringComparison.OrdinalIgnoreCase),"moved parent must not retain original absolute package dependencies");
-            GD.Print("RESIDENT_PARENT_RELOCATED_OK files=6 bytes_unchanged=true exact_five_embedded_snapshots=true embedded_solids=132 frozen_rectangles=5 canonical_changed=false");
+            GD.Print("RESIDENT_PARENT_RELOCATED_OK files=6 bytes_unchanged=true exact_five_embedded_snapshots=true embedded_solids=143 frozen_rectangles=5 gear_rectangles=2 steam_rectangles=1 pendulum_rectangles=3 launch_rectangles=1 archive_rectangles=3 side_wall_rectangles=1 canonical_changed=false");
             IsolatedPrologueFixture.Configure(loaded,"relocated-candidate-parent");
             var flow=loaded.GetNode<PrologueGameFlowController>("GameFlow");flow.HeadlessAutoStart=false;flow.AutomationAutoStart=false;
             nativeWorld=new World2D();
@@ -180,8 +402,8 @@ public static class CanyonResidentPlacementTests
             var catalog=root.GetNode<PrologueMinimapController>("MinimapController").Catalog;
             using var rebuilt=MinimapTerrainCatalogBuilder.Build(defs.ToArray());
             TestAssert.True(rebuilt.SerializedValues.AsSpan().SequenceEqual(catalog.SerializedValues),"reloaded embedded catalog exactly matches all five actual scene snapshots");
-            TestAssert.Equal(132,catalog.SolidCount,"same-five embedded minimap includes five new Frozen solids");
-            foreach(Rect2 wanted in new[]{new Rect2(1280,1800,36,280),new(1280,2080,8,140),new(1280,2220,36,1140),new(1316,2400,368,40),new(1540,2880,300,40)})
+            TestAssert.Equal(143,catalog.SolidCount,"same-five embedded minimap includes five Frozen, two Gear, one Steam, three Pendulum and one launch solids");
+            foreach(Rect2 wanted in new[]{new Rect2(1280,1800,36,280),new(1280,2080,8,140),new(1280,2220,36,1140),new(1316,2400,368,40),new(1540,2880,300,40),new(2304,3792,152,24),new(2856,3720,136,24),new(3680,3912,200,24),new(4936,2520,184,40),new(4992,2344,128,40),new(5096,2384,24,176),new(1932,3746,168,40),new(1424,1776,496,24),new(1736,1248,232,24),new(1944,1100,24,172),new(2280,3700,24,116)})
                 TestAssert.True(Enumerable.Range(0,catalog.SolidCount).Any(i=>
                     catalog.Solid(i).LocalToWorld*catalog.Solid(i).LocalBounds.Position==wanted.Position&&catalog.Solid(i).LocalBounds.Size==wanted.Size),"embedded minimap literal candidate solid "+wanted);
             var cp=root.GetNode<PrologueMinimapView>("Hud/FormalHud/Minimap").AuthoredCheckpoints;
@@ -205,7 +427,7 @@ public static class CanyonResidentPlacementTests
         CharacterBody2D player=null;
         try
         {
-            fixture.Initialize();fixture.MountSavedSectors(paths);await fixture.Sync();fixture.StopCallbacks();fixture.AssertNativePreconditions(132);
+            fixture.Initialize();fixture.MountSavedSectors(paths);await fixture.Sync();fixture.StopCallbacks();fixture.AssertNativePreconditions(143);
             player=GD.Load<PackedScene>("res://scenes/player/Player.tscn").Instantiate<CharacterBody2D>();
             player.Position=new(1800,3244);player.AddToGroup("player");fixture.Scope.AddChild(player);
             var input=player.GetNode<PlayerInputReader>("Input");
@@ -278,7 +500,13 @@ public static class CanyonResidentPlacementTests
             KeyboardActionRuntimeTests.KeyEvent(Key.Space,true);await Step();
             KeyboardActionRuntimeTests.KeyEvent(Key.A,false);KeyboardActionRuntimeTests.KeyEvent(Key.D,true);
             KeyboardActionRuntimeTests.KeyEvent(Key.Space,false);
-            await Until(()=>player.GlobalPosition.X>=1872,50,"boost_into_full_capsule_sidegap");
+            // Position alone can already be true at boost release while the
+            // sampled A tangent still carries us LEFT. Do not withdraw D before
+            // one actual sample and native reverse braking have taken effect.
+            int correctionStart=samples;
+            await Until(()=>player.GlobalPosition.X>=1872&&input.CurrentFrame.MoveAxis>.5f&&player.Velocity.X>=0,50,"boost_into_full_capsule_sidegap");
+            TestAssert.True(samples>correctionStart,"sidegap correction must consume actual D, not a zero-step old position");
+            GD.Print($"RESIDENT_FROZEN_PLAYER_CORRECTION_OK actual_samples={samples-correctionStart} move_axis={input.CurrentFrame.MoveAxis} vx={player.Velocity.X} original_cap=50");
             KeyboardActionRuntimeTests.KeyEvent(Key.D,false);KeyboardActionRuntimeTests.KeyEvent(Key.W,true);
             for(int i=0;i<3;i++)await Step();
             TestAssert.Equal(upper,claw.KeyboardPreview.Surface,"W must show actual saved upper support, not a synthetic anchor or a mouse override");
@@ -302,12 +530,165 @@ public static class CanyonResidentPlacementTests
             TestAssert.True(On(exit)&&player.GetInstanceId()==id&&motor.AcceptedJumpCount==1&&motor.AcceptedDashCount==0&&
                 casts.Count==2&&wallCast!=upperCast&&arrivals.Count==2&&boostCasts.Count==1&&health.CurrentHealth<=hp&&healed==0,"native keyboard roundtrip keeps identity, two unique real arrived casts, one real boost, original jump/dash/fall policy and no healing");
             GD.Print("RESIDENT_FROZEN_PLAYER_OBSERVER_OK unique_casts=2 unique_arrivals=2 exact_targets=true current_attached_pose=true event_handler_record_only=true");
-            GD.Print($"RESIDENT_FROZEN_PLAYER_ROUTE_OK same_player=true saved_terrain=132 actual_keyboard=true actual_physics=true first_target=AbyssBrakeLeft4 up_gap=80 upper_target=FrozenRightCatch landed_new_shelf=true returned_original_exit=true accepted_jumps=1 accepted_boosts=1 accepted_dashes=0 healed=0 health={hp}->{health.CurrentHealth} samples={samples} mechanisms_active=false normal_world=false publication=false");
+            GD.Print($"RESIDENT_FROZEN_PLAYER_ROUTE_OK same_player=true saved_terrain=143 actual_keyboard=true actual_physics=true first_target=AbyssBrakeLeft4 up_gap=80 upper_target=FrozenRightCatch landed_new_shelf=true returned_original_exit=true accepted_jumps=1 accepted_boosts=1 accepted_dashes=0 healed=0 health={hp}->{health.CurrentHealth} samples={samples} mechanisms_active=false normal_world=false publication=false");
         }
         finally
         {
             foreach(Key key in new[]{Key.A,Key.D,Key.W,Key.K,Key.Space})KeyboardActionRuntimeTests.KeyEvent(key,false);
             if(GodotObject.IsInstanceValid(player))player.Free();
+            await fixture.DisposeAsync();
+        }
+    }
+
+    public static async Task RunAbyssCandidate(SceneTree tree,string storage)
+    {
+        // Selected actual leaf only. This is not the full50/24 census phase.
+        string leaves=Path.Combine(storage,"abyss-leaf");Directory.CreateDirectory(leaves);
+        ResidentSubtypeDefinition type=CanyonResidentCatalog.Subtypes.Single(x=>x.Id=="lost-echo");
+        string leafPath=Path.Combine(leaves,"lost-echo.tscn");
+        using(var profile=new ResidentSubtypeProfile {SubtypeId="lost-echo",Family=ResidentFamily.Ghost,
+            Archetype=ResidentArchetype.Wanderer,Carrier=type.Carrier,GhostHiddenSeconds=1.2f,GhostManifestSeconds=4})
+        {
+            var author=GD.Load<PackedScene>(type.ProbeScenePath).Instantiate<CharacterBody2D>();
+            try
+            {
+                author.SceneFilePath="";author.AddChild(new ResidentSceneBinding {Name="ResidentBinding",Profile=profile});
+                TestAssert.Equal(Error.Ok,SceneBuildUtil.PackAndSave(author,leafPath),"save selected real Ghost leaf, not alias carrier");
+            }
+            finally{author.Free();}
+        }
+        string output=Path.Combine(storage,"abyss-candidate-CanyonDescent.tscn");
+        var candidate=PrologueCanyonBuildParts.Build(PrologueSectorId.CanyonDescent);
+        try
+        {
+            TestAssert.Equal(Error.Ok,PrologueCanyonBuildParts.SaveAndValidate(candidate,output,out int before,out int after,out string failure),"save actual abyss candidate: "+failure);
+            TestAssert.Equal(before,after,"candidate retains all nodes through pack/load");
+        }
+        finally{candidate.Free();}
+        var paths=CanyonWorldLayout.SectorBounds.Keys.ToDictionary(id=>id,PrologueCanyonBuildParts.ScenePath);
+        paths[PrologueSectorId.CanyonDescent]=output;
+        var fixture=new NativeFixture(tree);using var source=new CensusLeafSource(leaves);
+        var originals=new Dictionary<string,CharacterBody2D>(StringComparer.Ordinal);
+        RustShellSquire resident=null;CharacterBody2D actualPlayer=null;
+        try
+        {
+            fixture.Initialize();fixture.MountSavedSectors(paths);await fixture.Sync();fixture.StopCallbacks();
+            fixture.AssertNativePreconditions(143);
+            string snapshot=fixture.CollisionSnapshot();
+            CharacterBody2D Original(string path)
+            {if(!originals.TryGetValue(path,out var actor)){actor=GD.Load<PackedScene>(path).Instantiate<CharacterBody2D>();originals.Add(path,actor);}return actor;}
+            ResidentEnvironmentSnapshot environment=ResidentEnvironmentInventory.Capture(fixture.Scope);
+            TestAssert.Equal(0,environment.Issues.Count,"all saved environment reservations remain complete");
+            var old=OriginalSpawnReservations(Original);TestAssert.Equal(36,old.Count,"retain every original future primary/alternate record");
+            IReadOnlyList<ResidentKeepOut> keep=environment.Regions.Concat(old).ToArray();
+            Rect2 route=CanyonWorldLayout.Nodes.Single(x=>x.Id==CanyonRouteNodeId.ControlledAbyss).WorldBounds;
+            var slot=CanyonResidentCatalog.All.Single(x=>x.StableId=="canyon.v2.resident.controlled-abyss.01");
+            TestAssert.True(slot.SubtypeId=="lost-echo"&&slot.Placement==null,"selected canonical identity stays unplaced");
+            CharacterBody2D raw=source.Raw(type);
+            Vector2 home=new(2040,2188),left=new(1976,2188),right=new(2104,2188);
+            var bad=ResidentPlacementGeometry.CheckBody(raw,new(0,new Vector2(1956,2188)),fixture.Space,fixture.Scope,route,true,Array.Empty<ResidentKeepOut>());
+            TestAssert.True(!bad.BodyGeometryClear&&bad.Issues.Contains("native_world"),"original left endpoint remains genuinely blocked by unchanged brake wall");
+            foreach(Vector2 point in new[]{home,left,right})
+            {
+                var body=source.QueryBody(slot,raw,new(0,point),fixture,route,true,keep);
+                GD.Print($"RESIDENT_ABYSS_BODY point={point} bounds={body.WorldBodyBounds} clear={body.BodyGeometryClear} issues={string.Join(",",body.Issues)}");
+            }
+            var forward=ResidentPlacementGeometry.CheckCorridor(raw,new(0,left),new(0,right),fixture.Space,fixture.Scope,route,true,keep);
+            var reverse=ResidentPlacementGeometry.CheckCorridor(raw,new(0,right),new(0,left),fixture.Space,fixture.Scope,route,true,keep);
+            Rect2 envelope=new(1958,2156,164,64);
+            foreach(var region in keep.Where(x=>x.WorldBounds.Intersects(envelope)))
+                GD.Print($"RESIDENT_ABYSS_RESERVED source={region.SourceId} kind={region.Kind} bounds={region.WorldBounds}");
+            GD.Print($"RESIDENT_ABYSS_CORRIDOR forward={forward.CorridorClear} reverse={reverse.CorridorClear} issues={string.Join(",",forward.Issues.Concat(reverse.Issues))}");
+            TestAssert.True(forward.CorridorClear&&reverse.CorridorClear,"full actual Ghost path and support must fit without shrinking +/-64 or omitting reservations");
+            TestAssert.Equal(envelope,forward.WorldCorridorBounds,"literal actual full-body envelope");
+
+            (string Name,Rect2 Bounds)[] wanted={
+                ("AbyssBrakeLeft3",new(1920,2000,36,800)),("AbyssBrakeRight3",new(2490,2000,36,800)),
+                ("AbyssExit1",new(2350,1540,200,40)),("AbyssExit2",new(1920,2220,216,40)),
+                ("AbyssExit3",new(2360,3080,190,40)),("AbyssSafeBottom",new(1920,3560,640,40))};
+            foreach(var item in wanted)
+            {
+                var body=fixture.Sectors[PrologueSectorId.CanyonDescent].GetNode<StaticBody2D>("Gameplay/Collision/"+item.Name);
+                var collision=body.GetNode<CollisionShape2D>("Collision");
+                TestAssert.Equal(item.Bounds,collision.GlobalTransform*collision.Shape.GetRect(),"actual saved solid "+item.Name);
+                var skin=fixture.Sectors[PrologueSectorId.CanyonDescent].GetNode<Knight.Presentation.CanyonPlatformVisual>("VisualRoot/GameplayReadable/"+item.Name);
+                TestAssert.True(skin.SkinSize==item.Bounds.Size&&skin.GlobalPosition==body.GlobalPosition,"same saved collision/skin "+item.Name);
+            }
+            var definitions=paths.Select(pair=>new PrologueSectorDefinition(pair.Key,GD.Load<PackedScene>(pair.Value),
+                PrologueCanyonBuildParts.WorldOffsets[pair.Key],PrologueCanyonBuildParts.Bounds(pair.Key),null,null)).ToArray();
+            using(var catalog=MinimapTerrainCatalogBuilder.Build(definitions))
+            {
+                TestAssert.Equal(143,catalog.SolidCount,"candidate minimap retains all five saved sectors");
+                foreach(var item in wanted)TestAssert.True(Enumerable.Range(0,catalog.SolidCount).Select(i=>catalog.Solid(i))
+                    .Any(s=>s.LocalToWorld*s.LocalBounds==item.Bounds),"minimap contains actual saved "+item.Name);
+                TestAssert.Equal(Error.Ok,ResourceSaver.Save(catalog,Path.Combine(storage,"abyss-candidate-minimap.tres")),"save selected minimap evidence");
+            }
+            var player=GD.Load<PackedScene>("res://scenes/player/Player.tscn").Instantiate<CharacterBody2D>();
+            try
+            {
+                foreach(var pair in new[]{(new Vector2(2160,2100),new Vector2(2160,2320)),(new Vector2(2160,2320),new Vector2(2160,2100))})
+                {
+                    var passage=ResidentPlacementGeometry.CheckCorridor(player,new(0,pair.Item1),new(0,pair.Item2),fixture.Space,fixture.Scope,fixture.Bounds,false,keep);
+                    TestAssert.True(passage.CorridorClear,"full saved Player capsule still passes main shaft center2160: "+string.Join(",",passage.Issues));
+                }
+            }
+            finally{player.Free();}
+            TestAssert.Equal(snapshot,fixture.CollisionSnapshot(),"queries do not modify candidate colliders");
+            resident=(RustShellSquire)source.Configure(slot,new[]{home,left,right,home},route);
+            resident.Position=home-CanyonWorldLayout.SectorBounds[PrologueSectorId.CanyonDescent].Position;
+            fixture.MountResident(resident,PrologueSectorId.CanyonDescent);await fixture.Sync();
+            float low=resident.GlobalPosition.X,high=low,previous=low,maxStep=0;bool supported=true,returned=false;
+            for(int frame=0;frame<360;frame++)
+            {
+                await tree.ToSignal(tree,SceneTree.SignalName.PhysicsFrame);await tree.ToSignal(tree,SceneTree.SignalName.ProcessFrame);
+                float x=resident.GlobalPosition.X;low=MathF.Min(low,x);high=MathF.Max(high,x);maxStep=MathF.Max(maxStep,MathF.Abs(x-previous));previous=x;
+                supported&=resident.IsOnFloor();returned|=low<=1984&&high>=2096&&MathF.Abs(x-2040)<=4;
+            }
+            GD.Print($"RESIDENT_ABYSS_PATROL min={low} max={high} max_step={maxStep} supported={supported} returned={returned} hp={resident.GetNode<HealthComponent>("Health").CurrentHealth}");
+            TestAssert.True(low<=1984&&high>=2096&&maxStep<2&&supported&&returned&&resident.GetNode<HealthComponent>("Health").CurrentHealth==3,
+                "same actual saved Ghost patrols both ways and home without falling, teleporting or healing");
+            resident.Free();resident=null;await fixture.Sync();
+            actualPlayer=GD.Load<PackedScene>("res://scenes/player/Player.tscn").Instantiate<CharacterBody2D>();
+            actualPlayer.Position=new(2160,2140);actualPlayer.AddToGroup("player");fixture.Scope.AddChild(actualPlayer);
+            var input=actualPlayer.GetNode<PlayerInputReader>("Input");var motor=actualPlayer.GetNode<PlayerMotor>("Motor");
+            var health=actualPlayer.GetNode<HealthComponent>("Health");ulong playerId=actualPlayer.GetInstanceId();int hp=health.CurrentHealth,healed=0,samples=0;
+            health.Healed+=(_,_)=>healed++;
+            var shelf=fixture.Sectors[PrologueSectorId.CanyonDescent].GetNode<StaticBody2D>("Gameplay/Collision/AbyssExit2");
+            bool OnShelf()
+            {
+                if(!actualPlayer.IsOnFloor())return false;
+                for(int i=0;i<actualPlayer.GetSlideCollisionCount();i++)
+                {using var hit=actualPlayer.GetSlideCollision(i);if(hit.GetCollider()==shelf&&hit.GetNormal().Dot(Vector2.Up)>.99f)return true;}
+                return false;
+            }
+            async Task PlayerStep()
+            {
+                await KeyboardActionRuntimeTests.Frames(tree,input,1);await tree.ToSignal(tree,SceneTree.SignalName.ProcessFrame);samples++;
+                TestAssert.True(actualPlayer.GetInstanceId()==playerId&&health.CurrentHealth==hp&&healed==0&&
+                    actualPlayer.GlobalPosition.X is >1956 and <2400&&actualPlayer.GlobalPosition.Y is >2000 and <2440,
+                    "actual side-shelf visit preserves same living Player without recovery/position injection: "+actualPlayer.GlobalPosition);
+            }
+            KeyboardActionRuntimeTests.KeyEvent(Key.A,true);
+            for(int i=0;i<90&&!(OnShelf()&&actualPlayer.GlobalPosition.X<=2100);i++)await PlayerStep();
+            KeyboardActionRuntimeTests.KeyEvent(Key.A,false);for(int i=0;i<8;i++)await PlayerStep();
+            TestAssert.True(OnShelf()&&actualPlayer.GlobalPosition.X is >1976 and <2116&&MathF.Abs(actualPlayer.GlobalPosition.Y-2184)<1,
+                "real saved Player must enter and settle with full body on named side shelf: "+actualPlayer.GlobalPosition);
+            GD.Print($"RESIDENT_ABYSS_PLAYER_LANDED position={actualPlayer.GlobalPosition} velocity={actualPlayer.Velocity} hp={health.CurrentHealth} samples={samples}");
+            KeyboardActionRuntimeTests.KeyEvent(Key.D,true);
+            for(int i=0;i<120&&!(actualPlayer.GlobalPosition.X>=2160&&actualPlayer.GlobalPosition.Y>2320);i++)await PlayerStep();
+            KeyboardActionRuntimeTests.KeyEvent(Key.D,false);
+            TestAssert.True(actualPlayer.GlobalPosition.X>=2160&&actualPlayer.GlobalPosition.Y>2320&&!OnShelf()&&
+                motor.AcceptedJumpCount==0&&motor.AcceptedDashCount==0&&health.CurrentHealth==hp&&healed==0,
+                "same saved Player walks out and descends the preserved main shaft without jump/dash/rescue");
+            GD.Print($"RESIDENT_ABYSS_PLAYER_VISIT_OK same_player=true actual_keyboard=true actual_physics=true position_writes_after_mount=0 landed_named_shelf=true returned_main_shaft=true jumps=0 dashes=0 healed=0 samples={samples} mechanisms_active=false claw_route_proved=false normal_world=false");
+            GD.Print("RESIDENT_ABYSS_CANDIDATE_OK identities=1 saved_leaves=1 saved_sectors=5 native_terrain=143 full_reservations=true original_records=36 patrol_frames=360 player_capsule_directions=2 actual_player_motion=true canonical_changed=false formal_spawned=0 publication=false");
+        }
+        finally
+        {
+            foreach(Key key in new[]{Key.A,Key.D})KeyboardActionRuntimeTests.KeyEvent(key,false);
+            if(GodotObject.IsInstanceValid(actualPlayer))actualPlayer.Free();
+            if(GodotObject.IsInstanceValid(resident))resident.Free();
+            foreach(var actor in originals.Values)actor.Free();
             await fixture.DisposeAsync();
         }
     }
@@ -398,7 +779,7 @@ public static class CanyonResidentPlacementTests
             GD.Print("RESIDENT_FROZEN_GEOMETRY_RESULTS failures="+geometryFailures.Count+" details="+string.Join(";",geometryFailures));
             TestAssert.True(geometryFailures.Count==0,"saved candidate alcove native/minimap geometry: "+string.Join(";",geometryFailures));
             GD.Print("RESIDENT_FROZEN_CANDIDATE_SUPPORT_OK identities=2 actual_saved_sector=true native_full_feet=true publication=false");
-            fixture.AssertNativePreconditions(132);
+            fixture.AssertNativePreconditions(143);
             string snapshot=fixture.CollisionSnapshot();
             ResidentEnvironmentSnapshot environment=ResidentEnvironmentInventory.Capture(fixture.Scope);
             TestAssert.Equal(0,environment.Issues.Count,"candidate keeps complete actual environment reservations");
@@ -483,14 +864,22 @@ public static class CanyonResidentPlacementTests
             RunBodyCandidateCensus(fixture,source);RunActivityCandidateCensus(fixture,source);
             source.WriteDiagnostics(Path.Combine(storage,"candidate-leaf-geometry-diagnostics.jsonl"));
             TestAssert.True(CanyonResidentCatalog.All.All(x=>x.Placement==null),"staged candidate does not silently publish formal positions");
-            GD.Print("RESIDENT_FROZEN_CANDIDATE_DONE generated_terrain=132 actual_patrol_identities=2 census_identities=50 canonical_changed=false parent_updated=false publication=false");
+            GD.Print("RESIDENT_FROZEN_CANDIDATE_DONE generated_terrain=143 actual_patrol_identities=2 census_identities=50 canonical_changed=false parent_updated=false publication=false");
         }
         finally{await fixture.DisposeAsync();}
     }
 
     public static async Task Run(SceneTree tree, string admittedStorage)
     {
+        Knight.Tests.Unit.ResidentGeometryIssueOrderTests.Run();
+        // Passive monotonic receipts never participate in geometry decisions.
+        long stageClockStarted=System.Diagnostics.Stopwatch.GetTimestamp();
+        StageTiming("run_enter");
+        // A missing optimization must fail as behavior, not as an unknown C#
+        // type/method, so this RED gate intentionally precedes leaf generation.
+        System.Reflection.MethodInfo patrolEntry=RequirePatrolBatchEntry();
         string leaves = ResidentSceneBindingTests.BuildCandidatePackage(admittedStorage);
+        StageTiming("candidate_package_ready");
         using var leafSource = new CensusLeafSource(leaves);
         var fixture = new NativeFixture(tree);
         var failed = new List<string>();
@@ -509,12 +898,18 @@ public static class CanyonResidentPlacementTests
             await RunPlayerAccess(fixture);
             RunArchiveResidentSpace(fixture);
             RunBodyCandidateCensus(fixture, leafSource);
+            StageTiming("activity_enter",leafSource.RecordCount);
             RunActivityCandidateCensus(fixture, leafSource);
+            StageTiming("activity_return",leafSource.RecordCount);
             fixture.PopulateControlledCounterexamples();
             await fixture.Sync();
             fixture.AssertControlledPreconditions();
+            await RunPatrolEndpointReuse(fixture,patrolEntry);
             RunSavedLeafControls(fixture, leaves, admittedStorage);
+            StageTiming("leaf_controls_return",leafSource.RecordCount);
+            StageTiming("diagnostics_before",leafSource.RecordCount);
             leafSource.WriteDiagnostics(Path.Combine(admittedStorage,"leaf-geometry-diagnostics.jsonl"));
+            StageTiming("diagnostics_after",leafSource.RecordCount);
 
             foreach ((string scene, Rect2 expected) in new[]
             {
@@ -622,10 +1017,21 @@ public static class CanyonResidentPlacementTests
             });
             TestAssert.True(failed.Count==0,"resident native geometry checks failed: "+string.Join("; ",failed));
             GD.Print($"RESIDENT_GEOMETRY_NATIVE_OK cases={cases} saved_sectors=5 probe_types=9 same_checker=true placement_certified=false");
+            StageTiming("body_controls_return",leafSource.RecordCount);
             RunCorridors(fixture);
+            StageTiming("corridor_return",leafSource.RecordCount);
             RunCorridorSelectionControls(fixture);
+            StageTiming("selection_return",leafSource.RecordCount);
         }
-        finally { await fixture.DisposeAsync(); }
+        finally { await fixture.DisposeAsync(); StageTiming("fixture_exit"); }
+
+        void StageTiming(string stage,int? diagnosticRecords=null)
+        {
+            long timestamp=System.Diagnostics.Stopwatch.GetTimestamp();
+            double elapsedMilliseconds=(timestamp-stageClockStarted)*1000.0/System.Diagnostics.Stopwatch.Frequency;
+            string records=diagnosticRecords?.ToString(CultureInfo.InvariantCulture)??"not_sampled";
+            GD.Print(string.Create(CultureInfo.InvariantCulture,$"RESIDENT_GEOMETRY_STAGE stage={stage} elapsed_ms={elapsedMilliseconds:F3} monotonic_ticks={timestamp} stopwatch_frequency={System.Diagnostics.Stopwatch.Frequency} diagnostic_records={records} diagnostic_only=true"));
+        }
 
         ResidentBodyGeometryResult Check(CharacterBody2D actor,Vector2 p,bool ground,IReadOnlyList<ResidentKeepOut> keep=null) =>
             ResidentPlacementGeometry.CheckBody(actor,new Transform2D(0,p),fixture.Space,fixture.Scope,fixture.Bounds,ground,keep??Array.Empty<ResidentKeepOut>());
@@ -758,7 +1164,17 @@ public static class CanyonResidentPlacementTests
             if(!_raw.TryGetValue(type.Id,out CharacterBody2D actor))
             {
                 string path=PathFor(type);
+#if REFCOUNTED_FATAL_IDENTITY
+                long operation=Knight.Tests.Diagnostics.Task14NativeResourceIdentity.BeginCensusLeafOperation(type.Id,"raw:"+type.Id,path);
+                PackedScene packed=GD.Load<PackedScene>(path);
+                Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusLeafOperation(operation,"load-return",type.Id,"raw:"+type.Id,path);
+                Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusLeafOperation(operation,"instantiate-enter",type.Id,"raw:"+type.Id,path);
+                Node root;
+                try { root=packed?.Instantiate(); }
+                finally { Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusLeafOperation(operation,"instantiate-exit",type.Id,"raw:"+type.Id,path); }
+#else
                 Node root=GD.Load<PackedScene>(path)?.Instantiate();
+#endif
                 try
                 {
                     ResidentSceneBinding binding=root?.GetNodeOrNull<ResidentSceneBinding>("ResidentBinding");
@@ -768,6 +1184,10 @@ public static class CanyonResidentPlacementTests
                         binding.Profile.Archetype!=type.Archetype || binding.Profile.Carrier!=type.Carrier ||
                         root.SceneFilePath.Replace('\\','/')!=path.Replace('\\','/'))
                         throw new ArgumentException("Actual saved leaf identity/body required; never fall back to a carrier probe.");
+#if REFCOUNTED_FATAL_IDENTITY
+                    Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveCensusResource(binding.Profile,path,"census-borrowed-raw-profile");
+                    Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveCensusRangedSettings(root,path,"census-raw-settings");
+#endif
                     actor=body;_raw.Add(type.Id,actor);
                 }
                 catch{if(GodotObject.IsInstanceValid(root))root.Free();throw;}
@@ -779,12 +1199,26 @@ public static class CanyonResidentPlacementTests
         private readonly HashSet<string> _configuredIds=new(StringComparer.Ordinal);
         private readonly HashSet<string> _configuredTypes=new(StringComparer.Ordinal);
         private readonly List<string> _diagnostics=new();
+        public int RecordCount=>_diagnostics.Count;
         public string PathFor(ResidentSubtypeDefinition type)=>Path.Combine(_leaves,type.Id+".tscn");
         public CharacterBody2D Configure(ResidentSubtypeDefinition type,ResidentPopulationDefinition slot)
         {
             string path=PathFor(type);
+#if REFCOUNTED_FATAL_IDENTITY
+            long operation=Knight.Tests.Diagnostics.Task14NativeResourceIdentity.BeginCensusLeafOperation(type.Id,slot.StableId,path);
+            PackedScene packed=GD.Load<PackedScene>(path);
+            Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusLeafOperation(operation,"load-return",type.Id,slot.StableId,path);
+            Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusLeafOperation(operation,"instantiate-enter",type.Id,slot.StableId,path);
+            CharacterBody2D actor;
+            try { actor=ResidentSceneBinding.Instantiate(packed,type with {SceneState=ResidentSceneState.ExplicitPlaceholder,ScenePath=path},slot,true); }
+            finally { Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusLeafOperation(operation,"instantiate-exit",type.Id,slot.StableId,path); }
+#else
             CharacterBody2D actor=ResidentSceneBinding.Instantiate(GD.Load<PackedScene>(path),
                 type with {SceneState=ResidentSceneState.ExplicitPlaceholder,ScenePath=path},slot,true);
+#endif
+#if REFCOUNTED_FATAL_IDENTITY
+            Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveCensusRangedSettings(actor,path,"census-configured-settings");
+#endif
             _configuredIds.Add(slot.StableId);_configuredTypes.Add(type.Id);return actor;
         }
         public CharacterBody2D Configure(ResidentPopulationDefinition slot,Vector2[] points,Rect2 territory)=>
@@ -827,6 +1261,273 @@ public static class CanyonResidentPlacementTests
         public void Dispose(){foreach(CharacterBody2D actor in _raw.Values)if(GodotObject.IsInstanceValid(actor))actor.Free();}
     }
 
+    private static System.Reflection.MethodInfo RequirePatrolBatchEntry()
+    {
+        var entry=typeof(ResidentPlacementGeometry).GetMethod("CheckPatrol",
+            System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static,null,new[]
+            {
+                typeof(CharacterBody2D),typeof(Transform2D),typeof(Vector2),typeof(IReadOnlyList<Vector2>),
+                typeof(PhysicsDirectSpaceState2D),typeof(Node2D),typeof(Rect2),typeof(bool),
+                typeof(IReadOnlyList<ResidentKeepOut>),typeof(ResidentPlayerCollisionIdentity?)
+            },null);
+        TestAssert.True(entry!=null,"RESIDENT_PATROL_BATCH_ENTRY_MISSING: same-call endpoint reuse must expose CheckPatrol");
+        return entry;
+    }
+
+    private static async Task RunPatrolEndpointReuse(NativeFixture fixture,System.Reflection.MethodInfo entry)
+    {
+        var failures=new List<string>();int cases=0,comparisons=0;
+        int worldStateRows=0,worldStateFaults=0;
+        bool addedWallRegistered=false,removedWallAbsent=false;
+        long freshTicks=0,batchTicks=0;
+        string before=fixture.CollisionSnapshot();
+        CharacterBody2D actor=null,moth=null,player=null;StaticBody2D foreign=null;
+        try
+        {
+            actor=GD.Load<PackedScene>(CanyonEncounterCatalog.RustShellScene).Instantiate<CharacterBody2D>();
+            moth=GD.Load<PackedScene>(CanyonEncounterCatalog.MothScene).Instantiate<CharacterBody2D>();
+            Vector2 home=new(800,604),other=new(928,604);
+            var repeated=Compare("repeated_two_points",actor,new(0,home),home,new[]{home,other,home},true,2,9);
+            Expect("repeated_home_literal",repeated.Body.BodyGeometryClear&&repeated.Body.WorldBodyBounds==new Rect2(782,572,36,64));
+            Expect("repeated_support_has_real_double_identity",repeated.Body.Support.Count>0&&
+                repeated.Body.Support.All(x=>x.ColliderId!=0&&x.ShapeId!=0&&x.ColliderId!=x.ShapeId));
+            Expect("repeated_all_four_segments_in_original_order",repeated.Corridors.Count==4&&
+                repeated.Corridors[0].WorldCorridorBounds==new Rect2(782,572,36,64)&&
+                repeated.Corridors[1].WorldCorridorBounds==new Rect2(782,572,164,64)&&
+                repeated.Corridors[2].WorldCorridorBounds==new Rect2(782,572,164,64)&&
+                repeated.Corridors[3].WorldCorridorBounds==new Rect2(782,572,36,64)&&repeated.Corridors.All(x=>x.CorridorClear));
+
+            home=new(1040,604);
+            var stationary=Compare("stationary_retains_two_zero_segments",actor,new(0,home),home,new[]{home},true,1,5);
+            Expect("stationary_literal",stationary.Body.BodyGeometryClear&&stationary.Corridors.Count==2&&
+                stationary.Corridors.All(x=>x.CorridorClear&&x.WorldCorridorBounds==new Rect2(1022,572,36,64)));
+
+            // Keying by Origin/AABB or approximate basis equality incorrectly
+            // reuses the intended body for the identity-basis patrol endpoint.
+            home=new(1100,500);
+            Transform2D rotated=new(Vector2.Down,Vector2.Left,home);
+            var basis=Compare("same_origin_rotated_intended",actor,rotated,home,new[]{home},false,2,5);
+            Expect("rotated_intended_keeps_its_own_transform_and_bounds",basis.Body.ColliderWorldTransform==rotated&&
+                basis.Body.WorldBodyBounds==new Rect2(1068,482,64,36)&&basis.Corridors.Count==2&&
+                basis.Corridors.All(x=>x.WorldCorridorBounds==new Rect2(1082,468,36,64)));
+            Transform2D tinyScale=new(new Vector2(1.00001f,0),Vector2.Down,home);
+            var tiny=Compare("same_origin_sub_tolerance_basis",actor,tinyScale,home,new[]{home},false,2,5);
+            Expect("tiny_basis_is_exact_not_approximately_identity",tiny.Body.ColliderWorldTransform==tinyScale&&
+                tiny.Body.ColliderWorldTransform!=new Transform2D(0,home)&&tiny.Body.WorldBodyBounds!=new Rect2(1082,468,36,64)&&
+                tiny.Corridors.All(x=>x.CorridorClear&&x.WorldCorridorBounds==new Rect2(1082,468,36,64)));
+            Transform2D smallerScale=new(new Vector2(1.000004f,0),Vector2.Down,home);
+            var smaller=Compare("same_origin_below_approx_basis_epsilon",actor,smallerScale,home,new[]{home},false,2,5);
+            Expect("sub_epsilon_basis_still_has_own_exact_body",smaller.Body.ColliderWorldTransform==smallerScale&&
+                smaller.Body.WorldBodyBounds!=new Rect2(1082,468,36,64)&&
+                smaller.Corridors.All(x=>x.CorridorClear&&x.WorldCorridorBounds==new Rect2(1082,468,36,64)));
+
+            home=new(11000,500);other=new(11100,500);
+            var blockedEnd=new[]{new ResidentKeepOut("patrol-blocked-end",ResidentKeepOutKind.Protected,new Rect2(11090,468,20,64))};
+            var endpoint=Compare("failed_endpoint_prefixes",actor,new(0,home),home,new[]{home,other,home},false,2,9,blockedEnd);
+            Expect("failed_endpoint_does_not_drop_or_reorder_return_segments",endpoint.Body.BodyGeometryClear&&endpoint.Corridors.Count==4&&
+                endpoint.Corridors[0].CorridorClear&&endpoint.Corridors[3].CorridorClear&&
+                endpoint.Corridors[1].Issues.SequenceEqual(new[]{"end.reserved.Protected:patrol-blocked-end"})&&
+                endpoint.Corridors[2].Issues.SequenceEqual(new[]{"start.reserved.Protected:patrol-blocked-end"}));
+            Transform2D invalid=new(Vector2.Zero,Vector2.Down,home);
+            var invalidInitial=Compare("invalid_intended_is_not_valid_patrol_origin",actor,invalid,home,new[]{home},false,2,5);
+            Expect("invalid_intended_keeps_failure_but_valid_zero_segments_survive",invalidInitial.Body.Issues.SequenceEqual(new[]{"invalid_transform"})&&
+                invalidInitial.Corridors.Count==2&&invalidInitial.Corridors.All(x=>x.CorridorClear));
+
+            // Endpoints are independently clear; only the real swept volume
+            // can see these failures. Removing/short-circuiting a corridor is a bug.
+            foreach(var row in new (string Name,CharacterBody2D Actor,Vector2 Home,Vector2 Other,bool Ground,string Reason,Rect2 Bounds)[]
+            {
+                ("middle_thin_wall",actor,new(10100,500),new(10300,500),false,"corridor_native_world",new(10082,468,236,64)),
+                ("same_support_body_different_blocking_shape",actor,new(9620,604),new(9780,604),true,"corridor_native_world",new(9602,572,196,64)),
+                ("middle_support_gap",actor,new(8950,604),new(9050,604),true,"corridor_incomplete_support",new(8932,572,136,64)),
+                ("middle_query_capacity",actor,new(10400,500),new(10600,500),false,"corridor_query_truncated",new(10382,468,236,64)),
+                ("middle_layer_zero_electric",moth,new(2100,3930),new(2420,3930),false,"corridor_native_hazard",new(2084,3914,352,32))
+            })
+            {
+                ResidentBodyGeometryResult otherBody=ResidentPlacementGeometry.CheckBody(row.Actor,new(0,row.Other),fixture.Space,
+                    fixture.Scope,fixture.Bounds,row.Ground,Array.Empty<ResidentKeepOut>());
+                var check=Compare(row.Name,row.Actor,new(0,row.Home),row.Home,new[]{row.Home,row.Other,row.Home},row.Ground,2,9);
+                Expect(row.Name+"_clear_independent_endpoints",check.Body.BodyGeometryClear&&otherBody.BodyGeometryClear&&
+                    check.Corridors.Count==4&&check.Corridors[0].CorridorClear&&check.Corridors[3].CorridorClear);
+                Expect(row.Name+"_literal_reason_and_volume_both_directions",check.Corridors[1].Issues.Contains(row.Reason)&&
+                    check.Corridors[2].Issues.Contains(row.Reason)&&check.Corridors[1].WorldCorridorBounds==row.Bounds&&
+                    check.Corridors[2].WorldCorridorBounds==row.Bounds);
+            }
+            CanyonShieldLaneHazard electric=fixture.Sectors[PrologueSectorId.CanyonBasin].GetNode<CanyonShieldLaneHazard>("Gameplay/ShieldLane");
+            Expect("electric_counterexample_is_actual_enabled_layer_zero_lane",electric.CollisionLayer==0&&electric.Monitoring&&
+                !electric.GetNode<CollisionShape2D>("Collision").Disabled);
+            home=new(10500,500);
+            var truncatedEndpoint=Compare("truncated_endpoint_is_reused_without_losing_prefixes",actor,new(0,home),home,new[]{home},false,1,5);
+            Expect("truncated_endpoint_is_not_clear_or_unknown",truncatedEndpoint.Body.Issues.Contains("query_truncated")&&
+                truncatedEndpoint.Corridors.Count==2&&truncatedEndpoint.Corridors.All(x=>
+                    x.Issues.Contains("start.query_truncated")&&x.Issues.Contains("end.query_truncated")&&!x.CorridorClear));
+
+            // A private shape is mutated between identical invocations. Never
+            // mutate/dispose the cached PackedScene's shared Shape resource.
+            CollisionShape2D collider=actor.GetNode<CollisionShape2D>("BodyCollider");
+            var privateShape=fixture.Own((CapsuleShape2D)collider.Shape.Duplicate());collider.Shape=privateShape;
+            home=new(11400,1000);var onePoint=new[]{home};var mutableKeep=new List<ResidentKeepOut>();
+            var shapeBefore=Compare("fresh_call_before_private_shape_change",actor,new(0,home),home,onePoint,false,1,5,mutableKeep);
+            privateShape.Height=96;
+            var shapeAfter=Compare("fresh_call_after_private_shape_change",actor,new(0,home),home,onePoint,false,1,5,mutableKeep);
+            Expect("cross_call_shape_change_is_fresh_and_old_result_is_pure_value",shapeBefore.Body.WorldBodyBounds==new Rect2(11382,968,36,64)&&
+                shapeAfter.Body.WorldBodyBounds==new Rect2(11382,952,36,96)&&shapeAfter.Corridors.All(x=>x.WorldCorridorBounds==new Rect2(11382,952,36,96)));
+            mutableKeep.Add(new("patrol-next-call",ResidentKeepOutKind.Protected,new Rect2(11390,990,20,20)));
+            var reserved=Compare("fresh_call_after_same_keepout_list_changes",actor,new(0,home),home,onePoint,false,1,5,mutableKeep);
+            Expect("cross_call_keepout_changes_are_not_stale",reserved.Body.Issues.Contains("reserved.Protected:patrol-next-call")&&
+                reserved.Corridors.All(x=>x.Issues.Contains("start.reserved.Protected:patrol-next-call")&&x.Issues.Contains("end.reserved.Protected:patrol-next-call")));
+            mutableKeep.Clear();
+            var unreserved=Compare("fresh_call_after_keepout_removal",actor,new(0,home),home,onePoint,false,1,5,mutableKeep);
+            Expect("cross_call_keepout_removal_recovers_clear",unreserved.Body.BodyGeometryClear&&unreserved.Corridors.All(x=>x.CorridorClear));
+            privateShape.Height=64;
+
+            // This native player identity is local to the owned World2D and
+            // intentionally has no global player group or gameplay callbacks.
+            home=new(11000,1000);other=new(11128,1000);
+            player=new CharacterBody2D {Name="PatrolBatchCurrentPlayer",Position=home,CollisionLayer=CombatCollisionLayers.Player,CollisionMask=0};
+            var playerBody=new CollisionShape2D {Name="BodyCollider",Shape=fixture.Own(new RectangleShape2D {Size=new Vector2(36,64)})};
+            var hurtbox=new Area2D {Name="Hurtbox",CollisionLayer=CombatCollisionLayers.Player,CollisionMask=0,Monitoring=false,Monitorable=true};
+            var hurtShape=new CollisionShape2D {Name="HurtboxCollider",Shape=fixture.Own(new RectangleShape2D {Size=new Vector2(36,64)})};
+            player.AddChild(playerBody);hurtbox.AddChild(hurtShape);player.AddChild(hurtbox);fixture.Scope.AddChild(player);
+            await fixture.Sync();
+            var identity=new ResidentPlayerCollisionIdentity(player.GetInstanceId(),playerBody.GetInstanceId(),hurtbox.GetInstanceId(),hurtShape.GetInstanceId());
+            var playerKeep=new[]{new ResidentKeepOut("current_player",ResidentKeepOutKind.Protected,new Rect2(10918,904,164,192))};
+            var playerPoints=new[]{home,other,home};
+            var playerOnly=Compare("current_player_only",actor,new(0,home),home,playerPoints,false,2,9,playerKeep,identity);
+            Expect("player_only_keeps_exact_body_and_hurtbox_reasons",playerOnly.Body.Issues.Contains("reserved.Protected:current_player")&&
+                playerOnly.Body.Issues.Contains("native_current_player_body")&&playerOnly.Body.Issues.Contains("native_current_player_hurtbox")&&
+                playerOnly.Corridors[1].Issues.Contains("start.native_current_player_body")&&
+                playerOnly.Corridors[1].Issues.Contains("start.native_current_player_hurtbox")&&
+                playerOnly.Corridors[1].Issues.Contains("corridor_native_current_player_body")&&
+                playerOnly.Corridors[1].Issues.Contains("corridor_native_current_player_hurtbox")&&
+                playerOnly.Corridors.SelectMany(x=>x.Issues).All(ResidentPlacementGeometry.IsCurrentPlayerIssue));
+            foreign=new StaticBody2D {Name="PatrolBatchForeignMiddleWall",Position=new Vector2(11064,1000),CollisionLayer=CombatCollisionLayers.World,CollisionMask=0};
+            foreign.AddChild(new CollisionShape2D {Shape=fixture.Own(new RectangleShape2D {Size=new Vector2(4,160)})});
+            fixture.Scope.AddChild(foreign);await fixture.Sync();
+            ulong foreignId=foreign.GetInstanceId();
+            bool addedHit=fixture.HasNativeHit(privateShape,new Transform2D(0,new Vector2(11064,1000)),foreignId);
+            addedWallRegistered=addedHit;
+            GD.Print($"RESIDENT_PATROL_WALL_NATIVE boundary=added id={foreignId} hit={addedHit} physics={Engine.GetPhysicsFrames()} process={Engine.GetProcessFrames()}");
+            TestAssert.True(addedWallRegistered,"patrol foreign wall must be natively registered after original Add/Sync; prior_failures="+string.Join("; ",failures));
+            var mixed=Compare("same_inputs_after_foreign_world_wall_added",actor,new(0,home),home,playerPoints,false,2,9,playerKeep,identity);
+            Expect("player_only_endpoints_do_not_hide_foreign_middle_obstacle",mixed.Body.Issues.SequenceEqual(playerOnly.Body.Issues)&&
+                mixed.Corridors[1].Issues.Contains("start.native_current_player_body")&&mixed.Corridors[1].Issues.Contains("corridor_native_world")&&
+                mixed.Corridors[2].Issues.Contains("end.native_current_player_body")&&mixed.Corridors[2].Issues.Contains("corridor_native_world")&&
+                !playerOnly.Corridors.SelectMany(x=>x.Issues).Contains("corridor_native_world"));
+            foreign.Free();foreign=null;await fixture.Sync();
+            bool removedHit=fixture.HasNativeHit(privateShape,new Transform2D(0,new Vector2(11064,1000)),foreignId);
+            removedWallAbsent=!removedHit;
+            GD.Print($"RESIDENT_PATROL_WALL_NATIVE boundary=removed id={foreignId} hit={removedHit} physics={Engine.GetPhysicsFrames()} process={Engine.GetProcessFrames()}");
+            TestAssert.True(removedWallAbsent,"patrol freed foreign wall must be natively absent after original Free/Sync; prior_failures="+string.Join("; ",failures));
+            var worldRestored=Compare("same_inputs_after_foreign_world_wall_removed",actor,new(0,home),home,playerPoints,false,2,9,playerKeep,identity);
+            Expect("cross_call_world_removal_is_fresh",worldRestored.Corridors.Count==playerOnly.Corridors.Count&&
+                worldRestored.Corridors.SelectMany(x=>x.Issues).SequenceEqual(playerOnly.Corridors.SelectMany(x=>x.Issues)));
+        }
+        finally
+        {
+            try
+            {
+                if(GodotObject.IsInstanceValid(foreign))foreign.Free();
+                if(GodotObject.IsInstanceValid(player))player.Free();
+                if(GodotObject.IsInstanceValid(moth))moth.Free();
+                if(GodotObject.IsInstanceValid(actor))actor.Free();
+                await fixture.Sync();
+            }
+            finally
+            {
+                GD.Print($"RESIDENT_PATROL_WORLD_OBSERVATION_END rows={worldStateRows} faults={worldStateFaults} added_wall_registered={addedWallRegistered} removed_wall_absent={removedWallAbsent} observation_only=true");
+            }
+        }
+        Expect("private_nodes_cleaned_without_changing_existing_native_shapes",before==fixture.CollisionSnapshot());
+        if(worldStateRows!=3||worldStateFaults!=0) failures.Add("world_state_observation_has_three_rows_and_no_faults");
+        TestAssert.True(failures.Count==0,"resident patrol endpoint reuse checks failed: "+string.Join("; ",failures));
+        GD.Print($"RESIDENT_PATROL_ENDPOINT_REUSE_NATIVE_OK cases={cases} comparisons={comparisons} repeated_body_checks=2 fresh_repeated_body_calls=9 stationary_body_checks=1 fresh_stationary_body_calls=5 fresh_ticks={freshTicks} batch_ticks={batchTicks} timing_diagnostic_only=true placement_certified=false");
+
+        void Expect(string name,bool pass){cases++;if(!pass)failures.Add(name);}
+        (ResidentBodyGeometryResult Body,IReadOnlyList<ResidentPathGeometryResult> Corridors,int BodyCheckCount) Compare(
+            string name,CharacterBody2D probe,Transform2D intended,Vector2 spawn,IReadOnlyList<Vector2> points,bool ground,
+            int wantBodyChecks,int wantFreshBodyCalls,IReadOnlyList<ResidentKeepOut> keep=null,ResidentPlayerCollisionIdentity? currentPlayer=null)
+        {
+            keep??=Array.Empty<ResidentKeepOut>();comparisons++;
+            long started=System.Diagnostics.Stopwatch.GetTimestamp();
+            ResidentBodyGeometryResult freshBody=ResidentPlacementGeometry.CheckBody(probe,intended,fixture.Space,fixture.Scope,fixture.Bounds,ground,keep,currentPlayer);
+            var freshCorridors=new List<ResidentPathGeometryResult>();Vector2 previous=spawn;int freshBodyCalls=1;
+            foreach(Vector2 point in points.Append(spawn))
+            {
+                // The unchanged public fresh corridor independently calls
+                // CheckBody twice. This baseline count is hand-derived from
+                // those calls, not a Distinct/Transform implementation mirror.
+                freshCorridors.Add(ResidentPlacementGeometry.CheckCorridor(probe,new(0,previous),new(0,point),fixture.Space,
+                    fixture.Scope,fixture.Bounds,ground,keep,currentPlayer));previous=point;freshBodyCalls+=2;
+            }
+            freshTicks+=System.Diagnostics.Stopwatch.GetTimestamp()-started;
+            started=System.Diagnostics.Stopwatch.GetTimestamp();
+            object result=entry.Invoke(null,new object[]{probe,intended,spawn,points,fixture.Space,fixture.Scope,fixture.Bounds,ground,keep,currentPlayer});
+            batchTicks+=System.Diagnostics.Stopwatch.GetTimestamp()-started;
+            TestAssert.True(result!=null,"RESIDENT_PATROL_BATCH_RESULT_MISSING: "+name);
+            var resultType=result.GetType();
+            object bodyValue=resultType.GetProperty("Body")?.GetValue(result),corridorsValue=resultType.GetProperty("Corridors")?.GetValue(result),
+                countValue=resultType.GetProperty("BodyCheckCount")?.GetValue(result);
+            TestAssert.True(bodyValue is ResidentBodyGeometryResult&&corridorsValue is IReadOnlyList<ResidentPathGeometryResult>&&countValue is int,
+                "RESIDENT_PATROL_BATCH_RESULT_CONTRACT: public Body/Corridors/BodyCheckCount, case="+name);
+            var body=(ResidentBodyGeometryResult)bodyValue;var corridors=(IReadOnlyList<ResidentPathGeometryResult>)corridorsValue;int checks=(int)countValue;
+            if(name is "current_player_only" or "same_inputs_after_foreign_world_wall_added" or "same_inputs_after_foreign_world_wall_removed")
+                ObserveWorldState(name,freshBody,freshCorridors,body,corridors,freshBodyCalls,checks);
+            Expect(name+"_literal_body_check_count",checks==wantBodyChecks);
+            Expect(name+"_literal_fresh_body_call_count",freshBodyCalls==wantFreshBodyCalls);
+            Expect(name+"_body_bounds_and_exact_transform",body.WorldBodyBounds==freshBody.WorldBodyBounds&&body.ColliderWorldTransform==freshBody.ColliderWorldTransform);
+            Expect(name+"_body_issues_and_clear_flags",body.Issues.SequenceEqual(freshBody.Issues)&&body.BodyGeometryClear==freshBody.BodyGeometryClear&&
+                body.IsCompletePlacementProof==freshBody.IsCompletePlacementProof);
+            Expect(name+"_support_collider_and_shape_identity_and_bounds",body.Support.Count==freshBody.Support.Count&&
+                body.Support.Select(x=>(x.ColliderId,x.ShapeId,x.WorldBounds)).SequenceEqual(freshBody.Support.Select(x=>(x.ColliderId,x.ShapeId,x.WorldBounds))));
+            cases++;
+            TestAssert.Equal(freshCorridors.Count,corridors.Count,name+"_all_corridors_preserved");
+            for(int i=0;i<Math.Min(corridors.Count,freshCorridors.Count);i++)
+                Expect(name+"_corridor_"+i+"_ordered_bounds_issues_flags",corridors[i].WorldCorridorBounds==freshCorridors[i].WorldCorridorBounds&&
+                    corridors[i].Issues.SequenceEqual(freshCorridors[i].Issues)&&corridors[i].CorridorClear==freshCorridors[i].CorridorClear&&
+                    corridors[i].IsCompletePlacementProof==freshCorridors[i].IsCompletePlacementProof);
+            return(body,corridors,checks);
+        }
+
+        void ObserveWorldState(string name,ResidentBodyGeometryResult freshBody,IReadOnlyList<ResidentPathGeometryResult> freshCorridors,
+            ResidentBodyGeometryResult batchBody,IReadOnlyList<ResidentPathGeometryResult> batchCorridors,int freshCalls,int bodyChecks)
+        {
+            if(worldStateRows>=3)
+            {
+                worldStateFaults++;
+                failures.Add("world_state_observation_row_cap:"+name);
+                return;
+            }
+            try
+            {
+                string json=System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    name,physics=Engine.GetPhysicsFrames(),process=Engine.GetProcessFrames(),freshCalls,bodyChecks,
+                    fresh=new {body=BodyScalars(freshBody),corridors=CorridorScalars(freshCorridors)},
+                    batch=new {body=BodyScalars(batchBody),corridors=CorridorScalars(batchCorridors)}
+                });
+                GD.Print("RESIDENT_PATROL_WORLD_STATE "+json);
+                worldStateRows++;
+            }
+            catch(Exception error)
+            {
+                worldStateFaults++;
+                failures.Add("world_state_observation_fault:"+name+":"+error.GetType().Name);
+            }
+        }
+        static float[] BoundsScalars(Rect2 bounds)=>new[]{bounds.Position.X,bounds.Position.Y,bounds.Size.X,bounds.Size.Y};
+        static object BodyScalars(ResidentBodyGeometryResult body)=>new
+        {
+            bounds=BoundsScalars(body.WorldBodyBounds),issues=body.Issues.ToArray(),clear=body.BodyGeometryClear,
+            proof=body.IsCompletePlacementProof,transform=body.ColliderWorldTransform.ToString()
+        };
+        static object[] CorridorScalars(IReadOnlyList<ResidentPathGeometryResult> corridors)=>corridors.Select((corridor,index)=>(object)new
+        {
+            index,bounds=BoundsScalars(corridor.WorldCorridorBounds),issues=corridor.Issues.ToArray(),
+            clear=corridor.CorridorClear,proof=corridor.IsCompletePlacementProof
+        }).ToArray();
+    }
+
     private static void RunCorridors(NativeFixture fixture)
     {
         var failures=new List<string>();int cases=0;
@@ -834,8 +1535,18 @@ public static class CanyonResidentPlacementTests
         IReadOnlyList<ResidentKeepOut> environment=ResidentEnvironmentInventory.Capture(fixture.Scope).Regions;
         Probe(CanyonEncounterCatalog.RustShellScene, actor=>
         {
-            Accept("saved_ground_forward",actor,new(800,604),new(928,604),true,new(782,572,164,64),environment);
-            Accept("saved_ground_reverse",actor,new(928,604),new(800,604),true,new(782,572,164,64),environment);
+            // The current saved springboard occupies the old800 positive.
+            // Keep that exact site as a danger rejection; do not erase its
+            // reservation just to retain an obsolete clear-path fixture.
+            const string oldPad="reserved.Hazard:springboard:CanyonEntrance/Gameplay/Mechanisms/PracticeSpringboard/Collision";
+            var oldBody=ResidentPlacementGeometry.CheckBody(actor,new(0,new Vector2(800,604)),
+                fixture.Space,fixture.Scope,fixture.Bounds,true,environment);
+            TestAssert.True(oldBody.Issues.Contains(oldPad)&&
+                Check(actor,new(0,new Vector2(800,604)),new(0,new Vector2(928,604)),true,environment).Issues.Contains("start."+oldPad)&&
+                Check(actor,new(0,new Vector2(928,604)),new(0,new Vector2(800,604)),true,environment).Issues.Contains("end."+oldPad),
+                "current saved springboard remains rejected at the original corridor endpoints");
+            Accept("saved_ground_forward",actor,new(928,604),new(1040,604),true,new(910,572,148,64),environment);
+            Accept("saved_ground_reverse",actor,new(1040,604),new(928,604),true,new(910,572,148,64),environment);
             Accept("saved_descent_ground",actor,new(1800,824),new(1928,824),true,new(1782,792,164,64),environment);
             Accept("stationary_turret_geometry_only",actor,new(1040,604),new(1040,604),true,new(1022,572,36,64));
             Reject("intermediate_floor_gap",actor,new(8950,604),new(9050,604),true,"corridor_incomplete_support");
@@ -860,9 +1571,16 @@ public static class CanyonResidentPlacementTests
         });
         Probe(CanyonEncounterCatalog.MothScene,actor=>
         {
-            Accept("saved_air_horizontal",actor,new(800,450),new(928,450),false,new(784,434,160,32),environment);
-            Accept("saved_air_vertical",actor,new(928,450),new(928,546),false,new(912,434,32,128),environment);
-            Accept("saved_air_reverse",actor,new(928,546),new(928,450),false,new(912,434,32,128),environment);
+            const string oldGear="reserved.Hazard:fixed-gear:CanyonEntrance/Gameplay/Mechanisms/PracticeFixedGear/Collision";
+            var oldBody=ResidentPlacementGeometry.CheckBody(actor,new(0,new Vector2(928,450)),
+                fixture.Space,fixture.Scope,fixture.Bounds,false,environment);
+            TestAssert.True(oldBody.Issues.Contains(oldGear)&&
+                Check(actor,new(0,new Vector2(928,450)),new(0,new Vector2(928,546)),false,environment).Issues.Contains("start."+oldGear)&&
+                Check(actor,new(0,new Vector2(928,546)),new(0,new Vector2(928,450)),false,environment).Issues.Contains("end."+oldGear),
+                "current saved fixed gear remains rejected at the original air endpoints");
+            Accept("saved_air_horizontal",actor,new(800,500),new(928,500),false,new(784,484,160,32),environment);
+            Accept("saved_air_vertical",actor,new(928,500),new(928,596),false,new(912,484,32,128),environment);
+            Accept("saved_air_reverse",actor,new(928,596),new(928,500),false,new(912,484,32,128),environment);
             Reject("intermediate_layer_zero_electric",actor,new(2100,3930),new(2420,3930),false,"corridor_native_hazard");
         });
         Probe(CanyonEncounterCatalog.RustShellScene,actor=>
@@ -874,6 +1592,7 @@ public static class CanyonResidentPlacementTests
         });
         TestAssert.Equal(before,fixture.CollisionSnapshot(),"corridor checks do not alter actual saved native geometry");
         TestAssert.True(failures.Count==0,"resident corridor checks failed: "+string.Join("; ",failures));
+        GD.Print("RESIDENT_CORRIDOR_CURRENT_HAZARD_CONTROLS_OK cases=2 original_locations_preserved=true current_saved_hazards=true same_checker=true");
         GD.Print($"RESIDENT_CORRIDOR_NATIVE_OK cases={cases} fixed_pose_translation=true motion_certified=false placement_certified=false");
 
         ResidentPathGeometryResult Check(CharacterBody2D actor,Transform2D from,Transform2D to,bool ground,
@@ -1111,7 +1830,8 @@ public static class CanyonResidentPlacementTests
 
     // Full conservative activity-enclosure authoring investigation. Even a
     // successful joint candidate does not certify native AI, attacks or motion.
-    private static void RunActivityCandidateCensus(NativeFixture fixture,CensusLeafSource leafSource)
+    private static CensusJointSeal RunActivityCandidateCensus(NativeFixture fixture,CensusLeafSource leafSource,
+        Func<IReadOnlyList<ResidentKeepOut>,string> contextFor=null)
     {
         var probes=new Dictionary<string,CharacterBody2D>(StringComparer.Ordinal);
         var choices=new Dictionary<string,IReadOnlyList<CorridorCandidate>>(StringComparer.Ordinal);
@@ -1249,6 +1969,17 @@ public static class CanyonResidentPlacementTests
             TestAssert.True(CanyonResidentCatalog.All.All(x=>x.Placement==null),"investigation does not silently author incomplete placements");
             TestAssert.Equal(before,fixture.CollisionSnapshot(),"activity search leaves saved world geometry unchanged");
             GD.Print($"RESIDENT_ACTIVITY_CENSUS_DONE identities=50 selected={selected.Count} unresolved={50-selected.Count} corridor_checks={checks} joint_nodes={jointNodes} search_capped={searchCapped.ToString().ToLowerInvariant()} placements_authored=0 motion_certified=false diagnostic_only=true");
+            // Export only the EXACT jointly selected identities after all original
+            // native checks. No bucket, re-selection, or replacement coordinates.
+            if(contextFor==null||selected.Count!=50)return null;
+            var rows=CanyonResidentCatalog.All.Select(slot=>
+            {
+                var value=selected[slot.StableId];
+                Rect2 territory=CanyonWorldLayout.Nodes.Single(x=>x.Id==slot.RouteNode).WorldBounds;
+                return new JointSiteDto(slot.StableId,new[]{value.Home.X,value.Home.Y},JointRect(territory),
+                    value.Points.Select(p=>new[]{p.X,p.Y}).ToArray(),JointRect(value.Occupancy));
+            }).ToArray();
+            return EncodeJoint(rows,contextFor(keepOut)) with {Reservations=Array.AsReadOnly(keepOut.ToArray())};
         }
         finally{foreach(CharacterBody2D actor in probes.Values)if(GodotObject.IsInstanceValid(actor))actor.Free();}
 
@@ -1306,7 +2037,13 @@ public static class CanyonResidentPlacementTests
     // authored placement, a patrol/attack corridor, or a completed family actor.
     private static void RunBodyCandidateCensus(NativeFixture fixture,CensusLeafSource leafSource)
     {
+#if REFCOUNTED_FATAL_IDENTITY
+        Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("environment-capture-begin");
+#endif
         ResidentEnvironmentSnapshot environment=ResidentEnvironmentInventory.Capture(fixture.Scope);
+#if REFCOUNTED_FATAL_IDENTITY
+        Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("environment-capture-return");
+#endif
         TestAssert.Equal(0,environment.Issues.Count,"census requires valid actual saved environment inventory");
         var keepOut=environment.Regions.ToList();
         int oldSites=0,found=0,attempted=0,queries=0;
@@ -1317,16 +2054,33 @@ public static class CanyonResidentPlacementTests
             CharacterBody2D Probe(string scene)
             {
                 if (!probes.TryGetValue(scene,out CharacterBody2D actor))
-                { actor=(CharacterBody2D)GD.Load<PackedScene>(scene).Instantiate();probes.Add(scene,actor); }
+                {
+                    actor=(CharacterBody2D)GD.Load<PackedScene>(scene).Instantiate();probes.Add(scene,actor);
+#if REFCOUNTED_FATAL_IDENTITY
+                    Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveCensusRangedSettings(actor,scene,"census-old36-settings");
+#endif
+                }
                 return actor;
             }
+#if REFCOUNTED_FATAL_IDENTITY
+            Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("old36-begin");
+#endif
             IReadOnlyList<ResidentKeepOut> old=OriginalSpawnReservations(Probe);keepOut.AddRange(old);oldSites=old.Count;
+#if REFCOUNTED_FATAL_IDENTITY
+            Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("old36-return");
+#endif
             TestAssert.Equal(36,oldSites,"26 old identities have36 primary/alternate candidate records, not36 actors");
             foreach (ResidentPopulationDefinition slot in CanyonResidentCatalog.All)
             {
                 attempted++;
                 ResidentSubtypeDefinition type=CanyonResidentCatalog.Subtypes.Single(x=>x.Id==slot.SubtypeId);
+#if REFCOUNTED_FATAL_IDENTITY
+                if(attempted==1)Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("first-raw-begin");
+#endif
                 CharacterBody2D probe=leafSource.Raw(type);
+#if REFCOUNTED_FATAL_IDENTITY
+                if(attempted==1)Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("first-raw-return");
+#endif
                 CollisionShape2D shape=probe.GetNode<CollisionShape2D>("BodyCollider");
                 Rect2 bodyLocal=shape.Transform*shape.Shape.GetRect();
                 bool ground=slot.Archetype is not (ResidentArchetype.Flyer or ResidentArchetype.Diver);
@@ -1338,7 +2092,13 @@ public static class CanyonResidentPlacementTests
                     if (slotQueries>=160) break;
                     if (!CanyonWorldLayout.TryResolveRouteNode(candidate,out CanyonRouteNodeId route)||route!=slot.RouteNode) continue;
                     slotQueries++;queries++;
+#if REFCOUNTED_FATAL_IDENTITY
+                    if(queries==1)Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("first-query-begin");
+#endif
                     ResidentBodyGeometryResult check=leafSource.QueryBody(slot,probe,new Transform2D(0,candidate),fixture,permitted,ground,keepOut);
+#if REFCOUNTED_FATAL_IDENTITY
+                    if(queries==1)Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("first-query-return");
+#endif
                     if (!check.BodyGeometryClear) continue;
                     selected=candidate;selectedBounds=check.WorldBodyBounds;found++;break;
                 }
@@ -1395,17 +2155,21 @@ public static class CanyonResidentPlacementTests
         string before = fixture.CollisionSnapshot();
         ResidentEnvironmentSnapshot actual = ResidentEnvironmentInventory.Capture(fixture.Scope);
         Expect("saved_inventory_clean", actual.Issues.Count == 0);
-        Expect("saved_noninteraction_inventory_count", actual.Regions.Count(x=>x.Kind!=ResidentKeepOutKind.PlayerInteraction) == 81);
+        Expect("saved_noninteraction_inventory_count", actual.Regions.Count(x=>x.Kind!=ResidentKeepOutKind.PlayerInteraction) == 91);
         Expect("stable_source_unique", actual.Regions.Select(x=>x.SourceId).Distinct().Count()==actual.Regions.Count);
         Expect("inventory_is_not_placement_certificate", !actual.IsCompletePlacementProof);
         foreach ((string id,ResidentKeepOutKind kind,Rect2 bounds) in new[]
         {
+            ("fixed-gear:CanyonEntrance/Gameplay/Mechanisms/CombinationFixedGear/Collision",ResidentKeepOutKind.Hazard,new Rect2(86,476,60,60)),
+            ("fixed-gear:CanyonEntrance/Gameplay/Mechanisms/PracticeFixedGear/Collision",ResidentKeepOutKind.Hazard,new Rect2(870,400,60,60)),
+            ("springboard:CanyonEntrance/Gameplay/Mechanisms/CombinationSpringboard/Collision",ResidentKeepOutKind.Hazard,new Rect2(204,624,48,12)),
+            ("springboard:CanyonEntrance/Gameplay/Mechanisms/PracticeSpringboard/Collision",ResidentKeepOutKind.Hazard,new Rect2(756,624,48,12)),
             ("recovery:CanyonEntrance/Gameplay/FallRecovery/RecoveryVolume/Collision",ResidentKeepOutKind.Hazard,new Rect2(0,704,1280,16)),
             ("recovery:CanyonDescent/Gameplay/FallRecovery/RecoveryVolume/Collision",ResidentKeepOutKind.Hazard,new Rect2(1280,3584,336,16)),
             ("recovery:CanyonDescent/Gameplay/FallRecovery/RecoveryVolume2/Collision",ResidentKeepOutKind.Hazard,new Rect2(1996,3584,564,16)),
-            ("recovery:CanyonBasin/Gameplay/FallRecovery/RecoveryVolume/Collision",ResidentKeepOutKind.Hazard,new Rect2(1280,4304,3840,16)),
+            ("recovery:CanyonBasin/Gameplay/FallRecovery/RecoveryVolume/Collision",ResidentKeepOutKind.Hazard,new Rect2(1280,4304,5120,16)),
             ("recovery:CanyonAscent/Gameplay/FallRecovery/RecoveryVolume/Collision",ResidentKeepOutKind.Hazard,new Rect2(4336,3584,464,16)),
-            ("recovery:CanyonAscent/Gameplay/FallRecovery/RecoveryVolume2/Collision",ResidentKeepOutKind.Hazard,new Rect2(5088,3584,32,16)),
+            ("incinerator:CanyonBasin/Gameplay/Mechanisms/IncineratorPool/Collision",ResidentKeepOutKind.Hazard,new Rect2(5440,4020,720,276)),
             ("recovery:LostTemple/Gameplay/FallRecovery/RecoveryVolume/Collision",ResidentKeepOutKind.Hazard,new Rect2(5120,1424,2560,16)),
             ("electric:CanyonBasin/Gameplay/ShieldLane/Collision",ResidentKeepOutKind.Hazard,new Rect2(2130,3870,260,120)),
             ("steam:CanyonBasin/Gameplay/Mechanisms/SteamJet/Collision",ResidentKeepOutKind.Hazard,new Rect2(3424,4035,72,150)),
@@ -1429,8 +2193,18 @@ public static class CanyonResidentPlacementTests
             ("conditional:LostTemple/Gameplay/Doors/AdmissionBarrier/RightCollision",ResidentKeepOutKind.ConditionalSolid,new Rect2(7662,720,36,436))
         })
             Expect(id,Has(actual,id,kind,bounds));
-        Expect("traversal_18_launch_18_landing",actual.Regions.Count(x=>x.Kind==ResidentKeepOutKind.TraversalLaunch)==18 &&
-            actual.Regions.Count(x=>x.Kind==ResidentKeepOutKind.TraversalLanding)==18);
+        Expect("retired_steam_top_recovery_is_absent",!actual.Regions.Any(x=>x.SourceId=="recovery:CanyonAscent/Gameplay/FallRecovery/RecoveryVolume2/Collision"));
+        foreach(var access in new (string Id,Rect2 Launch,Rect2 Landing)[]{
+            ("steam-to-incinerator",new(4600,3844,80,72),new(4700,3924,120,72)),
+            ("lift-to-incinerator",new(5000,3528,100,72),new(5160,3604,80,72)),
+            ("incinerator-to-lift",new(5120,3604,100,72),new(5000,3528,100,72))})
+        {
+            string suffix="CanyonBasin/Gameplay/TraversalContracts/canyonv2route"+access.Id;
+            Expect("annex_launch_"+access.Id,Has(actual,"launch:"+suffix,ResidentKeepOutKind.TraversalLaunch,access.Launch));
+            Expect("annex_landing_"+access.Id,Has(actual,"landing:"+suffix,ResidentKeepOutKind.TraversalLanding,access.Landing));
+        }
+        Expect("traversal_21_launch_21_landing",actual.Regions.Count(x=>x.Kind==ResidentKeepOutKind.TraversalLaunch)==21 &&
+            actual.Regions.Count(x=>x.Kind==ResidentKeepOutKind.TraversalLanding)==21);
         Expect("nine_fragment_approaches",actual.Regions.Count(x=>x.Kind==ResidentKeepOutKind.FragmentApproach)==9);
         Expect("two_supply_approaches",actual.Regions.Count(x=>x.Kind==ResidentKeepOutKind.SupplyApproach)==2);
         Expect("rest3_checkpoint3_boss1",actual.Regions.Count(x=>x.Kind==ResidentKeepOutKind.Protected)==7);
@@ -1451,6 +2225,7 @@ public static class CanyonResidentPlacementTests
                 ("start_checkpoint_body",new Vector2(140,540),"reserved.Protected:checkpoint:canyon.v2.start"),
                 ("fragment_approach_not_contact_only",new Vector2(280,550),"reserved.FragmentApproach:fragment:CanyonEntrance/Gameplay/QuestFragments/entrance/Collision"),
                 ("launch_access",new Vector2(1225,600),"reserved.TraversalLaunch:launch:CanyonEntrance/Gameplay/TraversalContracts/canyonv2routebridge-to-rift")
+                ,("incinerator_hazard_not_empty_space",new Vector2(5800,4140),"reserved.Hazard:incinerator:CanyonBasin/Gameplay/Mechanisms/IncineratorPool/Collision")
             })
             {
                 ResidentBodyGeometryResult r=ResidentPlacementGeometry.CheckBody(actor,new Transform2D(0,p),fixture.Space,fixture.Scope,
@@ -1514,7 +2289,7 @@ public static class CanyonResidentPlacementTests
             before.Split('|').Zip(after.Split('|')).Where(x=>x.First!=x.Second).Take(6).Select(x=>"before="+x.First+" after="+x.Second)));
         Expect("capture_and_controls_restore_saved_geometry",before==after);
         TestAssert.True(failures.Count==0,"resident environment checks failed: "+string.Join("; ",failures));
-        GD.Print($"RESIDENT_ENVIRONMENT_NATIVE_OK cases={cases} regions=81 hazards=13 moving=4 conditional_shapes=10 launches=18 landings=18 fragments=9 supplies=2 protected=7 non_player_interaction=true placement_certified=false");
+        GD.Print($"RESIDENT_ENVIRONMENT_NATIVE_OK cases={cases} regions=91 hazards=17 moving=4 conditional_shapes=10 launches=21 landings=21 fragments=9 supplies=2 protected=7 non_player_interaction=true placement_certified=false");
         void Expect(string name,bool accepted){cases++;if(!accepted)failures.Add(name);}
         static bool Has(ResidentEnvironmentSnapshot set,string id,ResidentKeepOutKind kind,Rect2 want)=>
             set.Regions.Any(x=>x.SourceId==id&&x.Kind==kind&&x.WorldBounds.Position.DistanceTo(want.Position)<.03f&&x.WorldBounds.Size.DistanceTo(want.Size)<.03f);
@@ -1525,7 +2300,7 @@ public static class CanyonResidentPlacementTests
         var failed=new List<string>();int cases=0;
         string before=fixture.CollisionSnapshot();
         ResidentEnvironmentSnapshot actual=ResidentEnvironmentInventory.Capture(fixture.Scope);
-        Expect("player_access_total100",actual.Regions.Count==100);
+        Expect("player_access_total110",actual.Regions.Count==110);
         Expect("nineteen_actual_interaction_sources",actual.Regions.Count(x=>x.Kind==ResidentKeepOutKind.PlayerInteraction)==19);
         Expect("access_not_whole_placement_proof",!actual.IsCompletePlacementProof);
         var expected=new(string Id,Rect2 Bounds)[]
@@ -1552,7 +2327,14 @@ public static class CanyonResidentPlacementTests
             // initially disabled chain target is not a missing/optional source.
             ("interaction-target:LostTemple/Gameplay/BossRoot/FallenBellkeeper/ChainTarget/TargetCollision/Collision",new(6758,1006,64,64))
         };
-        foreach(var row in expected)Expect(row.Id,Has(actual,row.Id,row.Bounds));
+        foreach(var row in expected)
+        {
+            bool pass=Has(actual,row.Id,row.Bounds);
+            if(!pass)GD.Print($"RESIDENT_PLAYER_ACCESS_MISMATCH source={row.Id} expected={row.Bounds} actual="+
+                string.Join("|",actual.Regions.Where(x=>x.SourceId==row.Id)
+                    .Select(x=>$"kind={x.Kind},bounds={x.WorldBounds}"))+" issues="+string.Join("|",actual.Issues));
+            Expect(row.Id,pass);
+        }
         CharacterBody2D probe=null;
         try
         {
@@ -1666,7 +2448,7 @@ public static class CanyonResidentPlacementTests
         await fixture.Sync();
         Expect("player_access_controls_restore_native_geometry",before==fixture.CollisionSnapshot());
         TestAssert.True(failed.Count==0,"resident player access checks failed: "+string.Join("; ",failed));
-        GD.Print($"RESIDENT_PLAYER_ACCESS_NATIVE_OK cases={cases} sources=19 targets=11 pressure_rects=6 declared_corridors=1 manual_q=1 total_regions=100 placement_certified=false");
+        GD.Print($"RESIDENT_PLAYER_ACCESS_NATIVE_OK cases={cases} sources=19 targets=11 pressure_rects=6 declared_corridors=1 manual_q=1 total_regions=110 placement_certified=false");
         void Expect(string name,bool pass){cases++;if(!pass)failed.Add(name);}
         static bool Has(ResidentEnvironmentSnapshot snapshot,string id,Rect2 bounds)=>snapshot.Regions.Any(x=>x.SourceId==id&&
             x.Kind==ResidentKeepOutKind.PlayerInteraction&&x.WorldBounds.Position.DistanceTo(bounds.Position)<.03f&&x.WorldBounds.Size.DistanceTo(bounds.Size)<.03f);
@@ -1732,7 +2514,8 @@ public static class CanyonResidentPlacementTests
         {
             for(int i=0;i<3;i++){await _tree.ToSignal(_tree,SceneTree.SignalName.PhysicsFrame);await _tree.ToSignal(_tree,SceneTree.SignalName.ProcessFrame);}
         }
-        public void AssertNativePreconditions(int expectedTerrain=127)
+        // Raw StaticBody2D count differs from the minimap's per-shape count (158).
+        public void AssertNativePreconditions(int expectedTerrain=157)
         {
             TestAssert.Equal(0,PlayerCount(),"no global player can activate saved encounters or recovery");
             TestAssert.True(Sectors.Values.All(x=>x.IsInsideTree()&&x.GetWorld2D()==_world)&&_world!=_tree.Root.FindWorld2D(),"all saved sectors belong to owned independent world");

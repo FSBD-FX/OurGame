@@ -267,13 +267,19 @@ public partial class CanyonFireflyGuidanceController : Node2D
         Rect2 viewport = _level.GetViewportRect();
         foreach (Node node in Descendants(mechanism))
         {
-            if (node is not CollisionShape2D collision ||
-                collision.Shape is not RectangleShape2D rectangle) continue;
+            if (node is not CollisionShape2D collision) continue;
+            Vector2 halfSize=collision.Shape switch
+            {
+                RectangleShape2D rectangle=>rectangle.Size*.5f,
+                CircleShape2D circle=>Vector2.One*circle.Radius,
+                _=>Vector2.Zero
+            };
+            if(halfSize==Vector2.Zero) continue;
             Rect2 worldBounds = TransformedRectangleBounds(collision.GlobalTransform,
-                rectangle.Size * .5f);
+                halfSize);
             if (!route.WorldBounds.Intersects(worldBounds)) continue;
             Rect2 screenBounds = TransformedRectangleBounds(
-                collision.GetGlobalTransformWithCanvas(), rectangle.Size * .5f);
+                collision.GetGlobalTransformWithCanvas(), halfSize);
             if (viewport.Intersects(screenBounds)) return true;
         }
         return false;

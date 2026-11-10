@@ -6,7 +6,9 @@ using Knight.Audio;
 using Knight.Boss;
 using Knight.Combat;
 using Knight.Enemies;
+using Knight.Mechanisms;
 using Knight.Player;
+using Knight.Presentation;
 using Knight.Presentation.Fog;
 using Knight.Prologue.Collections;
 using Knight.Prologue.Seamless;
@@ -44,19 +46,34 @@ public partial class PrologueGuidanceController : Node
     private PrologueFogController _fog;
     private FogOcclusionObservation? _currentFogObservation;
     private bool _receivedFogPresentation;
+    private PrologueSectorId? _fogReceiptSector;
+    private ulong _fogReceiptWorldId;
+    private ulong _fogReceiptPlayerId;
+    private ulong _fogReceiptSectorRootId;
     private bool _ascentTransferLearned;
     private bool _ascentFirstShelfSupported;
     private ulong _ascentSupportPhysics = ulong.MaxValue;
+    private bool _thrusterLessonLearned;
+    private ulong _thrusterLessonPlayerId;
+    private ulong _thrusterLessonMotorId;
+    private ulong _thrusterLessonSequence;
     // Identity belongs to the ordinary instruction actually evaluated and presented,
     // not whichever objective/claw phase happens to be live at a later resize notification.
     private PrologueObjective? _presentedOrdinaryEarlyLesson;
     private readonly HashSet<string> _missingWarnings = new(StringComparer.Ordinal);
+    private Node2D _recyclingSource;
+    private CanyonSpringboard _recyclingPad;
+    private Action<CharacterBody2D,Vector2,ulong> _recyclingHandler;
+    private PrologueRecyclingLesson _recyclingLesson;
+    private ulong _recyclingLaunchSequence;
+    private bool _recyclingLaunched;
 
     public override void _Ready()
     {
         _level = GetNode<PrologueLevelController>(LevelPath);
         _completion = GetNode<PrologueCompletionController>(CompletionPath);
         BindVisual();
+        if(_level.WorldProfile!=null){Hide();return;}
         _pause = _level.GetNodeOrNull<ProloguePauseMenu>("PauseMenu");
         if (_pause != null)
         {
@@ -73,9 +90,7 @@ public partial class PrologueGuidanceController : Node
 
     public override void _Process(double delta)
     {
-        // Read the card retained from the preceding rendered frame, not the
-        // ordinary/lane context candidates written during Refresh or pre-draw.
-        TrySpeakVisibleInstruction();
+        if(_level?.WorldProfile!=null){Hide();return;}
         // Label redraw is queued before FramePreDraw. Overwriting its new lane
         // text with the ordinary lesson here would make pixels stay generic
         // forever despite correct CurrentInstruction/Label.Text after pre-draw.
@@ -84,20 +99,37 @@ public partial class PrologueGuidanceController : Node
         // falls back on the next tick, not an indefinitely cached lane card.
         bool received = _receivedFogPresentation;
         _receivedFogPresentation = false;
-        if (received && GuidanceEnabled && !GetTree().Paused &&
-            GodotObject.IsInstanceValid(_level) && _level.CurrentSector == PrologueSectorId.CanyonBasin &&
+        bool retain = received && GuidanceEnabled && !GetTree().Paused &&
+            GodotObject.IsInstanceValid(_level) && _level.CurrentSector == _fogReceiptSector &&
             _flow?.State == PrologueGameFlowState.Playing && !_flow.BasinQualitySampleMode &&
             !_completion.BasinQualitySampleMode && GodotObject.IsInstanceValid(_fog) &&
             _fog.IsInsideTree() && !_fog.IsQueuedForDeletion() &&
             _level.GetNodeOrNull<PrologueFogController>("FogController") == _fog &&
             GodotObject.IsInstanceValid(_level.Player) && _level.Player.IsVisibleInTree() &&
-            _level.Player.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is > 0) return;
-        Refresh();
+            !_level.Player.IsQueuedForDeletion() && _level.Player.GetInstanceId() == _fogReceiptPlayerId &&
+            _level.GetNodeOrNull<Node2D>("WorldRoot") is { } receiptWorld &&
+            !receiptWorld.IsQueuedForDeletion() && receiptWorld.GetInstanceId() == _fogReceiptWorldId &&
+            GodotObject.IsInstanceValid(_level.CurrentSectorRoot) && _level.CurrentSectorRoot.IsInsideTree() &&
+            !_level.CurrentSectorRoot.IsQueuedForDeletion() && _level.CurrentSectorRoot.GetInstanceId() == _fogReceiptSectorRootId &&
+            receiptWorld.GetNodeOrNull<SeamlessPrologueWorld>("Sectors") is { } receiptSectors &&
+            !receiptSectors.IsQueuedForDeletion() && _fogReceiptSector.HasValue &&
+            receiptSectors.TryGetMountedSector(_fogReceiptSector.Value, out PrologueSector mountedReceipt) &&
+            mountedReceipt == _level.CurrentSectorRoot &&
+            _formalHud?.CurrentModel.RecoveryVisible != true && _formalHud?.CurrentModel.CompletionVisible != true &&
+            _formalHud?.CurrentModel.BossVisible != true && _completion.CurrentObjective != PrologueObjective.Complete &&
+            ResolveBossState(_level.CurrentSectorRoot) is (PrologueBossGuidanceState.None or PrologueBossGuidanceState.Inactive) &&
+            _level.Player.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is > 0;
+        // Revoke an obsolete card before it can speak or survive another write.
+        if (received && !retain) { Refresh(); return; }
+        TrySpeakVisibleInstruction();
+        if (!retain) Refresh();
     }
 
     private void TrySpeakVisibleInstruction()
     {
         if (!GuidanceEnabled || GetTree().Paused || _flow?.State != PrologueGameFlowState.Playing ||
+            _formalHud?.CurrentModel.RecoveryVisible == true || _formalHud?.CurrentModel.CompletionVisible == true ||
+            _formalHud?.CurrentModel.BossVisible == true || _completion?.CurrentObjective == PrologueObjective.Complete ||
             !CurrentInstruction.Visible || string.IsNullOrWhiteSpace(CurrentInstruction.StepText) ||
             _visual is not WorldTargetMarkerVisual marker || !GodotObject.IsInstanceValid(marker) ||
             !marker.IsInsideTree() || marker.IsQueuedForDeletion() || !marker.IsVisibleInTree() ||
@@ -114,8 +146,9 @@ public partial class PrologueGuidanceController : Node
 
     public override void _ExitTree()
     {
+        ClearRecyclingSource();
         _presentedOrdinaryEarlyLesson = null;
-        if (GodotObject.IsInstanceValid(_level)) _level.RecoveryCompleted -= OnRecoveryCompleted;
+        if (GodotObject.IsInstanceValid(_level) && _level.WorldProfile==null) _level.RecoveryCompleted -= OnRecoveryCompleted;
         if (GodotObject.IsInstanceValid(_flow)) _flow.SessionStarted -= OnSessionStarted;
         if (GodotObject.IsInstanceValid(_fog)) _fog.ObservationPresented -= OnFogObservation;
         _fog = null;
@@ -158,6 +191,7 @@ public partial class PrologueGuidanceController : Node
         // Retain those settings, but tree-backed presentation begins in _Ready.
         if (!IsInsideTree()) return;
         BindVisual();
+        if(_level?.WorldProfile!=null){Hide();return;}
         if (GetTree().Paused)
         {
             Hide(preserveCombatContext: true);
@@ -200,8 +234,11 @@ public partial class PrologueGuidanceController : Node
             BossAdmission: arena?.RequiresFragmentAdmission == true
                 ? BossAdmissionModel.Evaluate(_level.Progress) : null,
             AscentTransferOpportunity: ascentOpportunity,
-            ShieldLaneNearby: HasNearbyShieldLane(sectorId, clawState)),
-            ResolveInputMapGlyphs());
+            ShieldLaneNearby: HasNearbyShieldLane(sectorId, clawState),
+            RecyclingLesson: ResolveRecyclingLesson(sectorId,clawState),
+            VisibleLaser: ResolveVisibleLaser(sectorId),
+            ThrusterOpportunity: HasThrusterLessonOpportunity(sectorId, clawState)),
+            ResolveInputMapGlyphs(Language));
         _formalHud?.SetContextualObjective(CurrentInstruction.ContextTitle);
         Present(sectorId, claw);
         if (CurrentInstruction.Visible && string.IsNullOrEmpty(CurrentInstruction.ContextTitle) &&
@@ -215,13 +252,55 @@ public partial class PrologueGuidanceController : Node
     private void OnFogObservation(FogOcclusionObservation observation)
     {
         if (!GodotObject.IsInstanceValid(_level) || !IsInsideTree() || IsQueuedForDeletion() ||
-            _level.CurrentSector != PrologueSectorId.CanyonBasin) return;
-        _receivedFogPresentation = true;
+            !_level.CurrentSector.HasValue) return;
         // Valid only during the synchronous current pre-draw submission. Never
         // authorize from the previous frame's cue count or add a physics query.
         _currentFogObservation = observation;
-        try { Refresh(); }
+        try
+        {
+            Refresh();
+            if (HasCurrentFogObservation(_level.CurrentSector.Value))
+            {
+                _receivedFogPresentation = true;
+                _fogReceiptSector = _level.CurrentSector;
+                _fogReceiptWorldId = observation.WorldInstanceId;
+                _fogReceiptPlayerId = _level.Player.GetInstanceId();
+                _fogReceiptSectorRootId = _level.CurrentSectorRoot.GetInstanceId();
+            }
+            else _receivedFogPresentation = false;
+        }
         finally { _currentFogObservation = null; }
+    }
+
+    private VisibleLaserWarning ResolveVisibleLaser(PrologueSectorId sector)
+    {
+        if (!HasCurrentFogObservation(sector)) return VisibleLaserWarning.None;
+        var cues = _level.GetNodeOrNull<FogReadabilityOverlay>("ProtectedCues/Attacks");
+        return GodotObject.IsInstanceValid(cues)
+            ? cues.ReadVisibleLaser(_currentFogObservation.Value.Frame) : VisibleLaserWarning.None;
+    }
+
+    private bool HasCurrentFogObservation(PrologueSectorId sector)
+    {
+        if (!GuidanceEnabled || _currentFogObservation is not { } observation ||
+            _flow?.State != PrologueGameFlowState.Playing || _flow.BasinQualitySampleMode ||
+            _completion.BasinQualitySampleMode || GetTree().Paused ||
+            !GodotObject.IsInstanceValid(_fog) || !_fog.IsInsideTree() || _fog.IsQueuedForDeletion() ||
+            _level.GetNodeOrNull<PrologueFogController>("FogController") != _fog ||
+            _formalHud?.CurrentModel.RecoveryVisible == true || _formalHud?.CurrentModel.CompletionVisible == true ||
+            _formalHud?.CurrentModel.BossVisible == true) return false;
+        CharacterBody2D player = _level.Player;
+        Node2D world = _level.GetNodeOrNull<Node2D>("WorldRoot");
+        SeamlessPrologueWorld sectors = world?.GetNodeOrNull<SeamlessPrologueWorld>("Sectors");
+        return GodotObject.IsInstanceValid(player) && player.IsInsideTree() && player.IsVisibleInTree() &&
+            !player.IsQueuedForDeletion() && player.IsPhysicsProcessing() &&
+            player.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is > 0 &&
+            GodotObject.IsInstanceValid(world) && world.IsInsideTree() && !world.IsQueuedForDeletion() &&
+            sectors?.LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion &&
+            sectors.TryGetMountedSector(sector, out PrologueSector mounted) && mounted == _level.CurrentSectorRoot &&
+            observation.WorldInstanceId == world.GetInstanceId() && observation.PhysicsFrame == Engine.GetPhysicsFrames() &&
+            observation.ActorWorld == player.GlobalPosition && observation.Frame?.IsComplete == true &&
+            ReferenceEquals(observation.Frame, _fog.LastOcclusionFrame);
     }
 
     private bool HasNearbyShieldLane(PrologueSectorId sector, MechanicalClawState state)
@@ -345,13 +424,83 @@ public partial class PrologueGuidanceController : Node
 
     private void OnSessionStarted()
     {
+        ClearRecyclingSource();
         _receivedFogPresentation = false;
         _lastSpokenInstruction = string.Empty;
         _level?.GetNodeOrNull<Knight.Audio.PrologueAudioDirector>("Audio")?.ResetGuidanceSession();
         // Per formal UI session, not persisted and not reset by death, pause or sector streaming.
         _ascentTransferLearned = false;
         _ascentSupportPhysics = ulong.MaxValue;
+        _thrusterLessonLearned = false;
+        _thrusterLessonPlayerId = _thrusterLessonMotorId = _thrusterLessonSequence = 0UL;
         Refresh();
+    }
+
+    private bool HasThrusterLessonOpportunity(PrologueSectorId sector, MechanicalClawState clawState)
+    {
+        CharacterBody2D player = _level.Player;
+        PlayerMotor motor = LiveBranch(player) ? player.GetNodeOrNull<PlayerMotor>("Motor") : null;
+        if (!LiveBranch(motor))
+        {
+            _thrusterLessonLearned = false;
+            _thrusterLessonPlayerId = _thrusterLessonMotorId = _thrusterLessonSequence = 0UL;
+            return false;
+        }
+        ulong playerId = player.GetInstanceId(), motorId = motor.GetInstanceId();
+        ulong latest = motor.ThrusterPresentationSequence;
+        if (_thrusterLessonPlayerId != playerId || _thrusterLessonMotorId != motorId)
+        {
+            // A new reader/owner starts now. The bounded journal survives
+            // transient resets and may contain another session's real Started.
+            _thrusterLessonLearned = false;
+            _thrusterLessonPlayerId = playerId;
+            _thrusterLessonMotorId = motorId;
+            _thrusterLessonSequence = latest;
+        }
+        bool playing = _flow?.State == PrologueGameFlowState.Playing &&
+            !_flow.BasinQualitySampleMode && !_completion.BasinQualitySampleMode &&
+            !GetTree().Paused && player.IsVisibleInTree() && player.IsPhysicsProcessing() &&
+            motor.IsPhysicsProcessing() && motor.CanProcess() &&
+            player.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is > 0 &&
+            _formalHud?.CurrentModel.RecoveryVisible != true &&
+            _formalHud?.CurrentModel.CompletionVisible != true &&
+            _level.GetNodeOrNull<SeamlessPrologueWorld>("WorldRoot/Sectors")?.LayoutVersion ==
+                CanyonWorldLayout.CurrentLayoutVersion;
+        if (!playing)
+        {
+            _thrusterLessonSequence = latest;
+            return false;
+        }
+        if (_thrusterLessonSequence > latest ||
+            _thrusterLessonSequence < motor.ThrusterPresentationFirstSequence - 1UL)
+            _thrusterLessonSequence = latest; // Do not infer success from a missing prefix.
+        if (!_thrusterLessonLearned && _thrusterLessonSequence < latest)
+        {
+            ThrusterPulseSnapshot pulse = motor.ThrusterState;
+            foreach (ThrusterPresentationTransition fact in motor.ReadThrusterTransitionsAfter(_thrusterLessonSequence))
+                if (fact.Sequence <= latest && fact.Kind == ThrusterTransitionKind.Started &&
+                    fact.Identity.OwnerId == motorId && pulse.OwnerId == motorId &&
+                    fact.Identity.Lifecycle == pulse.Lifecycle &&
+                    fact.Identity.ConfigurationEpoch == pulse.ConfigurationEpoch &&
+                    fact.Identity.BurnId != 0UL && fact.Identity.BurnId <= pulse.BurnSerial)
+                    _thrusterLessonLearned = true;
+        }
+        _thrusterLessonSequence = latest;
+        // Observe real success even with guidance disabled and in later sectors.
+        // Offering this optional card does not ask the player to jump or spend a pulse.
+        return !_thrusterLessonLearned && sector == PrologueSectorId.CanyonEntrance &&
+            player.IsOnFloor() && clawState == MechanicalClawState.Idle &&
+            player.GetNodeOrNull<PlayerCombat>("Combat")?.IsAttacking != true &&
+            player.GetNodeOrNull<PlayerShieldController>("Shield")?.IsActive != true &&
+            player.GetNodeOrNull<PlayerInputReader>("Input")?.RawFrame.ShieldHeld != true;
+    }
+
+    private static bool LiveBranch(Node node)
+    {
+        if (!GodotObject.IsInstanceValid(node) || !node.IsInsideTree()) return false;
+        for (Node ancestor = node; ancestor != null; ancestor = ancestor.GetParent())
+            if (ancestor.IsQueuedForDeletion()) return false;
+        return true;
     }
 
     private bool HasAscentTransferOpportunity(PrologueSectorId sector, MechanicalClawState state)
@@ -459,11 +608,26 @@ public partial class PrologueGuidanceController : Node
             player.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is not > 0)
             return false;
 
-        // Layout 1 authored the first enemy at a stable path. Layout 2 keeps that
-        // path as a marker for static guidance resolution and mounts the genuine
-        // encounter actor beside it, so combat teaching must resolve by type.
+        // Layout 2's marker is not an actor. Resolve the original encounter's
+        // live ownership, never a separate resident that shares its carrier type.
         Node actorRoot = _level.CurrentSectorRoot.GetNodeOrNull("Gameplay/Actors");
-        RustShellSquire enemy = FindFirstDescendant<RustShellSquire>(actorRoot);
+        RustShellSquire enemy = null;
+        if (_level.GetNodeOrNull<SeamlessPrologueWorld>("WorldRoot/Sectors")?.LayoutVersion ==
+            CanyonWorldLayout.CurrentLayoutVersion)
+        {
+            var encounter = _level.CurrentSectorRoot.GetNodeOrNull<CanyonEncounterGroup>(
+                "Gameplay/Encounters/LowCeilingBridgeEncounter");
+            if (!GodotObject.IsInstanceValid(encounter) || !GodotObject.IsInstanceValid(actorRoot))
+                return false;
+            foreach (Node child in actorRoot.GetChildren())
+                if (child is RustShellSquire candidate && encounter.OwnsLiveActor(candidate))
+                {
+                    enemy = candidate;
+                    break;
+                }
+        }
+        else
+            enemy = actorRoot?.GetNodeOrNull("RustShellSquire") as RustShellSquire;
         if (!GodotObject.IsInstanceValid(enemy) || !enemy.IsVisibleInTree() ||
             enemy.GetNodeOrNull<HealthComponent>(enemy.HealthPath)?.CurrentHealth is not > 0)
             return false;
@@ -488,6 +652,74 @@ public partial class PrologueGuidanceController : Node
         return null;
     }
 
+    private PrologueRecyclingLesson ResolveRecyclingLesson(PrologueSectorId sectorId,MechanicalClawState state)
+    {
+        Node2D chosen=null;
+        var lesson=PrologueRecyclingLesson.None;
+        CharacterBody2D player=_level.Player;
+        if(GuidanceEnabled && _completion.CurrentObjective!=PrologueObjective.Complete &&
+            sectorId==PrologueSectorId.CanyonEntrance && state==MechanicalClawState.Idle &&
+            _flow?.State==PrologueGameFlowState.Playing && GodotObject.IsInstanceValid(player) &&
+            player.GetNodeOrNull<HealthComponent>("Health")?.CurrentHealth is >0)
+        {
+            Node mechanisms=_level.CurrentSectorRoot.GetNodeOrNull<Node>("Gameplay/Mechanisms");
+            var combo=mechanisms?.GetNodeOrNull<CanyonSpringboard>("CombinationSpringboard");
+            var paired=mechanisms?.GetNodeOrNull<CanyonFixedGear>("CombinationFixedGear");
+            var pad=mechanisms?.GetNodeOrNull<CanyonSpringboard>("PracticeSpringboard");
+            var gear=mechanisms?.GetNodeOrNull<CanyonFixedGear>("PracticeFixedGear");
+            // These four authored devices share one unobstructed entry ledge.
+            // Keep a semantic card through recharge; never cycle its text with
+            // per-frame cooldown values or move the fixed reading rectangle.
+            bool Near(Node2D source,float left,float right,float vertical)=>
+                GodotObject.IsInstanceValid(source) && source.IsInsideTree() && !source.IsQueuedForDeletion() &&
+                source.IsVisibleInTree() && source.CanProcess() && source.GetParent()==mechanisms &&
+                source.GlobalPosition.IsFinite() && player.GlobalPosition.IsFinite() &&
+                player.GlobalPosition.X>=source.GlobalPosition.X-left &&
+                player.GlobalPosition.X<=source.GlobalPosition.X+right &&
+                Mathf.Abs(player.GlobalPosition.Y-source.GlobalPosition.Y)<=vertical;
+            if(Near(combo,160,80,180) && combo.HasLiveSensor &&
+                GodotObject.IsInstanceValid(paired) && paired.IsDangerTelegraphActive &&
+                paired.GlobalPosition.DistanceTo(combo.GlobalPosition)<240)
+            { chosen=combo; lesson=PrologueRecyclingLesson.Combination; }
+            else if(Near(pad,120,120,180) && pad.HasLiveSensor)
+            { chosen=pad; lesson=PrologueRecyclingLesson.Springboard; }
+            else if(Near(gear,100,100,210) && gear.IsDangerTelegraphActive)
+            { chosen=gear; lesson=PrologueRecyclingLesson.FixedGear; }
+        }
+        if(!ReferenceEquals(chosen,_recyclingSource) || lesson!=_recyclingLesson)
+        {
+            ClearRecyclingSource(); _recyclingSource=chosen; _recyclingLesson=lesson;
+            if(chosen is CanyonSpringboard pad)
+            {
+                _recyclingPad=pad; _recyclingLaunchSequence=pad.LaunchSequence;
+                _recyclingHandler=(actor,velocity,sequence)=>ObserveRecyclingLaunch(pad,actor,velocity,sequence);
+                pad.Launched+=_recyclingHandler;
+            }
+        }
+        return lesson==PrologueRecyclingLesson.Combination && _recyclingLaunched
+            ?PrologueRecyclingLesson.CombinationLaunched:lesson;
+    }
+
+    private void ObserveRecyclingLaunch(CanyonSpringboard source,CharacterBody2D actor,Vector2 velocity,ulong sequence)
+    {
+        if(!ReferenceEquals(source,_recyclingPad) || !ReferenceEquals(source,_recyclingSource) ||
+            _recyclingLesson!=PrologueRecyclingLesson.Combination ||
+            !GodotObject.IsInstanceValid(_level) || _level.CurrentSector!=PrologueSectorId.CanyonEntrance ||
+            _level.Player!=actor || !source.HasLiveSensor || sequence<=_recyclingLaunchSequence ||
+            !velocity.IsEqualApprox(source.EffectiveLaunchVelocity)) return;
+        _recyclingLaunchSequence=sequence; _recyclingLaunched=true;
+        // Defer normal Refresh to presentation; do not re-enter the motion or
+        // collision callback, infer a death cause, or complete an objective.
+    }
+
+    private void ClearRecyclingSource()
+    {
+        if(GodotObject.IsInstanceValid(_recyclingPad) && _recyclingHandler!=null)
+            _recyclingPad.Launched-=_recyclingHandler;
+        _recyclingSource=null; _recyclingPad=null; _recyclingHandler=null;
+        _recyclingLesson=PrologueRecyclingLesson.None; _recyclingLaunched=false; _recyclingLaunchSequence=0;
+    }
+
     private void Present(PrologueSectorId sectorId, MechanicalClawController claw)
     {
         if (!CurrentInstruction.Visible)
@@ -498,7 +730,8 @@ public partial class PrologueGuidanceController : Node
         }
         if (_visual == null) return;
 
-        SetExpandedTeaching(SameSectorFailureCount >= 2 && string.IsNullOrEmpty(CurrentInstruction.ContextTitle));
+        SetExpandedTeaching(CurrentInstruction.ContextTitle==Knight.Localization.PrologueStrings.Get("guidance.recycling_title",Language) ||
+            SameSectorFailureCount >= 2 && string.IsNullOrEmpty(CurrentInstruction.ContextTitle));
 
         var views = new List<PrologueGuidanceTargetView>();
         PrologueSector sector = _level.CurrentSectorRoot;
@@ -550,7 +783,7 @@ public partial class PrologueGuidanceController : Node
     {
         _receivedFogPresentation = false;
         _presentedOrdinaryEarlyLesson = null;
-        if (!preserveCombatContext) _firstCombatNearby = false;
+        if (!preserveCombatContext) { _firstCombatNearby = false; ClearRecyclingSource(); }
         _descentOpportunityPhysics = ulong.MaxValue;
         CurrentInstruction = PrologueGuidanceInstruction.Hidden;
         if (GodotObject.IsInstanceValid(_formalHud)) _formalHud.SetContextualObjective(string.Empty);
@@ -575,6 +808,7 @@ public partial class PrologueGuidanceController : Node
 
     private void OnRecoveryCompleted(string reason)
     {
+        ClearRecyclingSource();
         _ascentSupportPhysics = ulong.MaxValue;
         if (reason is not ("FALL RESET" or "DEATH RESET") || !_level.CurrentSector.HasValue) return;
         if (_observedSector == _level.CurrentSector.Value) SameSectorFailureCount++;
@@ -586,7 +820,7 @@ public partial class PrologueGuidanceController : Node
         Refresh();
     }
 
-    private static IReadOnlyDictionary<StringName, string> ResolveInputMapGlyphs()
+    private static IReadOnlyDictionary<StringName, string> ResolveInputMapGlyphs(GameLanguage language)
     {
         var result = new Dictionary<StringName, string>();
         foreach (StringName action in GuidanceActions)
@@ -594,10 +828,9 @@ public partial class PrologueGuidanceController : Node
             string glyph = null;
             foreach (InputEvent inputEvent in InputMap.ActionGetEvents(action))
             {
-                if (inputEvent is InputEventKey key)
+                if (inputEvent is InputEventKey key && InputGlyphResolver.TryFormatKeyboardBinding(key, language, out string text))
                 {
-                    Key code = key.PhysicalKeycode != Key.None ? key.PhysicalKeycode : key.Keycode;
-                    glyph = OS.GetKeycodeString(code).ToUpperInvariant();
+                    glyph = text;
                     break;
                 }
                 if (inputEvent is InputEventMouseButton mouse)

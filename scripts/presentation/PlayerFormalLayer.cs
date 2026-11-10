@@ -33,16 +33,168 @@ public partial class PlayerFormalLayer : Node2D
 
     [Export] public PlayerFormalLayerKind Kind { get; set; }
 
-    private PoseTransform2D _mantleSecondary = PoseTransform2D.Identity;
+    public Vector2 LegHipLocal => Vector2.Zero;
+    private Vector2? _legSole, _legKnee, _lastLegWorldKnee;
+    private Vector2 _legUp=Vector2.Up;
+    public Vector2 FreeLegSoleLocal => new(0,Kind==PlayerFormalLayerKind.NearLeg?26:24);
+    public Vector2 LegSoleLocal => _legSole??FreeLegSoleLocal;
+    public Vector2 LegAnkleLocal => LegSoleLocal+_legUp*4;
+    public Vector2 LegKneeLocal => _legKnee??LegSolution(LegAnkleLocal);
+    public bool LegReachClamped { get; private set; }
+    private static Vector2 LegSolution(Vector2 ankle)
+    {
+        if(ankle.LengthSquared()<.000001f) return new Vector2(18,0);
+        var perpendicular=new Vector2(ankle.Y,-ankle.X).Normalized();
+        return ankle*.5f+perpendicular*Mathf.Sqrt(Mathf.Max(0,18*18-ankle.LengthSquared()*.25f));
+    }
+    public void SetLegSoleLocal(Vector2 sole, Vector2 up)
+    {
+        if(!sole.IsFinite()) sole=FreeLegSoleLocal;
+        if(!up.IsFinite() || up.LengthSquared()<.000001f) up=Vector2.Up;
+        up=up.Normalized();
+        Vector2 ankle=sole+up*4;
+        double length=System.Math.Sqrt((double)ankle.X*ankle.X+(double)ankle.Y*ankle.Y);
+        LegReachClamped=length>36;
+        if(LegReachClamped) ankle*=(float)(36/length);
+        sole=ankle-up*4;
+        Vector2 knee=LegSolution(ankle);
+        if(_lastLegWorldKnee is Vector2 previous)
+        {
+            Vector2 opposite=ankle-knee;
+            if(ToGlobal(opposite).DistanceSquaredTo(previous)<ToGlobal(knee).DistanceSquaredTo(previous)) knee=opposite;
+        }
+        _legSole=sole; _legUp=up; _legKnee=knee;
+        _lastLegWorldKnee=ToGlobal(knee);
+        QueueRedraw();
+    }
 
-    public void SetMantleSecondaryMotion(PoseTransform2D motion)
+    // Preserve the existing rig pivot and animation ownership. A saved override
+    // can replace this bitmap later without changing the action/fog consumers.
+    [Export] public Texture2D LanternTexture { get; set; }
+    public Rect2 LanternDrawRect => new(-12f, -12f, 24f, 24f);
+
+    [Export] public Texture2D WeaponTexture { get; set; }
+    // Original approved master canvas remains intact. Only transparent padding
+    // is excluded by the real Draw region; scale is uniform and rig-relative.
+    public Rect2 WeaponSourceRect => new(504f, 756f, 705f, 215f);
+    private static readonly Vector2 WeaponSourceGrip = new(835f, 798f);
+    private const float WeaponArtScale = 25f / 287f;
+    private Vector2 _weaponGripLocal;
+    public Rect2 WeaponDrawRect => new(
+        _weaponGripLocal + (WeaponSourceRect.Position - WeaponSourceGrip) * WeaponArtScale,
+        WeaponSourceRect.Size * WeaponArtScale);
+
+    [Export] public Texture2D WeaponGripTexture { get; set; }
+    public Rect2 WeaponGripSourceRect => new(810f, 777f, 49f, 45f);
+    public Rect2 WeaponGripDrawRect => new(
+        _weaponGripLocal + (WeaponGripSourceRect.Position - WeaponSourceGrip) * WeaponArtScale,
+        WeaponGripSourceRect.Size * WeaponArtScale);
+
+    [Export] public Texture2D WeaponSecondaryGripTexture { get; set; }
+    public Rect2 WeaponSecondaryGripSourceRect => new(525f, 777f, 47f, 45f);
+    public Rect2 WeaponSecondaryGripDrawRect => new(
+        _weaponGripLocal + (WeaponSecondaryGripSourceRect.Position - WeaponSourceGrip) * WeaponArtScale,
+        WeaponSecondaryGripSourceRect.Size * WeaponArtScale);
+    internal static Vector2 WeaponSecondaryGripOffsetLocal => new(-25f, 0f);
+    public Vector2 WeaponSecondaryGripLocal => _weaponGripLocal + WeaponSecondaryGripOffsetLocal;
+    public bool WeaponSecondaryGripContact { get; private set; }
+
+    public void SetWeaponSecondaryGripContact(bool contact)
+    {
+        if (WeaponSecondaryGripContact == contact) return;
+        WeaponSecondaryGripContact = contact;
+        QueueRedraw();
+    }
+
+    // Draw owns the articulated chain, not the typed shoulder/rotation slot.
+    // Both links have fixed length; neither the node nor bitmap is stretched.
+    private Vector2? _armWrist;
+    private Vector2? _armElbow;
+    private Vector2 FreeArmWrist => new(0f, Kind == PlayerFormalLayerKind.NearArm ? 21f : 19f);
+    public Vector2 ArmWristLocal => _armWrist ?? FreeArmWrist;
+    public Vector2 ArmElbowLocal => _armElbow ?? DefaultArmElbow(ArmWristLocal);
+
+    private Vector2 DefaultArmElbow(Vector2 wrist)
+    {
+        float side = Kind == PlayerFormalLayerKind.NearArm ? 1f : -1f;
+        if (wrist.LengthSquared() < .000001f) return new Vector2(-24f * side, 0f);
+        Vector2 perpendicular = new(-wrist.Y, wrist.X);
+        return wrist * .5f + perpendicular.Normalized() * side *
+            Mathf.Sqrt(Mathf.Max(0f, 24f * 24f - wrist.LengthSquared() * .25f));
+    }
+    public Rect2 ArmDrawRect
+    {
+        get
+        {
+            Vector2 wrist = ArmWristLocal, elbow = ArmElbowLocal;
+            Vector2 minimum = Vector2.Zero.Min(wrist).Min(elbow);
+            Vector2 maximum = Vector2.Zero.Max(wrist).Max(elbow);
+            float margin = (Kind == PlayerFormalLayerKind.NearArm ? 9f : 8f) * .52f + 2f;
+            return new Rect2(minimum, maximum - minimum).Grow(margin);
+        }
+    }
+
+    internal const float MaxArmReach = 48f; // two authored 24 px links
+
+    public void SetArmWristLocal(Vector2 wrist)
+    {
+        if (!float.IsFinite(wrist.X) || !float.IsFinite(wrist.Y)) wrist = FreeArmWrist;
+        double length = System.Math.Sqrt((double)wrist.X * wrist.X + (double)wrist.Y * wrist.Y);
+        if (length > MaxArmReach) wrist *= (float)(MaxArmReach / length);
+        if (ArmWristLocal.IsEqualApprox(wrist)) return;
+        Vector2 elbow = DefaultArmElbow(wrist);
+        if (_armElbow is Vector2 previous)
+        {
+            // Both elbow solutions have the same exact wrist and link lengths.
+            // A fixed side flips at a shoulder crossing; keep the nearer actual
+            // local elbow instead. Reads/Draw never advance this scalar history.
+            if (wrist.LengthSquared() < .000001f)
+                elbow = previous.Normalized() * 24f;
+            else
+            {
+                Vector2 opposite = wrist - elbow;
+                if (opposite.DistanceSquaredTo(previous) < elbow.DistanceSquaredTo(previous)) elbow = opposite;
+            }
+        }
+        _armElbow = elbow;
+        _armWrist = wrist;
+        QueueRedraw();
+    }
+
+    public void SetWeaponGripLocal(Vector2 grip)
+    {
+        if (_weaponGripLocal.IsEqualApprox(grip)) return;
+        _weaponGripLocal = grip;
+        QueueRedraw();
+    }
+
+    private PoseTransform2D _mantleSecondary = PoseTransform2D.Identity;
+    private bool _mantleMotionInParentSpace;
+
+    public void SetMantleSecondaryMotion(PoseTransform2D motion, bool inParentSpace = false)
     {
         _mantleSecondary = motion;
+        _mantleMotionInParentSpace = inParentSpace;
         QueueRedraw();
     }
 
     /// <summary>Shared real Draw consumer for silhouette, folds, outline and collar trim.</summary>
-    public Vector2 MapMantlePoint(Vector2 restPoint) => PlayerMantleShape.Map(restPoint, _mantleSecondary);
+    public Vector2 MapMantlePoint(Vector2 restPoint)
+    {
+        Vector2 mapped = PlayerMantleShape.Map(restPoint, _mantleSecondary);
+        if (!_mantleMotionInParentSpace) return mapped;
+        if (!float.IsFinite(restPoint.X) || !float.IsFinite(restPoint.Y)) return Vector2.Zero;
+        Vector2 displacement = mapped - restPoint;
+        if (displacement == Vector2.Zero) return restPoint;
+        // Pose/action rotation belongs to the cloth attachment, not to the
+        // incoming inertial vector. Transform only the displacement; translating
+        // the rest point or the whole node would unpin the shoulder band.
+        Transform2D basis = Transform;
+        float determinant = basis.Determinant();
+        if (!float.IsFinite(determinant) || Mathf.Abs(determinant) < .000001f) return restPoint;
+        Vector2 local = basis.AffineInverse().BasisXform(displacement);
+        return float.IsFinite(local.X) && float.IsFinite(local.Y) ? restPoint + local : restPoint;
+    }
 
     private Vector2[] MapMantlePoints(Vector2[] restPoints) => MapMantleEdges(restPoints, closed: true);
 
@@ -66,17 +218,44 @@ public partial class PlayerFormalLayer : Node2D
         return mapped.ToArray();
     }
 
-    public override void _Ready() => QueueRedraw();
+    public override void _Ready()
+    {
+        if (Kind == PlayerFormalLayerKind.Lantern)
+        {
+            LanternTexture ??= GD.Load<Texture2D>(
+                "res://assets/player/thread-spool-bearer/lantern.png");
+            if (LanternTexture == null)
+                throw new System.InvalidOperationException("Approved lantern texture is unavailable");
+            TextureFilter = TextureFilterEnum.Linear;
+        }
+        if (Kind == PlayerFormalLayerKind.Weapon)
+        {
+            WeaponTexture ??= GD.Load<Texture2D>(
+                "res://assets/player/thread-spool-bearer/half-bell-cleaver.png");
+            if (WeaponTexture == null)
+                throw new System.InvalidOperationException("Approved weapon texture is unavailable");
+            WeaponGripTexture ??= GD.Load<Texture2D>(
+                "res://assets/player/thread-spool-bearer/right-grip-overlay.png");
+            if (WeaponGripTexture == null)
+                throw new System.InvalidOperationException("Approved weapon grip overlay is unavailable");
+            WeaponSecondaryGripTexture ??= GD.Load<Texture2D>(
+                "res://assets/player/thread-spool-bearer/left-grip-overlay.png");
+            if (WeaponSecondaryGripTexture == null)
+                throw new System.InvalidOperationException("Approved secondary grip overlay is unavailable");
+            TextureFilter = TextureFilterEnum.Linear;
+        }
+        QueueRedraw();
+    }
 
     public override void _Draw()
     {
         switch (Kind)
         {
             case PlayerFormalLayerKind.Body: DrawBody(); break;
-            case PlayerFormalLayerKind.NearArm: DrawLimb(9f, 24f, true); break;
-            case PlayerFormalLayerKind.FarArm: DrawLimb(8f, 22f, false); break;
-            case PlayerFormalLayerKind.NearLeg: DrawLimb(11f, 25f, true); break;
-            case PlayerFormalLayerKind.FarLeg: DrawLimb(10f, 23f, false); break;
+            case PlayerFormalLayerKind.NearArm: DrawArm(9f); break;
+            case PlayerFormalLayerKind.FarArm: DrawArm(8f); break;
+            case PlayerFormalLayerKind.NearLeg: DrawLeg(11f); break;
+            case PlayerFormalLayerKind.FarLeg: DrawLeg(10f); break;
             case PlayerFormalLayerKind.Weapon: DrawWeapon(); break;
             case PlayerFormalLayerKind.Mantle: DrawMantle(); break;
             case PlayerFormalLayerKind.ShoulderCore: DrawCore(); break;
@@ -105,27 +284,46 @@ public partial class PlayerFormalLayer : Node2D
         DrawLine(new Vector2(4f, -19f), new Vector2(10f, -19f), ThreadGlow, 2.4f);
     }
 
-    private void DrawLimb(float width, float length, bool near)
+    private void DrawLeg(float width)
     {
-        // Both sides are the same ceramic; overlap and local recesses carry depth.
-        Color color = Bone;
-        DrawStyleBox(new Rect2(-width / 2f, -4f, width, length), color, Ink);
-        float inset = 1.4f;
-        float sideWidth = width * .20f;
-        DrawRect(new Rect2(width / 2f - inset - sideWidth, -4f + inset,
-            sideWidth, length - inset * 2f), Bone.Darkened(near ? .15f : .20f));
-        DrawRect(new Rect2(-width / 2f + inset, -4f + inset,
-            width - inset * 2f, 2.5f), BoneShadow);
-        DrawCircle(new Vector2(0f, length - 3f), width * 0.52f, Ink);
-        DrawCircle(new Vector2(0f, length - 3f), width * 0.38f, color);
+        Vector2 knee=LegKneeLocal, ankle=LegAnkleLocal, sole=LegSoleLocal;
+        DrawLine(LegHipLocal,knee,Ink,width+2.4f,true);
+        DrawLine(knee,ankle,Ink,width+2.4f,true);
+        DrawLine(LegHipLocal,knee,Bone,width,true);
+        DrawLine(knee,ankle,Bone,width*.86f,true);
+        DrawCircle(knee,width*.48f,Ink);
+        DrawCircle(knee,width*.30f,BoneShadow);
+        Vector2 forward=new(-_legUp.Y,_legUp.X);
+        Vector2[] shoe=[sole-forward*5,sole+forward*7,sole+forward*6+_legUp*5,sole-forward*4+_legUp*7];
+        DrawPolygon(shoe,[Bone]);
+        DrawPolyline([shoe[0],shoe[1],shoe[2],shoe[3],shoe[0]],Ink,1.6f,true);
+    }
+
+    private void DrawArm(float width)
+    {
+        Vector2 elbow = ArmElbowLocal, wrist = ArmWristLocal;
+        DrawLine(Vector2.Zero, elbow, Ink, width + 2.4f, true);
+        DrawLine(elbow, wrist, Ink, width + 2.4f, true);
+        DrawLine(Vector2.Zero, elbow, Bone, width, true);
+        DrawLine(elbow, wrist, Bone, width, true);
+        DrawCircle(Vector2.Zero, width * .5f, BoneShadow);
+        DrawCircle(elbow, width * .52f, Ink);
+        DrawCircle(elbow, width * .36f, BoneShadow);
+        DrawCircle(wrist, width * .52f, Ink);
+        DrawCircle(wrist, width * .38f, Bone);
     }
 
     private void DrawWeapon()
     {
-        DrawLine(new Vector2(-2f, 0f), new Vector2(45f, -6f), Ink, 5f);
-        DrawLine(new Vector2(-2f, 0f), new Vector2(45f, -6f), Bone, 2.2f);
-        DrawCircle(new Vector2(2f, 0f), 5f, Brass);
-        DrawCircle(new Vector2(2f, 0f), 2f, ThreadGlow);
+        if (WeaponTexture != null)
+            DrawTextureRectRegion(WeaponTexture, WeaponDrawRect, WeaponSourceRect);
+        if (WeaponSecondaryGripContact && WeaponSecondaryGripTexture != null)
+            DrawTextureRectRegion(WeaponSecondaryGripTexture, WeaponSecondaryGripDrawRect,
+                WeaponSecondaryGripSourceRect);
+        // Approved fingers occlude the handle, sharing its actual posed grip,
+        // uniform art scale and the rig's single facing mirror.
+        if (WeaponGripTexture != null)
+            DrawTextureRectRegion(WeaponGripTexture, WeaponGripDrawRect, WeaponGripSourceRect);
     }
 
     private void DrawMantle()
@@ -156,11 +354,7 @@ public partial class PlayerFormalLayer : Node2D
 
     private void DrawLantern()
     {
-        DrawCircle(Vector2.Zero, 9f, new Color(0.1f, 0.3f, 0.29f, 0.32f));
-        DrawCircle(Vector2.Zero, 6f, Ink);
-        DrawCircle(Vector2.Zero, 4.5f, ThreadGlow);
-        DrawArc(Vector2.Zero, 8f, -2.5f, 0.6f, 18, BrassLight, 2f);
-        DrawLine(new Vector2(-5f, 7f), new Vector2(5f, 7f), Brass, 2f);
+        if (LanternTexture != null) DrawTextureRect(LanternTexture, LanternDrawRect, false);
     }
 
     private void DrawTether()

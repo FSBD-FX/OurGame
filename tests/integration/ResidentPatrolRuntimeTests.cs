@@ -163,7 +163,20 @@ public static partial class ResidentPatrolRuntimeTests
         });
         await Check("actual_death_withdraws_autonomous_motion", async f =>
         {
-            await f.Mount();
+            f.Player(100);
+            f.Actor.ConfigureResidence(Definition(320,256,384) with {Family=ResidentFamily.Scrap,SubtypeId="scrap-wanderer"});
+            await f.Mount(false);
+            var target=f.Actor.GetNode<ThreadTarget2D>("ThreadTarget");
+            var hurt=f.Actor.GetNode<Hurtbox>("Hurtbox");
+            var targetArea=target.GetNode<Area2D>("TargetCollision");
+            uint bodyLayer=f.Actor.CollisionLayer,bodyMask=f.Actor.CollisionMask,
+                hurtLayer=hurt.CollisionLayer,targetLayer=targetArea.CollisionLayer;
+            bool monitoring=hurt.Monitoring,monitorable=hurt.Monitorable;
+            var beyond=new GrappleSurface2D{Name="BeyondResident",Position=new(440,96)};
+            f.Scope.AddChild(beyond);
+            var resolver=new MechanicalClawTargetResolver();
+            TestAssert.True(resolver.ResolveKeyboard(f.Target,Vector2.Right).Surface==target,
+                "live saved resident remains the actual nearer keyboard claw target");
             for(ulong hit=91;hit<=93;hit++)
             {
                 TestAssert.True(f.Actor.GetNode<Hurtbox>("Hurtbox").Receive(new DamageRequest(1,Vector2.Zero,0,hit,901)),"actual lethal health path");
@@ -174,7 +187,44 @@ public static partial class ResidentPatrolRuntimeTests
             TestAssert.True(f.Health.CurrentHealth==0&&f.Actor.CurrentState==RustShellState.Dead&&
                 f.Actor.ResidenceFrame.State==ResidentPatrolState.Dead&&f.Actor.GlobalPosition.DistanceTo(dead)<.01f&&
                 !f.Actor.GetNode<Hitbox>("AttackHitbox").Monitoring,"dead resident cannot patrol, attack or heal");
-        });
+            TestAssert.True(resolver.ResolveKeyboard(f.Target,Vector2.Right).Surface==beyond,
+                "retained dead ground resident must not occlude the real keyboard claw ray to a farther surface");
+            TestAssert.True(f.Actor.CollisionLayer==0&&f.Actor.CollisionMask==bodyMask&&hurt.CollisionLayer==0&&
+                !hurt.Monitoring&&!hurt.Monitorable&&targetArea.CollisionLayer==0&&!target.IsAvailable&&
+                !target.IsInGroup(ThreadTarget2D.TargetGroup)&&!target.IsInGroup(GrappleSurface2D.TargetGroup),
+                "all retained corpse discovery/collision authority withdraws without deleting it or changing its saved mask");
+            f.Actor.SetResidentDormant(true);f.Actor.SetResidentDormant(false);await f.Frames(2);
+            TestAssert.True(f.Health.CurrentHealth==0&&f.Actor.CollisionLayer==0&&hurt.CollisionLayer==0&&
+                resolver.ResolveKeyboard(f.Target,Vector2.Right).Surface==beyond,
+                "sleep/wake cannot resurrect dead collision or heal the corpse");
+            f.Actor.ResetForCheckpoint();await f.Frames(2);
+            TestAssert.True(f.Health.CurrentHealth==3&&f.Actor.CollisionLayer==bodyLayer&&f.Actor.CollisionMask==bodyMask&&
+                hurt.CollisionLayer==hurtLayer&&hurt.Monitoring==monitoring&&hurt.Monitorable==monitorable&&
+                targetArea.CollisionLayer==targetLayer&&target.IsAvailable&&
+                resolver.ResolveKeyboard(f.Target,Vector2.Right).Surface==target,
+                "checkpoint reset restores exact live body/hurt/target and real claw obstruction on the same actor");
+            Hitbox incoming=f.IncomingAttack(f.Actor.GlobalPosition,1);
+            int nativeConnections=0;
+            incoming.Connected+=receiver=>{if(receiver==hurt)nativeConnections++;};
+            incoming.Begin(94);await f.Frames(2);incoming.End();
+            TestAssert.True(nativeConnections==1&&f.Health.CurrentHealth==2,
+                "restored live saved hurtbox still receives one actual native PlayerAttack contact");
+            await f.Frames(25);
+            void ResetDuringDeath()=>f.Actor.ResetForCheckpoint();
+            f.Health.Died+=ResetDuringDeath;
+            try
+            {
+                incoming.Damage=2;incoming.Begin(95);await f.Frames(2);incoming.End();
+                TestAssert.True(nativeConnections==2,"second real native lethal contact reaches same-life reset");
+            }
+            finally { f.Health.Died-=ResetDuringDeath; }
+            await f.Frames(2);
+            TestAssert.True(f.Health.CurrentHealth==3&&f.Actor.CollisionLayer==bodyLayer&&hurt.Monitorable==monitorable&&
+                targetArea.CollisionLayer==targetLayer&&resolver.ResolveKeyboard(f.Target,Vector2.Right).Surface==target,
+                "deferred monitorable commit re-reads the reset life rather than disabling a new live actor");
+            GD.Print("RESIDENT_GROUND_CORPSE_CLAW_OK saved_actor=true live_target=true dead_ray_clear=true " +
+                "sleep_no_resurrection=true exact_reset=true same_signal_reset=true resolver_unchanged=true");
+        },actorScene:"res://scenes/enemies/residents/v001/scrap-wanderer.tscn");
         await Check("invalid_and_postmount_configuration", async f =>
         {
             var valid = Definition(320,256,384);
@@ -188,10 +238,10 @@ public static partial class ResidentPatrolRuntimeTests
         GD.Print($"RESIDENT_PATROL_NATIVE_RESULT cases={cases} failures={failures.Count} saved_actor=true actual_physics=true formal_spawned=0");
         return failures;
 
-        async Task Check(string name, Func<Fixture,Task> test, bool floor = true)
+        async Task Check(string name, Func<Fixture,Task> test, bool floor = true,string actorScene=null)
         {
             cases++; var f = new Fixture(tree);
-            try { f.Initialize(floor); await test(f); GD.Print("RESIDENT_PATROL_CASE_OK " + name); }
+            try { f.Initialize(floor,actorScene); await test(f); GD.Print("RESIDENT_PATROL_CASE_OK " + name); }
             catch(Exception ex) { failures.Add(name+": "+ex.Message); GD.Print("RESIDENT_PATROL_CASE_FAIL "+name+": "+ex.Message); }
             finally { await f.DisposeAsync(); }
         }
@@ -476,14 +526,14 @@ public static partial class ResidentPatrolRuntimeTests
         public Node2D Scope => _scope;
         public void DetachActor(){_detached.Add(Actor);_scope.RemoveChild(Actor);}
         public Fixture(SceneTree tree) { _tree=tree; }
-        public void Initialize(bool floor)
+        public void Initialize(bool floor,string actorScene=null)
         {
             using Godot.Collections.Array players=(Godot.Collections.Array)_tree.GetNodesInGroup("player");
             TestAssert.Equal(0,players.Count,"no unrelated global target in native resident fixture");
             _world=new World2D();
             _viewport=new SubViewport{Name="RealResidentMotionWorld",Size=new(32,32),World2D=_world};
             _scope=new RecoveryScope(); _viewport.AddChild(_scope); _tree.Root.AddChild(_viewport);
-            Actor=GD.Load<PackedScene>("res://scenes/enemies/RustShellSquire.tscn").Instantiate<RustShellSquire>();
+            Actor=GD.Load<PackedScene>(actorScene??"res://scenes/enemies/RustShellSquire.tscn").Instantiate<RustShellSquire>();
             _detached.Add(Actor);
             // Rust changes collider poses/layers, not Shape2D resources. Borrow
             // saved shapes unchanged; only fixture-created shapes are ours.

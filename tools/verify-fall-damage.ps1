@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $projectRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$evidenceRoot='E:/OurGame/Knight/.evidence/october07-fall-damage'
+$evidenceRoot='G:/knight/验证证据/october07-fall-damage'
 $caseRoot=Join-Path $evidenceRoot ($Suite+'-'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff')+'-'+[guid]::NewGuid().ToString('N'))
 $null=New-Item -ItemType Directory -Path $caseRoot
 $protectedRoot='C:/Users/22499/AppData/Roaming/Godot/app_userdata/Knight'
@@ -43,8 +43,8 @@ if($Suite -eq 'proof') {
         '--write-movie',(Join-Path $caseRoot 'fall-damage-original.avi'))
 }
 $argv+=@('--',"--case-storage-root=$caseRoot")
-$childEnv=@{DOTNET_ROOT='G:/godot/dotnet-sdk';DOTNET_ROOT_X64='G:/godot/dotnet-sdk'}
-$process=Start-Process -FilePath 'G:/godot/Godot_v4.7.1-stable_mono_win64/Godot_v4.7.1-stable_mono_win64.exe' `
+$childEnv=@{DOTNET_ROOT='G:/knight/Tools/dotnet-sdk';DOTNET_ROOT_X64='G:/knight/Tools/dotnet-sdk'}
+$process=Start-Process -FilePath 'G:/knight/Tools/Godot_v4.7.1-stable_mono_win64/Godot_v4.7.1-stable_mono_win64.exe' `
     -ArgumentList $argv -WorkingDirectory $projectRoot -WindowStyle Hidden -Environment $childEnv `
     -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
 try {

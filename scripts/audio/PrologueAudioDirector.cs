@@ -12,6 +12,7 @@ using Knight.Enemies.Sentry;
 using Knight.Enemies.Skitter;
 using Knight.Presentation;
 using Knight.Prologue;
+using Knight.Prologue.Seamless;
 using Knight.Settings;
 using Knight.Player;
 using Knight.Ui;
@@ -90,6 +91,7 @@ public partial class PrologueAudioDirector : Node
     private readonly List<PrologueAudioCue> _task10CueHistory = new();
     private ulong _task10CueSequence;
     private PrologueLevelController _task10Level;
+    private SeamlessPrologueWorld _task10World;
     private PrologueCompletionController _task10Completion;
     private PrologueGameFlowController _task10Flow;
     private PlayerActionModeController _task10ActionModes;
@@ -113,6 +115,7 @@ public partial class PrologueAudioDirector : Node
 
     public override void _Ready()
     {
+        if (IsQuiescing) return;
         ProcessMode = ProcessModeEnum.Always;
         ResolvePlayers();
         _manifest = LoadManifest();
@@ -122,6 +125,7 @@ public partial class PrologueAudioDirector : Node
 
     public override void _Process(double delta)
     {
+        if (IsQuiescing) return;
         bool paused = GetTree()?.Paused ?? false;
         if (paused && !_thrusterWasPaused) { ThrusterClearGeneration++; StopThruster(0UL); }
         _thrusterWasPaused = paused;
@@ -196,7 +200,7 @@ public partial class PrologueAudioDirector : Node
 
     public bool TryPlayGuidanceCrackle(string instructionIdentity)
     {
-        if (!PlaybackEnabled || AudioPaused || !IsInsideTree() || GetTree().Paused ||
+        if (IsQuiescing || !PlaybackEnabled || AudioPaused || !IsInsideTree() || GetTree().Paused ||
             string.IsNullOrWhiteSpace(instructionIdentity)) return false;
         string identity = instructionIdentity.Trim();
         ulong now = Time.GetTicksMsec();
@@ -246,7 +250,7 @@ public partial class PrologueAudioDirector : Node
 
     public void Play(PrologueAudioCue cue, Vector2 worldPosition)
     {
-        if (!PlaybackEnabled) return;
+        if (IsQuiescing || !PlaybackEnabled) return;
         EnsureReady();
         if (!_manifest.Cues.TryGetValue(cue.ToString(), out List<string> variants) || variants.Count == 0)
         {
@@ -301,7 +305,7 @@ public partial class PrologueAudioDirector : Node
     {
         if (identity == default || ActiveThrusterIdentity != identity) return;
         StopThruster(identity.OwnerId);
-        if (!PlaybackEnabled || AudioPaused || !IsInsideTree() || GetTree().Paused ||
+        if (IsQuiescing || !PlaybackEnabled || AudioPaused || !IsInsideTree() || GetTree().Paused ||
             reason is ThrusterEndReason.Death or ThrusterEndReason.Reset or ThrusterEndReason.OwnerRetired) return;
         string path = reason == ThrusterEndReason.Exhausted
             ? "res://assets/audio/prologue/sfx/claw/release.wav"
@@ -320,6 +324,7 @@ public partial class PrologueAudioDirector : Node
 
     public void PlayAttackFrame(Node source, AttackPresentationFrame frame, Vector2 position)
     {
+        if (IsQuiescing) return;
         if (frame.Timeline.Phase == AttackPhase.None)
         {
             ReleaseAttackSource(source);
@@ -385,6 +390,7 @@ public partial class PrologueAudioDirector : Node
 
     public void PlayThreadFrame(ThreadCastFrame frame, Vector2 position)
     {
+        if (IsQuiescing) return;
         if (frame.State == ThreadCastState.Idle)
         {
             _playedThreadStates.Clear();
@@ -419,6 +425,7 @@ public partial class PrologueAudioDirector : Node
 
     public void SetMusicState(PrologueMusicState state)
     {
+        if (IsQuiescing) return;
         if (!PlaybackEnabled)
         {
             MusicState = state;
@@ -452,7 +459,7 @@ public partial class PrologueAudioDirector : Node
 
     public void SetRoomAmbience(PrologueRoomId room)
     {
-        if (!PlaybackEnabled) return;
+        if (IsQuiescing || !PlaybackEnabled) return;
         EnsureReady();
         if (!_manifest.Ambience.TryGetValue(room.ToString(), out string path)) return;
         SetLoop(_ambience, path, true);
@@ -470,6 +477,7 @@ public partial class PrologueAudioDirector : Node
 
     public void SetPaused(bool paused)
     {
+        if (IsQuiescing) return;
         ResolvePlayers();
         AudioPaused = paused;
         if (paused) ClearStagedFrameAudio();
@@ -663,6 +671,7 @@ public partial class PrologueAudioDirector : Node
 
     public void PresentActionFrame(PlayerHudActionState frame, Vector2 position)
     {
+        if (IsQuiescing) return;
         PrologueAudioCue? cue = null;
         if (!_hasTask10ActionFrame || frame.Mode != _lastTask10ActionFrame.Mode)
             cue = frame.Mode == PlayerActionMode.Attack
@@ -700,6 +709,7 @@ public partial class PrologueAudioDirector : Node
 
     public void PresentClawFrame(MechanicalClawFrame frame, Vector2 position)
     {
+        if (IsQuiescing) return;
         bool duplicate = frame.CastId == 0UL
             ? _hasTask10ClawFrame && _lastTask10Claw.CastId == 0UL &&
               frame.State == _lastTask10Claw.State && frame.Failure == _lastTask10Claw.Failure
@@ -718,6 +728,7 @@ public partial class PrologueAudioDirector : Node
 
     public void PresentEnergyFrame(PlayerEnergyFrame frame, Vector2 position)
     {
+        if (IsQuiescing) return;
         PrologueAudioCue? cue = null;
         if (_hasTask10EnergyFrame && frame.State.Overheated != _lastTask10EnergyFrame.State.Overheated)
             cue = frame.State.Overheated ? PrologueAudioCue.ShieldOverheat : PrologueAudioCue.ShieldReady;
@@ -728,6 +739,7 @@ public partial class PrologueAudioDirector : Node
 
     public void PresentShieldActive(bool active, Vector2 position)
     {
+        if (IsQuiescing) return;
         if (_hasTask10ShieldFrame && active == _lastTask10ShieldActive) return;
         bool entered = active && (!_hasTask10ShieldFrame || !_lastTask10ShieldActive);
         _lastTask10ShieldActive = active;
@@ -737,6 +749,7 @@ public partial class PrologueAudioDirector : Node
 
     public void PresentShieldResult(PlayerShieldResult result, ulong transitionId, Vector2 position)
     {
+        if (IsQuiescing) return;
         if (!result.Guarded && !result.BrokeGuard || !_task10ShieldResults.Add(transitionId)) return;
         EmitTask10(result.BrokeGuard ? PrologueAudioCue.ShieldHeavyBreak : PrologueAudioCue.ShieldBlock,
             position);
@@ -755,11 +768,25 @@ public partial class PrologueAudioDirector : Node
         _hasTask10ShieldFrame = false;
         _lastTask10ShieldActive = false;
         _task10ShieldResults.Clear();
-        Task10TransitionsCleared?.Invoke();
+        Action observers = Task10TransitionsCleared;
+        if (observers == null) return;
+        // Each owner gets the committed clear even if an earlier listener
+        // fails. Faults remain explicit diagnostics, not successful cleanup
+        // claims for the failed owner or reasons to cancel fresh feedback.
+        foreach (Delegate observer in observers.GetInvocationList())
+        {
+            try { ((Action)observer)(); }
+            catch (Exception exception)
+            {
+                GD.PushWarning($"{nameof(PrologueAudioDirector)} isolated a throwing " +
+                    $"{nameof(Task10TransitionsCleared)} observer: {exception.Message}");
+            }
+        }
     }
 
     private void EmitTask10(PrologueAudioCue cue, Vector2 position)
     {
+        if (IsQuiescing) return;
         Task10TransitionCueCount++;
         _task10CueHistory.Add(cue);
         LastCue = cue;
@@ -769,7 +796,11 @@ public partial class PrologueAudioDirector : Node
 
     private void RefreshTask10PublisherBindings()
     {
+        if (IsQuiescing) return;
         PrologueLevelController level = GetParentOrNull<PrologueLevelController>();
+        SeamlessPrologueWorld world = GodotObject.IsInstanceValid(level) &&
+            level.SeamlessWorldPath != null && !level.SeamlessWorldPath.IsEmpty
+            ? level.GetNodeOrNull<SeamlessPrologueWorld>(level.SeamlessWorldPath) : null;
         CharacterBody2D player = GodotObject.IsInstanceValid(level?.Player)
             ? level.Player
             : GetNodeOrNull<CharacterBody2D>("../PlayerRoot/Player");
@@ -779,7 +810,8 @@ public partial class PrologueAudioDirector : Node
         PlayerEnergyController energy = player?.GetNodeOrNull<PlayerEnergyController>("Energy");
         PlayerShieldController shield = player?.GetNodeOrNull<PlayerShieldController>("Shield");
         MechanicalClawController claw = player?.GetNodeOrNull<MechanicalClawController>("MechanicalClaw");
-        if (ReferenceEquals(level, _task10Level) && ReferenceEquals(completion, _task10Completion) &&
+        if (ReferenceEquals(level, _task10Level) && ReferenceEquals(world, _task10World) &&
+            ReferenceEquals(completion, _task10Completion) &&
             ReferenceEquals(flow, _task10Flow) &&
             ReferenceEquals(actionModes, _task10ActionModes) && ReferenceEquals(energy, _task10Energy) &&
             ReferenceEquals(shield, _task10Shield) && ReferenceEquals(claw, _task10Claw))
@@ -790,6 +822,7 @@ public partial class PrologueAudioDirector : Node
 
         UnbindTask10PublisherBindings();
         _task10Level = level;
+        _task10World = world;
         _task10Completion = completion;
         _task10Flow = flow;
         _task10ActionModes = actionModes;
@@ -798,11 +831,11 @@ public partial class PrologueAudioDirector : Node
         _task10Claw = claw;
         _task10Sector = level?.CurrentSector;
         _task10FlowState = flow?.State;
-        if (GodotObject.IsInstanceValid(_task10Level))
-        {
-            _task10Level.RecoveryRequested += OnTask10RecoveryRequested;
-            _task10Level.RecoveryCompleted += OnTask10RecoveryCompleted;
-        }
+        if (GodotObject.IsInstanceValid(_task10World))
+            _task10World.ActiveSectorCommitted += OnTask10SectorCommitted;
+        // RecoveryStarted's presentation boundary already clears old combat
+        // state before playing feedback. These level signals follow playback;
+        // clearing again here would cancel both the new voice and its VFX.
         if (GodotObject.IsInstanceValid(_task10Completion))
             _task10Completion.PrologueCompleted += OnTask10TerminalState;
         if (GodotObject.IsInstanceValid(_task10ActionModes))
@@ -825,11 +858,8 @@ public partial class PrologueAudioDirector : Node
 
     private void UnbindTask10PublisherBindings()
     {
-        if (GodotObject.IsInstanceValid(_task10Level))
-        {
-            _task10Level.RecoveryRequested -= OnTask10RecoveryRequested;
-            _task10Level.RecoveryCompleted -= OnTask10RecoveryCompleted;
-        }
+        if (GodotObject.IsInstanceValid(_task10World))
+            _task10World.ActiveSectorCommitted -= OnTask10SectorCommitted;
         if (GodotObject.IsInstanceValid(_task10Completion))
             _task10Completion.PrologueCompleted -= OnTask10TerminalState;
         if (GodotObject.IsInstanceValid(_task10ActionModes))
@@ -848,6 +878,7 @@ public partial class PrologueAudioDirector : Node
         if (GodotObject.IsInstanceValid(_task10Claw))
             _task10Claw.ClawFrameChanged -= OnTask10ClawFrameChanged;
         _task10Level = null;
+        _task10World = null;
         _task10Completion = null;
         _task10Flow = null;
         _task10ActionModes = null;
@@ -856,6 +887,24 @@ public partial class PrologueAudioDirector : Node
         _task10Claw = null;
         _task10Sector = null;
         _task10FlowState = null;
+    }
+
+    private void OnTask10SectorCommitted(SeamlessPrologueWorld source, PrologueSector sector)
+    {
+        if (IsQuiescing || !ReferenceEquals(source, _task10World) ||
+            !GodotObject.IsInstanceValid(_task10Level) || !_task10Level.IsInsideTree() ||
+            !GodotObject.IsInstanceValid(source) || !source.IsInsideTree() ||
+            !GodotObject.IsInstanceValid(sector) || sector.IsQueuedForDeletion() ||
+            !source.TryGetMountedSector(source.CurrentSector, out PrologueSector current) ||
+            !ReferenceEquals(sector, current)) return;
+
+        // Advance the poll baseline synchronously: a later idle must not clear
+        // feedback emitted by a real publisher after this committed boundary.
+        _task10Sector = sector.SectorId;
+        // RecoveryStarted already cleared old feedback before playing its own
+        // start cue; the deferred checkpoint commit must preserve that cue.
+        if (!_task10Level.RecoveryInProgress) ClearTask10Transitions();
+        SeedTask10ActionBaseline(force: true);
     }
 
     private void OnTask10ModeChanged(PlayerActionMode mode)
@@ -922,10 +971,8 @@ public partial class PrologueAudioDirector : Node
     }
 
     private bool CanPresentTask10PublisherFrame() =>
-        !GodotObject.IsInstanceValid(_task10Flow) || _task10Flow.State == PrologueGameFlowState.Playing;
+        !IsQuiescing && (!GodotObject.IsInstanceValid(_task10Flow) || _task10Flow.State == PrologueGameFlowState.Playing);
 
-    private void OnTask10RecoveryRequested(string reason) => ClearStagedFrameAudio();
-    private void OnTask10RecoveryCompleted(string reason) => ClearStagedFrameAudio();
     private void OnTask10TerminalState() => ClearStagedFrameAudio();
 
     private void StopTransientFrames()
@@ -957,7 +1004,7 @@ public partial class PrologueAudioDirector : Node
 
     private bool CanPlayRangedSource(Node source, Vector2 position)
     {
-        if (!PlaybackEnabled || AudioPaused || !IsInsideTree() || IsQueuedForDeletion() ||
+        if (IsQuiescing || !PlaybackEnabled || AudioPaused || !IsInsideTree() || IsQueuedForDeletion() ||
             !GodotObject.IsInstanceValid(source) || !source.IsInsideTree() ||
             source.GetTree() != GetTree() || GetTree().Paused ||
             !float.IsFinite(position.X) || !float.IsFinite(position.Y)) return false;

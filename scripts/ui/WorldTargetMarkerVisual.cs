@@ -29,6 +29,7 @@ public partial class WorldTargetMarkerVisual : Control, IPrologueGuidanceVisual
 
     private readonly List<PrologueGuidanceTargetView> _targets = new();
     private Label _text;
+    private bool _usesDeviceReadingRail;
 
     public override void _EnterTree()
     {
@@ -193,6 +194,10 @@ public partial class WorldTargetMarkerVisual : Control, IPrologueGuidanceVisual
     {
         BindText();
         RenderedStepText = instruction.StepText;
+        // The existing controller expands device/context teaching explicitly.
+        // Keep its fixed screen rail separate from ordinary failure expansion;
+        // neither rail follows the player or moving world markers.
+        _usesDeviceReadingRail = IsExpandedTeaching && !string.IsNullOrEmpty(instruction.ContextTitle);
         _targets.Clear();
         foreach (PrologueGuidanceTargetView target in targets) _targets.Add(target);
         if (_text != null)
@@ -214,6 +219,7 @@ public partial class WorldTargetMarkerVisual : Control, IPrologueGuidanceVisual
         RenderedStepText = string.Empty;
         _targets.Clear();
         IsExpandedTeaching = false;
+        _usesDeviceReadingRail = false;
         PromptRect = default;
         HasVisiblePrompt = false;
         RenderedTextBounds = default;
@@ -231,9 +237,9 @@ public partial class WorldTargetMarkerVisual : Control, IPrologueGuidanceVisual
         Vector2 viewport = Size;
         if (viewport.X < 1f || viewport.Y < 1f) viewport = GetViewportRect().Size;
         Rect2 safe = new(new Vector2(48, 40), viewport - new Vector2(96, 80));
-        // One reading column for every target and teaching state. World motion must
-        // never choose the position or width of actionable screen-space text.
-        Vector2 promptSize = new(320, IsExpandedTeaching ? 88 : 48);
+        // Keep ordinary lessons in their fixed reading column. Expanded device
+        // copy gets a separate fixed lower rail; neither follows world targets.
+        Vector2 promptSize = new(_usesDeviceReadingRail ? 840 : 720, IsExpandedTeaching ? 88 : 48);
         promptSize.X = Mathf.Min(promptSize.X, safe.Size.X);
         if (_text != null)
         {
@@ -249,7 +255,9 @@ public partial class WorldTargetMarkerVisual : Control, IPrologueGuidanceVisual
         promptSize.Y = Mathf.Min(safe.Size.Y,
             Mathf.Max(promptSize.Y, requiredTextHeight + verticalPadding));
         LastPromptSize = promptSize;
-        PromptRect = PlaceFixedReadingColumn(safe, promptSize);
+        PromptRect = _usesDeviceReadingRail
+            ? PlaceFixedDeviceReadingRail(safe, promptSize)
+            : PlaceFixedReadingColumn(safe, promptSize);
 
         HasVisiblePrompt = PromptRect.HasArea();
         if (!HasVisiblePrompt)
@@ -270,7 +278,7 @@ public partial class WorldTargetMarkerVisual : Control, IPrologueGuidanceVisual
             backdrop.Position = PromptRect.Position;
             backdrop.Size = PromptRect.Size;
             if (backdrop is ColorRect colorRect)
-                colorRect.Color = new Color(.04f, .065f, .085f, .62f);
+                colorRect.Color = new Color(.04f, .065f, .085f, _usesDeviceReadingRail ? .42f : .62f);
         }
         if (topRule != null)
         {
@@ -356,6 +364,31 @@ public partial class WorldTargetMarkerVisual : Control, IPrologueGuidanceVisual
         Rect2 card = new(new Vector2(safeArea.Position.X, top), promptSize);
         if (!safeArea.Encloses(card)) return default;
         foreach (Rect2 region in protectedHud)
+            if (region.HasArea() && card.Intersects(region.Grow(8f))) return default;
+        return card;
+    }
+
+    private Rect2 PlaceFixedDeviceReadingRail(Rect2 safeArea, Vector2 promptSize)
+    {
+        Control formalHud = GetNodeOrNull<Control>("../../FormalHud");
+        float bottom = safeArea.End.Y;
+        Control health = formalHud?.GetNodeOrNull<Control>("Health");
+        float scale = health != null && health.Size.Y > 0f ? health.Size.Y / 72f : 1f;
+        // These permanent bottom instruments reserve the reading rail even when
+        // hidden. Visibility, player motion and marker targets cannot move it.
+        foreach (string path in new[] { "ModeSelector", "Loadout" })
+        {
+            Control control = formalHud?.GetNodeOrNull<Control>(path);
+            if (control != null && control.GetGlobalRect().HasArea())
+                bottom = Mathf.Min(bottom, control.GetGlobalRect().Position.Y - 12f * scale);
+        }
+        // Reserve room for the complete current device vocabulary, not an opaque
+        // fixed-height card. Short copy uses only its measured height; long copy
+        // is never clipped to the nominal reserve.
+        float top = bottom - Mathf.Max(144f, promptSize.Y);
+        Rect2 card = new(new Vector2(safeArea.Position.X, top), promptSize);
+        if (!safeArea.Encloses(card)) return default;
+        foreach (Rect2 region in CollectVisibleFormalHudRegions(formalHud))
             if (region.HasArea() && card.Intersects(region.Grow(8f))) return default;
         return card;
     }

@@ -15,6 +15,8 @@ public sealed class BellBackLaborerModel
     private Vector2 _lockedTarget;
     private bool _hasLockedTarget;
 
+    public float AttackTelegraphSeconds => _settings.TelegraphSeconds;
+
     public BellBackLaborerModel(BellBackLaborerSettings? settings = null)
     {
         _settings = settings ?? new BellBackLaborerTuning().ToSettings();

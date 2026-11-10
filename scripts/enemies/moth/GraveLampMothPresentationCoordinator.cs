@@ -10,7 +10,11 @@ public partial class GraveLampMothPresentationCoordinator : Node
     [Export] public NodePath ActorPath { get; set; } = new("..");
     [Export] public NodePath VisualRootPath { get; set; } = new("../VisualRoot");
     [Export] public NodePath EffectsPath { get; set; } = new("../VisualRoot/Effects");
+#if REFCOUNTED_FATAL_IDENTITY
+    [Export] public PresentationProfile Profile { get; set; } = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveOriginalDefault(new PresentationProfile(), "scripts/enemies/moth/GraveLampMothPresentationCoordinator.cs:Profile");
+#else
     [Export] public PresentationProfile Profile { get; set; } = new();
+#endif
 
     private GraveLampMoth _actor;
     private IEntityVisual2D _visual;

@@ -8,6 +8,7 @@ uniform vec4 space_color : source_color = vec4(.12,.18,.19,1.0);
 uniform vec4 boundary_color : source_color = vec4(.65,.75,.73,1.0);
 uniform bool boundary_pass = false;
 uniform float outer_feather = 12.0;
+uniform float cell_size = 8.0;
 varying vec2 cache_point;
 void vertex() { cache_point = VERTEX; }
 void fragment() {
@@ -26,7 +27,7 @@ void fragment() {
             any(lessThan(normalized, vec2(0.0))) || any(greaterThan(normalized, vec2(1.0)))) discard;
         COLOR = vec4(boundary_color.rgb, alpha);
     } else {
-        vec2 point = (view_offset + UV * world_size) / 8.0;
+        vec2 point = (view_offset + UV * world_size) / cell_size;
         vec2 half_footprint = .501 * (abs(dFdx(point)) + abs(dFdy(point)));
         ivec2 first = ivec2(floor(point - half_footprint));
         ivec2 last = ivec2(floor(point + half_footprint));

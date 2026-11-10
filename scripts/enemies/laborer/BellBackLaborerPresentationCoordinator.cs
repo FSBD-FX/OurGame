@@ -10,7 +10,11 @@ public partial class BellBackLaborerPresentationCoordinator : Node
     [Export] public NodePath ActorPath { get; set; } = new("..");
     [Export] public NodePath VisualRootPath { get; set; } = new("../VisualRoot");
     [Export] public NodePath EffectsPath { get; set; } = new("../VisualRoot/Effects");
+#if REFCOUNTED_FATAL_IDENTITY
+    [Export] public PresentationProfile Profile { get; set; } = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveOriginalDefault(new PresentationProfile(), "scripts/enemies/laborer/BellBackLaborerPresentationCoordinator.cs:Profile");
+#else
     [Export] public PresentationProfile Profile { get; set; } = new();
+#endif
 
     private BellBackLaborer _actor;
     private IEntityVisual2D _visual;

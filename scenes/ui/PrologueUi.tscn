@@ -260,16 +260,17 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -410.0
-offset_top = -312.0
+offset_top = -332.0
 offset_right = 410.0
-offset_bottom = 312.0
+offset_bottom = 332.0
 theme = SubResource("Theme_4mkbr")
 
 [node name="Title" type="Label" parent="SettingsMenu/Panel" unique_id=480197855]
 layout_mode = 0
+anchor_right = 1.0
 offset_left = 50.0
 offset_top = 30.0
-offset_right = 770.0
+offset_right = -50.0
 offset_bottom = 74.0
 theme_override_font_sizes/font_size = 28
 theme_override_colors/font_color = Color(0.8392157, 0.6627451, 0.28235295, 1)
@@ -279,118 +280,129 @@ vertical_alignment = 1
 
 [node name="TopRule" type="ColorRect" parent="SettingsMenu/Panel" unique_id=66653703]
 layout_mode = 0
+anchor_right = 1.0
 offset_left = 70.0
 offset_top = 86.0
-offset_right = 750.0
+offset_right = -70.0
 offset_bottom = 88.0
 mouse_filter = 2
 color = Color(0.8392157, 0.6627451, 0.28235295, 0.7)
 
-[node name="Rows" type="VBoxContainer" parent="SettingsMenu/Panel" unique_id=511693265]
+[node name="Scroll" type="ScrollContainer" parent="SettingsMenu/Panel" unique_id=1434341701]
 layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
 offset_left = 70.0
 offset_top = 100.0
-offset_right = 750.0
-offset_bottom = 596.0
+offset_right = -50.0
+offset_bottom = -12.0
+theme = SubResource("Theme_4mkbr")
+follow_focus = true
+horizontal_scroll_mode = 0
+vertical_scroll_mode = 4
+
+[node name="Rows" type="VBoxContainer" parent="SettingsMenu/Panel/Scroll" unique_id=511693265]
+layout_mode = 2
+size_flags_horizontal = 3
 theme = SubResource("Theme_4mkbr")
 theme_override_constants/separation = 2
 
-[node name="Master" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=234735994]
-custom_minimum_size = Vector2(680, 34)
+[node name="Master" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=234735994]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/Master" unique_id=722486664]
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/Master" unique_id=722486664]
 custom_minimum_size = Vector2(280, 34)
 layout_mode = 2
 vertical_alignment = 1
 
-[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/Master" unique_id=186205236]
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Scroll/Rows/Master" unique_id=186205236]
 custom_minimum_size = Vector2(330, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 max_value = 1.0
 step = 0.01
 
-[node name="Music" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1452315774]
-custom_minimum_size = Vector2(680, 34)
+[node name="Music" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=1452315774]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/Music" unique_id=302756585]
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/Music" unique_id=302756585]
 custom_minimum_size = Vector2(280, 34)
 layout_mode = 2
 vertical_alignment = 1
 
-[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/Music" unique_id=1600388231]
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Scroll/Rows/Music" unique_id=1600388231]
 custom_minimum_size = Vector2(330, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 max_value = 1.0
 step = 0.01
 
-[node name="Effects" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1834489057]
-custom_minimum_size = Vector2(680, 34)
+[node name="Effects" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=1834489057]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/Effects" unique_id=1184397639]
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/Effects" unique_id=1184397639]
 custom_minimum_size = Vector2(280, 34)
 layout_mode = 2
 vertical_alignment = 1
 
-[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/Effects" unique_id=831884713]
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Scroll/Rows/Effects" unique_id=831884713]
 custom_minimum_size = Vector2(330, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 max_value = 1.0
 step = 0.01
 
-[node name="Ambience" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1631681109]
-custom_minimum_size = Vector2(680, 34)
+[node name="Ambience" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=1631681109]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/Ambience" unique_id=1429954583]
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/Ambience" unique_id=1429954583]
 custom_minimum_size = Vector2(280, 34)
 layout_mode = 2
 vertical_alignment = 1
 
-[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/Ambience" unique_id=1715460563]
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Scroll/Rows/Ambience" unique_id=1715460563]
 custom_minimum_size = Vector2(330, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 max_value = 1.0
 step = 0.01
 
-[node name="UiVolume" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=158512499]
-custom_minimum_size = Vector2(680, 34)
+[node name="UiVolume" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=158512499]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/UiVolume" unique_id=2108147309]
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/UiVolume" unique_id=2108147309]
 custom_minimum_size = Vector2(280, 34)
 layout_mode = 2
 vertical_alignment = 1
 
-[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/UiVolume" unique_id=362868438]
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Scroll/Rows/UiVolume" unique_id=362868438]
 custom_minimum_size = Vector2(330, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 max_value = 1.0
 step = 0.01
 
-[node name="WindowMode" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1269899237]
-custom_minimum_size = Vector2(680, 34)
+[node name="WindowMode" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=1269899237]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/WindowMode" unique_id=531480127]
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/WindowMode" unique_id=531480127]
 custom_minimum_size = Vector2(280, 34)
 layout_mode = 2
 vertical_alignment = 1
 
-[node name="Value" type="OptionButton" parent="SettingsMenu/Panel/Rows/WindowMode" unique_id=1109841622]
+[node name="Value" type="OptionButton" parent="SettingsMenu/Panel/Scroll/Rows/WindowMode" unique_id=1109841622]
 custom_minimum_size = Vector2(330, 34)
 layout_mode = 2
 size_flags_horizontal = 3
@@ -403,17 +415,17 @@ popup/item_1/id = 1
 popup/item_2/text = "Fullscreen"
 popup/item_2/id = 2
 
-[node name="Resolution" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=896726112]
-custom_minimum_size = Vector2(680, 34)
+[node name="Resolution" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=896726112]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/Resolution" unique_id=711981565]
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/Resolution" unique_id=711981565]
 custom_minimum_size = Vector2(280, 34)
 layout_mode = 2
 vertical_alignment = 1
 
-[node name="Value" type="OptionButton" parent="SettingsMenu/Panel/Rows/Resolution" unique_id=1788919091]
+[node name="Value" type="OptionButton" parent="SettingsMenu/Panel/Scroll/Rows/Resolution" unique_id=1788919091]
 custom_minimum_size = Vector2(330, 34)
 layout_mode = 2
 size_flags_horizontal = 3
@@ -428,31 +440,31 @@ popup/item_2/id = 2
 popup/item_3/text = "3840×2160"
 popup/item_3/id = 3
 
-[node name="VSync" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1513640293]
-custom_minimum_size = Vector2(680, 34)
+[node name="VSync" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=1513640293]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/VSync" unique_id=91759163]
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/VSync" unique_id=91759163]
 custom_minimum_size = Vector2(280, 34)
 layout_mode = 2
 vertical_alignment = 1
 
-[node name="Value" type="CheckButton" parent="SettingsMenu/Panel/Rows/VSync" unique_id=1906646365]
+[node name="Value" type="CheckButton" parent="SettingsMenu/Panel/Scroll/Rows/VSync" unique_id=1906646365]
 custom_minimum_size = Vector2(120, 34)
 layout_mode = 2
 
-[node name="UiScale" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1246523928]
-custom_minimum_size = Vector2(680, 34)
+[node name="UiScale" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=1246523928]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/UiScale" unique_id=1665427530]
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/UiScale" unique_id=1665427530]
 custom_minimum_size = Vector2(280, 34)
 layout_mode = 2
 vertical_alignment = 1
 
-[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/UiScale" unique_id=1511786907]
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Scroll/Rows/UiScale" unique_id=1511786907]
 custom_minimum_size = Vector2(330, 34)
 layout_mode = 2
 size_flags_horizontal = 3
@@ -461,62 +473,76 @@ max_value = 1.5
 step = 0.05
 value = 0.8
 
-[node name="ScreenShake" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=127340896]
-custom_minimum_size = Vector2(680, 34)
+[node name="ScreenShake" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=127340896]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/ScreenShake" unique_id=360532277]
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/ScreenShake" unique_id=360532277]
 custom_minimum_size = Vector2(280, 34)
 layout_mode = 2
 vertical_alignment = 1
 
-[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Rows/ScreenShake" unique_id=442010905]
+[node name="Value" type="HSlider" parent="SettingsMenu/Panel/Scroll/Rows/ScreenShake" unique_id=442010905]
 custom_minimum_size = Vector2(330, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 max_value = 1.0
 step = 0.05
 
-[node name="ReduceFlashes" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=2012924964]
-custom_minimum_size = Vector2(680, 34)
+[node name="ReduceFlashes" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=2012924964]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/ReduceFlashes" unique_id=1493990162]
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/ReduceFlashes" unique_id=1493990162]
 custom_minimum_size = Vector2(280, 34)
 layout_mode = 2
 vertical_alignment = 1
 
-[node name="Value" type="CheckButton" parent="SettingsMenu/Panel/Rows/ReduceFlashes" unique_id=633179048]
+[node name="Value" type="CheckButton" parent="SettingsMenu/Panel/Scroll/Rows/ReduceFlashes" unique_id=633179048]
 custom_minimum_size = Vector2(120, 34)
 layout_mode = 2
 
-[node name="ReducedFog" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=341170660]
-custom_minimum_size = Vector2(680, 34)
+[node name="ReducedFog" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=341170660]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/ReducedFog" unique_id=1809202901]
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/ReducedFog" unique_id=1809202901]
 custom_minimum_size = Vector2(280, 34)
 layout_mode = 2
 vertical_alignment = 1
 
-[node name="Value" type="CheckButton" parent="SettingsMenu/Panel/Rows/ReducedFog" unique_id=1460621446]
+[node name="Value" type="CheckButton" parent="SettingsMenu/Panel/Scroll/Rows/ReducedFog" unique_id=1460621446]
 custom_minimum_size = Vector2(120, 34)
 layout_mode = 2
 
-[node name="Language" type="HBoxContainer" parent="SettingsMenu/Panel/Rows" unique_id=1819999378]
-custom_minimum_size = Vector2(680, 34)
+[node name="Guidance" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=2006794021]
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Label" type="Label" parent="SettingsMenu/Panel/Rows/Language" unique_id=712444235]
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/Guidance" unique_id=585975120]
 custom_minimum_size = Vector2(280, 34)
 layout_mode = 2
 vertical_alignment = 1
 
-[node name="Value" type="OptionButton" parent="SettingsMenu/Panel/Rows/Language" unique_id=646854071]
+[node name="Value" type="CheckButton" parent="SettingsMenu/Panel/Scroll/Rows/Guidance" unique_id=1778389024]
+custom_minimum_size = Vector2(120, 34)
+layout_mode = 2
+
+[node name="Language" type="HBoxContainer" parent="SettingsMenu/Panel/Scroll/Rows" unique_id=1819999378]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="SettingsMenu/Panel/Scroll/Rows/Language" unique_id=712444235]
+custom_minimum_size = Vector2(280, 34)
+layout_mode = 2
+vertical_alignment = 1
+
+[node name="Value" type="OptionButton" parent="SettingsMenu/Panel/Scroll/Rows/Language" unique_id=646854071]
 custom_minimum_size = Vector2(330, 34)
 layout_mode = 2
 size_flags_horizontal = 3
@@ -535,7 +561,7 @@ offset_right = 200.0
 offset_bottom = 74.0
 theme = SubResource("Theme_4mkbr")
 
-[node name="ControlsView" type="Control" parent="." unique_id=1718336644]
+[node name="ControlsView" type="Control" parent="." unique_id=343522048]
 visible = false
 layout_mode = 3
 anchors_preset = 15
@@ -543,7 +569,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 script = ExtResource("4_yyt6l")
 
-[node name="Panel" type="Panel" parent="ControlsView" unique_id=1951550181]
+[node name="Panel" type="Panel" parent="ControlsView" unique_id=26106682]
 layout_mode = 0
 anchor_left = 0.5
 anchor_top = 0.5
@@ -555,11 +581,12 @@ offset_right = 410.0
 offset_bottom = 312.0
 theme = SubResource("Theme_4mkbr")
 
-[node name="Title" type="Label" parent="ControlsView/Panel" unique_id=191861957]
+[node name="Title" type="Label" parent="ControlsView/Panel" unique_id=1271521560]
 layout_mode = 0
+anchor_right = 1.0
 offset_left = 50.0
 offset_top = 30.0
-offset_right = 770.0
+offset_right = -50.0
 offset_bottom = 74.0
 theme_override_font_sizes/font_size = 28
 theme_override_colors/font_color = Color(0.8392157, 0.6627451, 0.28235295, 1)
@@ -567,88 +594,127 @@ text = "CONTROLS"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="TopRule" type="ColorRect" parent="ControlsView/Panel" unique_id=117988105]
+[node name="TopRule" type="ColorRect" parent="ControlsView/Panel" unique_id=326107313]
 layout_mode = 0
+anchor_right = 1.0
 offset_left = 70.0
 offset_top = 86.0
-offset_right = 750.0
+offset_right = -70.0
 offset_bottom = 88.0
 mouse_filter = 2
 color = Color(0.8392157, 0.6627451, 0.28235295, 0.7)
 
-[node name="Rows" type="VBoxContainer" parent="ControlsView/Panel" unique_id=707418084]
+[node name="Scroll" type="ScrollContainer" parent="ControlsView/Panel" unique_id=1793814413]
 layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
 offset_left = 60.0
 offset_top = 104.0
-offset_right = 760.0
-offset_bottom = 524.0
+offset_right = -60.0
+offset_bottom = -100.0
+focus_behavior_recursive = 1
+theme = SubResource("Theme_4mkbr")
+horizontal_scroll_mode = 0
+vertical_scroll_mode = 4
+
+[node name="Rows" type="VBoxContainer" parent="ControlsView/Panel/Scroll" unique_id=1533521925]
+layout_mode = 2
+size_flags_horizontal = 3
 theme = SubResource("Theme_4mkbr")
 theme_override_constants/separation = 5
 
-[node name="Move" type="Label" parent="ControlsView/Panel/Rows" unique_id=286097157]
+[node name="Move" type="Label" parent="ControlsView/Panel/Scroll/Rows" unique_id=84009494]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 vertical_alignment = 1
+autowrap_mode = 3
 
-[node name="Aim" type="Label" parent="ControlsView/Panel/Rows" unique_id=1132077900]
+[node name="Aim" type="Label" parent="ControlsView/Panel/Scroll/Rows" unique_id=1879920836]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 vertical_alignment = 1
+autowrap_mode = 3
 
-[node name="Jump" type="Label" parent="ControlsView/Panel/Rows" unique_id=1752614337]
+[node name="Jump" type="Label" parent="ControlsView/Panel/Scroll/Rows" unique_id=1540376139]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 vertical_alignment = 1
+autowrap_mode = 3
 
-[node name="Dash" type="Label" parent="ControlsView/Panel/Rows" unique_id=222317283]
+[node name="Dash" type="Label" parent="ControlsView/Panel/Scroll/Rows" unique_id=865491484]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 vertical_alignment = 1
+autowrap_mode = 3
 
-[node name="AttackMode" type="Label" parent="ControlsView/Panel/Rows" unique_id=948242890]
+[node name="AttackMode" type="Label" parent="ControlsView/Panel/Scroll/Rows" unique_id=1404332620]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 vertical_alignment = 1
+autowrap_mode = 3
 
-[node name="GrappleMode" type="Label" parent="ControlsView/Panel/Rows" unique_id=1501893400]
+[node name="GrappleMode" type="Label" parent="ControlsView/Panel/Scroll/Rows" unique_id=258732131]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 vertical_alignment = 1
+autowrap_mode = 3
 
-[node name="Shield" type="Label" parent="ControlsView/Panel/Rows" unique_id=31942559]
+[node name="Shield" type="Label" parent="ControlsView/Panel/Scroll/Rows" unique_id=480312755]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 vertical_alignment = 1
+autowrap_mode = 3
 
-[node name="Interact" type="Label" parent="ControlsView/Panel/Rows" unique_id=352326245]
+[node name="Interact" type="Label" parent="ControlsView/Panel/Scroll/Rows" unique_id=783060048]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 vertical_alignment = 1
+autowrap_mode = 3
 
-[node name="Loadout" type="Label" parent="ControlsView/Panel/Rows" unique_id=101712890]
+[node name="Loadout" type="Label" parent="ControlsView/Panel/Scroll/Rows" unique_id=2050762305]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 vertical_alignment = 1
+autowrap_mode = 3
 
-[node name="Pause" type="Label" parent="ControlsView/Panel/Rows" unique_id=795461398]
+[node name="Pause" type="Label" parent="ControlsView/Panel/Scroll/Rows" unique_id=1366925993]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
 vertical_alignment = 1
+autowrap_mode = 3
 
-[node name="Back" type="Button" parent="ControlsView/Panel" unique_id=2031591618]
+[node name="ScrollHint" type="Label" parent="ControlsView/Panel" unique_id=698954656]
+visible = false
 layout_mode = 0
-offset_left = 590.0
-offset_top = 548.0
-offset_right = 760.0
-offset_bottom = 596.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 60.0
+offset_top = -76.0
+offset_right = -245.0
+offset_bottom = -28.0
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.9098039, 0.8745098, 0.7764706, 1)
+vertical_alignment = 1
+
+[node name="Back" type="Button" parent="ControlsView/Panel" unique_id=2105090511]
+layout_mode = 0
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -230.0
+offset_top = -76.0
+offset_right = -60.0
+offset_bottom = -28.0
 theme = SubResource("Theme_4mkbr")

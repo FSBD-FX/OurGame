@@ -5,8 +5,11 @@ using Godot;
 using Knight.Abilities;
 using Knight.Localization;
 using Knight.Prologue.Collections;
+using Knight.Prologue.Seamless;
 using Knight.Settings;
 using Knight.Shared;
+using Knight.Presentation.Fog;
+using Knight.Ui;
 
 namespace Knight.Prologue.Guidance;
 
@@ -49,6 +52,22 @@ public static class PrologueGuidanceModel
             _ => throw new ArgumentOutOfRangeException(nameof(context), context.Objective,
                 "Unknown first-level objective.")
         };
+
+        // Optional first-use teaching yields to mandatory first-claw controls
+        // as well as immediate danger. Once the claw lesson is complete, keep
+        // the existing forward route instead of stranding a zero-target card.
+        bool thruster = context.ThrusterOpportunity &&
+            context.Sector == PrologueSectorId.CanyonEntrance &&
+            context.Objective is (PrologueObjective.Wake or PrologueObjective.LearnAttackMode or
+                PrologueObjective.ReachBasin) &&
+            context.BossState is (PrologueBossGuidanceState.None or PrologueBossGuidanceState.Inactive) &&
+            context.ClawState == MechanicalClawState.Idle;
+        if (thruster)
+        {
+            bool onward = context.Objective == PrologueObjective.ReachBasin;
+            key = onward ? "guidance.thruster_exit" : "guidance.thruster_first";
+            if (!onward) targets = Array.Empty<PrologueGuidanceTargetKey>();
+        }
 
         if (context.AscentTransferOpportunity &&
             context.Objective is (PrologueObjective.ClimbCanyon or PrologueObjective.EnterTemple) &&
@@ -131,18 +150,55 @@ public static class PrologueGuidanceModel
             targets = Array.Empty<PrologueGuidanceTargetKey>();
         }
 
+        bool recycling=context.Sector==Prologue.Seamless.PrologueSectorId.CanyonEntrance &&
+            context.Objective is (PrologueObjective.Wake or PrologueObjective.LearnAttackMode or
+                PrologueObjective.LearnGrappleMode or PrologueObjective.ReachBasin) &&
+            context.BossState is (PrologueBossGuidanceState.None or PrologueBossGuidanceState.Inactive) &&
+            context.ClawState==MechanicalClawState.Idle &&
+            (!firstCombat || context.RecyclingLesson is
+                (PrologueRecyclingLesson.Combination or PrologueRecyclingLesson.CombinationLaunched)) &&
+            context.RecyclingLesson is
+                (PrologueRecyclingLesson.Combination or PrologueRecyclingLesson.CombinationLaunched or
+                 PrologueRecyclingLesson.Springboard or PrologueRecyclingLesson.FixedGear);
+        if(recycling)
+        {
+            key=context.RecyclingLesson switch
+            {
+                PrologueRecyclingLesson.Combination=>"guidance.recycling_combo",
+                PrologueRecyclingLesson.CombinationLaunched=>"guidance.recycling_launched",
+                PrologueRecyclingLesson.Springboard=>"guidance.recycling_pad",
+                _=>"guidance.recycling_gear"
+            };
+            targets=Array.Empty<PrologueGuidanceTargetKey>();
+        }
+
+        bool laser = context.VisibleLaser is (VisibleLaserWarning.Tracking or VisibleLaserWarning.Locked or VisibleLaserWarning.Active) &&
+            context.BossState is (PrologueBossGuidanceState.None or PrologueBossGuidanceState.Inactive);
+        if (laser)
+        {
+            key = context.VisibleLaser switch
+            {
+                VisibleLaserWarning.Tracking => "guidance.laser_tracking",
+                VisibleLaserWarning.Locked => "guidance.laser_locked",
+                _ => "guidance.laser_active"
+            };
+            targets = Array.Empty<PrologueGuidanceTargetKey>();
+        }
         string template = key == "guidance.boss_blocked"
             ? BlockedBossText(context.BossAdmission.Value, context.Language)
             : PrologueStrings.Get(key, context.Language);
         string text = ResolveGlyphs(template, glyphs);
-        string hint = !firstCombat && !shieldLane && context.SameSectorFailureCount >= 2
+        string hint = !firstCombat && !shieldLane && !recycling && !laser && !thruster && context.SameSectorFailureCount >= 2
             ? ResolveGlyphs(PrologueStrings.Get(HintKey(context.Sector), context.Language), glyphs)
             : string.Empty;
         return new PrologueGuidanceInstruction(true, text, hint,
             PrologueStrings.Get("guidance.chrome.heading", context.Language),
             PrologueStrings.Get("guidance.chrome.hint", context.Language), targets,
+            laser ? PrologueStrings.Get("guidance.laser_title",context.Language) :
+            recycling ? PrologueStrings.Get("guidance.recycling_title",context.Language) :
             firstCombat ? PrologueStrings.Get("guidance.first_combat_title", context.Language) :
-            shieldLane ? PrologueStrings.Get("guidance.shield_lane_title", context.Language) : string.Empty);
+            shieldLane ? PrologueStrings.Get("guidance.shield_lane_title", context.Language) :
+            thruster ? PrologueStrings.Get("guidance.thruster_title", context.Language) : string.Empty);
     }
 
     private static (string, PrologueGuidanceTargetKey[]) Boss(PrologueBossGuidanceState state,
@@ -190,7 +246,11 @@ public static class PrologueGuidanceModel
                 throw new InvalidOperationException($"Guidance glyph for action '{action}' is unavailable.");
             resolved = resolved.Replace("{" + token + "}", glyph, StringComparison.Ordinal);
         }
-        return resolved;
+        return template.Contains("{aim_keys}", StringComparison.Ordinal)
+            ? resolved.Replace("{aim_keys}", InputGlyphResolver.KeyboardAimText(
+                glyphs[InputActions.MoveUp], glyphs[InputActions.MoveLeft],
+                glyphs[InputActions.MoveDown], glyphs[InputActions.MoveRight]), StringComparison.Ordinal)
+            : resolved;
     }
 
     private static readonly (StringName Action, string Token)[] Tokens =

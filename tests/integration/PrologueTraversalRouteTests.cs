@@ -343,6 +343,7 @@ public static class PrologueTraversalRouteTests
     private static async Task RunFreshSample(SceneTree tree, RoomCase roomCase,
         string segmentId, float fraction)
     {
+        GD.Print(FormattableString.Invariant($"PROLOGUE_TRAVERSAL_SAMPLE_OBS stage=enter room={roomCase.Name} segment={segmentId} sample={fraction:R} engine_ms={Time.GetTicksMsec()} physics={Engine.GetPhysicsFrames()} process={Engine.GetProcessFrames()}"));
         ReleaseAll();
         await PhysicsFrames(tree, 1);
         PrologueRoom room = null;
@@ -417,6 +418,7 @@ public static class PrologueTraversalRouteTests
             await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
             await PhysicsFrames(tree, 1);
         }
+        GD.Print(FormattableString.Invariant($"PROLOGUE_TRAVERSAL_SAMPLE_OBS stage=return room={roomCase.Name} segment={segmentId} sample={fraction:R} engine_ms={Time.GetTicksMsec()} physics={Engine.GetPhysicsFrames()} process={Engine.GetProcessFrames()}"));
     }
 
     private static async Task DriveSingleJump(SceneTree tree, CharacterBody2D player,

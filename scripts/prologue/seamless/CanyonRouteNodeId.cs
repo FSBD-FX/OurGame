@@ -15,5 +15,6 @@ public enum CanyonRouteNodeId
     SplitLevelEncounter,
     SealedCourtyard,
     BossHall,
-    SafeExit
+    SafeExit,
+    IncineratorAnnex
 }

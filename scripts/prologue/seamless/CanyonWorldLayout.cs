@@ -26,6 +26,9 @@ public static class CanyonWorldLayout
             new CanyonCameraFocusRegion("canyon.v2.camera.basin",
                 new Rect2(1280f, 3600f, 3840f, 720f), new Vector2(100f, -40f),
                 Vector2.Zero, .30f),
+            new CanyonCameraFocusRegion("canyon.v2.camera.incinerator-annex",
+                new Rect2(5120f, 3600f, 1280f, 720f), new Vector2(90f, 40f),
+                Vector2.Zero, .30f),
             new CanyonCameraFocusRegion("canyon.v2.camera.ascent",
                 new Rect2(3840f, 720f, 1280f, 2880f), new Vector2(80f, -140f),
                 Vector2.Zero, .30f),
@@ -47,7 +50,9 @@ public static class CanyonWorldLayout
         Array.AsReadOnly(new[]
         {
             new Rect2(2350f, 1540f, 200f, 40f),
-            new Rect2(1920f, 2220f, 200f, 40f),
+            // Full +/-64 Ghost patrol plus its 36px body and support margin.
+            // End at2136: the 40px Player centered2160 still clears by4px.
+            new Rect2(1920f, 2220f, 216f, 40f),
             new Rect2(2360f, 3080f, 190f, 40f)
         });
 
@@ -56,7 +61,7 @@ public static class CanyonWorldLayout
         {
             [PrologueSectorId.CanyonEntrance] = new(0f, 0f, 1280f, 720f),
             [PrologueSectorId.CanyonDescent] = new(1280f, 0f, 1280f, 3600f),
-            [PrologueSectorId.CanyonBasin] = new(1280f, 3600f, 3840f, 720f),
+            [PrologueSectorId.CanyonBasin] = new(1280f, 3600f, 5120f, 720f),
             [PrologueSectorId.CanyonAscent] = new(3840f, 720f, 1280f, 2880f),
             [PrologueSectorId.LostTemple] = new(5120f, 720f, 2560f, 720f)
         });
@@ -71,7 +76,7 @@ public static class CanyonWorldLayout
             Node(CanyonRouteNodeId.ControlledAbyss, PrologueSectorId.CanyonDescent,
                 new Rect2(1920f, 1176f, 640f, 2424f), CanyonChallengeKind.ControlledAbyss),
             Node(CanyonRouteNodeId.ArchiveSideCave, PrologueSectorId.CanyonDescent,
-                new Rect2(1280f, 1176f, 640f, 624f), CanyonChallengeKind.ArchiveSideCave,
+                new Rect2(1280f, 1176f, 704f, 624f), CanyonChallengeKind.ArchiveSideCave,
                 optional: true, discoveryId: "canyon.v2.discovery.archive-side-cave"),
             Node(CanyonRouteNodeId.FrozenDetour, PrologueSectorId.CanyonDescent,
                 new Rect2(1280f, 1800f, 640f, 1560f), CanyonChallengeKind.FrozenDetour,
@@ -81,7 +86,7 @@ public static class CanyonWorldLayout
             Node(CanyonRouteNodeId.GearPistons, PrologueSectorId.CanyonBasin,
                 new Rect2(2080f, 3600f, 960f, 720f), CanyonChallengeKind.GearPistons),
             Node(CanyonRouteNodeId.SteamValves, PrologueSectorId.CanyonBasin,
-                new Rect2(3040f, 3960f, 1160f, 360f), CanyonChallengeKind.SteamValves,
+                new Rect2(3040f, 3800f, 1160f, 520f), CanyonChallengeKind.SteamValves,
                 optional: true),
             Node(CanyonRouteNodeId.CounterweightLift, PrologueSectorId.CanyonAscent,
                 new Rect2(3840f, 2800f, 1280f, 800f), CanyonChallengeKind.CounterweightLift),
@@ -94,7 +99,10 @@ public static class CanyonWorldLayout
             Node(CanyonRouteNodeId.BossHall, PrologueSectorId.LostTemple,
                 new Rect2(6080f, 720f, 1200f, 720f), CanyonChallengeKind.BossHall),
             Node(CanyonRouteNodeId.SafeExit, PrologueSectorId.LostTemple,
-                new Rect2(7280f, 720f, 400f, 720f), null, restArea: true)
+                new Rect2(7280f, 720f, 400f, 720f), null, restArea: true),
+            Node(CanyonRouteNodeId.IncineratorAnnex, PrologueSectorId.CanyonBasin,
+                new Rect2(5120f, 3600f, 1280f, 720f), null, optional: true,
+                discoveryId: "canyon.v2.discovery.incinerator-annex")
         });
 
     private static readonly IReadOnlyList<CanyonRouteEdge> AuthoredEdges =
@@ -137,7 +145,12 @@ public static class CanyonWorldLayout
             new(CanyonRouteNodeId.SplitLevelEncounter, CanyonRouteNodeId.BasinCamp, true,
                 CanyonRouteGate.ShortcutOpen, StableShortcutId: UpperBasinShortcutId,
                 TraversalSegmentId: "canyon.v2.route.upper-to-basin-shortcut",
-                ReverseTraversalSegmentId: "canyon.v2.route.basin-to-upper-shortcut")
+                ReverseTraversalSegmentId: "canyon.v2.route.basin-to-upper-shortcut"),
+            Edge(CanyonRouteNodeId.SteamValves, CanyonRouteNodeId.IncineratorAnnex,
+                "canyon.v2.route.steam-to-incinerator"),
+            new(CanyonRouteNodeId.CounterweightLift, CanyonRouteNodeId.IncineratorAnnex, true,
+                CanyonRouteGate.None, TraversalSegmentId: "canyon.v2.route.lift-to-incinerator",
+                ReverseTraversalSegmentId: "canyon.v2.route.incinerator-to-lift")
         });
 
     private static readonly IReadOnlyDictionary<string, Vector2> AuthoredCheckpointPositions =
@@ -168,6 +181,11 @@ public static class CanyonWorldLayout
         new Rect2(4970f, 3600f, 150f, 40f)
     });
     public static Rect2 SteamRejoinTop { get; } = new(4940f, 3600f, 180f, 40f);
+    public static IReadOnlyList<Rect2> IncineratorAccessSupports { get; } = Array.AsReadOnly(new[]
+    {
+        new Rect2(5100,3676,160,24), new Rect2(5240,3756,140,24),
+        new Rect2(4680,3996,760,24)
+    });
     public static IReadOnlyList<Rect2> EncounterRestBounds { get; } =
         Array.AsReadOnly(new[]
         {
@@ -204,7 +222,8 @@ public static class CanyonWorldLayout
     public static IReadOnlyList<string> StableDiscoveryIds { get; } = Array.AsReadOnly(new[]
     {
         "canyon.v2.discovery.archive-side-cave",
-        "canyon.v2.discovery.frozen-detour"
+        "canyon.v2.discovery.frozen-detour",
+        "canyon.v2.discovery.incinerator-annex"
     });
 
     public static bool TryResolveRouteNode(Vector2 worldPosition, out CanyonRouteNodeId id)
@@ -234,9 +253,20 @@ public static class CanyonWorldLayout
                 id = CanyonRouteNodeId.SteamValves;
                 return true;
             }
-        if (!SteamRejoinCorridorContains(SteamRejoinTop, worldPosition)) return false;
-        id = CanyonRouteNodeId.SteamValves;
-        return true;
+        if (SteamRejoinCorridorContains(SteamRejoinTop, worldPosition))
+        {
+            id = CanyonRouteNodeId.SteamValves;
+            return true;
+        }
+        // Only complete-player standing corridors of new supports, not the
+        // empty old basin column; old Steam fallback above keeps priority.
+        foreach (Rect2 support in IncineratorAccessSupports)
+            if (UpperGalleryCenterCorridorContains(support, worldPosition))
+            {
+                id = CanyonRouteNodeId.IncineratorAnnex;
+                return true;
+            }
+        return false;
     }
 
     private static bool SteamRejoinCorridorContains(Rect2 support, Vector2 worldPosition) =>

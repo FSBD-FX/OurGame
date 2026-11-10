@@ -1,21 +1,21 @@
 [gd_scene format=3]
 
-[ext_resource type="Script" path="res://scripts/prologue/seamless/PrologueSector.cs" id="1_jehoa"]
-[ext_resource type="Script" path="res://scripts/presentation/CanyonBackdropVisual.cs" id="2_jl06a"]
-[ext_resource type="Script" path="res://scripts/presentation/CanyonPlatformVisual.cs" id="3_kanwa"]
-[ext_resource type="Script" path="res://scripts/presentation/CanyonAnchorVisual.cs" id="4_ga1rw"]
-[ext_resource type="Script" path="res://scripts/abilities/GrappleSurface2D.cs" id="5_be73d"]
-[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="6_3uv5q"]
-[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="7_poi1l"]
-[ext_resource type="Script" path="res://scripts/prologue/traversal/TraversalSegment2D.cs" id="8_5d71p"]
-[ext_resource type="Script" path="res://scripts/world/KillZone.cs" id="9_6d1g4"]
-[ext_resource type="Script" path="res://scripts/mechanisms/CanyonCounterweightLift.cs" id="10_3y46r"]
-[ext_resource type="Script" path="res://scripts/mechanisms/CanyonPendulumHazard.cs" id="11_e6xdc"]
-[ext_resource type="Script" path="res://scripts/mechanisms/CanyonShortcutWinch.cs" id="12_ago8t"]
-[ext_resource type="Script" path="res://scripts/mechanisms/CanyonSteamValve.cs" id="13_op74x"]
-[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragment.cs" id="14_ka627"]
-[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragmentVisual.cs" id="15_ewd72"]
-[ext_resource type="Script" path="res://scripts/prologue/CanyonEncounterGroup.cs" id="16_fy3o2"]
+[ext_resource type="Script" path="res://scripts/prologue/seamless/PrologueSector.cs" id="1_fm1he"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonBackdropVisual.cs" id="2_3xqay"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonPlatformVisual.cs" id="3_ybwrx"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonAnchorVisual.cs" id="4_gpx15"]
+[ext_resource type="Script" path="res://scripts/abilities/GrappleSurface2D.cs" id="5_12arx"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="6_fj5ux"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="7_jhv7s"]
+[ext_resource type="Script" path="res://scripts/prologue/traversal/TraversalSegment2D.cs" id="8_gk80k"]
+[ext_resource type="Script" path="res://scripts/world/KillZone.cs" id="9_yd31u"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonCounterweightLift.cs" id="10_jbvkb"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonPendulumHazard.cs" id="11_3r7vb"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonShortcutWinch.cs" id="12_iak4o"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonSteamValve.cs" id="13_q28sk"]
+[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragment.cs" id="14_tbcej"]
+[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragmentVisual.cs" id="15_1cw50"]
+[ext_resource type="Script" path="res://scripts/prologue/CanyonEncounterGroup.cs" id="16_ltdkd"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_q6ng5"]
 size = Vector2(160, 16)
@@ -76,6 +76,9 @@ size = Vector2(36, 60)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_8v6l3"]
 size = Vector2(240, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_grip8_lip"]
+size = Vector2(4, 21)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_vlusn"]
 size = Vector2(36, 60)
@@ -179,6 +182,15 @@ size = Vector2(150, 32)
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_o60gw"]
 size = Vector2(36, 60)
 
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_vt7hv"]
+size = Vector2(184, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_uwoe1"]
+size = Vector2(128, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_3gw6y"]
+size = Vector2(24, 176)
+
 [sub_resource type="CircleShape2D" id="CircleShape2D_asoe0"]
 radius = 22.0
 
@@ -190,9 +202,6 @@ radius = 22.0
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_ctmpo"]
 size = Vector2(464, 16)
-
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_8bu5q"]
-size = Vector2(32, 16)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_5oxmr"]
 size = Vector2(80, 24)
@@ -207,7 +216,7 @@ size = Vector2(410, 1930)
 radius = 18.0
 
 [node name="CanyonAscent" type="Node2D" unique_id=555947587]
-script = ExtResource("1_jehoa")
+script = ExtResource("1_fm1he")
 SectorId = 3
 Bounds = Rect2(0, 0, 1280, 2880)
 metadata/canyon_layout_version = 2
@@ -225,7 +234,7 @@ color = Color(0.03529412, 0.08235294, 0.105882354, 1)
 polygon = PackedVector2Array(-640, -1440, 640, -1440, 640, 1440, -640, 1440)
 
 [node name="DistantCanyon" type="Node2D" parent="VisualRoot/Background" unique_id=1132739987]
-script = ExtResource("2_jl06a")
+script = ExtResource("2_3xqay")
 SectorId = 3
 SectorBounds = Rect2(0, 0, 1280, 2880)
 DistantLayer = true
@@ -233,7 +242,7 @@ DistantLayer = true
 [node name="CanyonCoverageSkirt" type="Node2D" parent="VisualRoot/Background" unique_id=646170578]
 z_index = -100
 z_as_relative = false
-script = ExtResource("2_jl06a")
+script = ExtResource("2_3xqay")
 SectorId = 3
 SectorBounds = Rect2(-4940, -1660, 9880, 6200)
 CoverageLayer = true
@@ -280,14 +289,14 @@ color = Color(0.11764706, 0.17254902, 0.1882353, 1)
 polygon = PackedVector2Array(-16, -547.2, 16, -547.2, 16, 547.2, -16, 547.2)
 
 [node name="CanyonLandmark" type="Node2D" parent="VisualRoot/Midground" unique_id=41437516]
-script = ExtResource("2_jl06a")
+script = ExtResource("2_3xqay")
 SectorId = 3
 SectorBounds = Rect2(0, 0, 1280, 2880)
 
 [node name="ChallengeCompositions" type="Node2D" parent="VisualRoot/Midground" unique_id=216281655]
 
 [node name="CounterweightLift" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=171566669]
-script = ExtResource("2_jl06a")
+script = ExtResource("2_3xqay")
 SectorId = 3
 VisualRole = "challenge"
 CompositionId = "moving-counterweight-lift"
@@ -299,7 +308,7 @@ metadata/silhouette_id = "moving-counterweight-lift"
 metadata/collision_source = false
 
 [node name="PendulumGallery" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=139876924]
-script = ExtResource("2_jl06a")
+script = ExtResource("2_3xqay")
 SectorId = 3
 VisualRole = "challenge"
 CompositionId = "pendulum-procession"
@@ -311,7 +320,7 @@ metadata/silhouette_id = "pendulum-procession"
 metadata/collision_source = false
 
 [node name="SplitLevelEncounter" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=1958303775]
-script = ExtResource("2_jl06a")
+script = ExtResource("2_3xqay")
 SectorId = 3
 VisualRole = "challenge"
 CompositionId = "upper-gallery-bell-frame"
@@ -346,7 +355,7 @@ polygon = PackedVector2Array(-636, -396, 636, -396, 636, 396, -636, 396)
 
 [node name="LiftEntryFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=205363605]
 position = Vector2(80, 2872)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(160, 16)
 CatchShelf = true
@@ -359,7 +368,7 @@ polygon = PackedVector2Array(-80, -3, 80, -3, 80, 3, -80, 3)
 
 [node name="LiftAccessStepOne" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=678074139]
 position = Vector2(560, 2856)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(160, 40)
 CatchShelf = true
@@ -372,7 +381,7 @@ polygon = PackedVector2Array(-80, -3, 80, -3, 80, 3, -80, 3)
 
 [node name="LiftAccessStepTwo" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1588711213]
 position = Vector2(740, 2796)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(160, 40)
 CatchShelf = true
@@ -385,7 +394,7 @@ polygon = PackedVector2Array(-80, -3, 80, -3, 80, 3, -80, 3)
 
 [node name="LiftBackLanding" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=237986611]
 position = Vector2(860, 2760)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(200, 40)
 CatchShelf = true
@@ -398,7 +407,7 @@ polygon = PackedVector2Array(-100, -3, 100, -3, 100, 3, -100, 3)
 
 [node name="LiftBackLandingGrip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1962383000]
 position = Vector2(858, 2600)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(36, 60)
@@ -411,7 +420,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="AscentGrip1" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=278272706]
 position = Vector2(540, 2620)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(240, 40)
@@ -425,7 +434,7 @@ polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
 
 [node name="AscentGrip1Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=2077662307]
 position = Vector2(554, 2470)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(36, 60)
@@ -438,7 +447,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="AscentGrip2" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1332821654]
 position = Vector2(890, 2380)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(140, 40)
@@ -452,7 +461,7 @@ polygon = PackedVector2Array(-70, -3, 70, -3, 70, 3, -70, 3)
 
 [node name="AscentGrip2Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=605284939]
 position = Vector2(926, 2150)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(36, 60)
@@ -465,7 +474,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="AscentGrip3" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=808135242]
 position = Vector2(540, 2140)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(240, 40)
@@ -479,7 +488,7 @@ polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
 
 [node name="AscentGrip3Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=532665910]
 position = Vector2(554, 1990)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(36, 60)
@@ -492,7 +501,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="AscentGrip4" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1656164451]
 position = Vector2(940, 1900)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(240, 40)
@@ -506,7 +515,7 @@ polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
 
 [node name="AscentGrip4Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=77080091]
 position = Vector2(926, 1750)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(36, 60)
@@ -519,7 +528,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="AscentGrip5" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1018653492]
 position = Vector2(540, 1660)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(240, 40)
@@ -533,7 +542,7 @@ polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
 
 [node name="AscentGrip5Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=256074709]
 position = Vector2(554, 1510)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(36, 60)
@@ -546,7 +555,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="AscentGrip6" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1259186642]
 position = Vector2(940, 1420)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(240, 40)
@@ -560,7 +569,7 @@ polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
 
 [node name="AscentGrip6Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=372019727]
 position = Vector2(926, 1270)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(36, 60)
@@ -573,7 +582,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="AscentGrip7" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1397058157]
 position = Vector2(540, 1180)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(240, 40)
@@ -587,7 +596,7 @@ polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
 
 [node name="AscentGrip7Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=921151840]
 position = Vector2(554, 1030)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(36, 60)
@@ -600,7 +609,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="AscentGrip8" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=2125013360]
 position = Vector2(940, 940)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(240, 40)
@@ -612,9 +621,14 @@ position = Vector2(0, -17)
 color = Color(0.7254902, 0.654902, 0.48235294, 1)
 polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
 
+[node name="RaisedBaffle" type="Polygon2D" parent="VisualRoot/GameplayReadable/AscentGrip8"]
+position = Vector2(-118, -29.5)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-2, -10.5, 2, -10.5, 2, 10.5, -2, 10.5)
+
 [node name="AscentGrip8Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1351783616]
 position = Vector2(926, 790)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(36, 60)
@@ -627,7 +641,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="AscentGrip9" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=305145005]
 position = Vector2(540, 700)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(240, 40)
@@ -641,7 +655,7 @@ polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
 
 [node name="AscentGrip9Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1814840342]
 position = Vector2(554, 550)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(36, 60)
@@ -654,7 +668,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="PendulumCeiling" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=117549344]
 position = Vector2(1170, 1370)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(220, 40)
@@ -667,7 +681,7 @@ polygon = PackedVector2Array(-110, -3, 110, -3, 110, 3, -110, 3)
 
 [node name="SplitUpperGallery" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1365062476]
 position = Vector2(380, 780)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(280, 40)
 CatchShelf = true
@@ -680,7 +694,7 @@ polygon = PackedVector2Array(-140, -3, 140, -3, 140, 3, -140, 3)
 
 [node name="AscentFinalCatch" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=416695672]
 position = Vector2(940, 620)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(240, 40)
@@ -694,7 +708,7 @@ polygon = PackedVector2Array(-120, -3, 120, -3, 120, 3, -120, 3)
 
 [node name="AscentFinalCatchGrip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1013510903]
 position = Vector2(926, 470)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(36, 60)
@@ -707,7 +721,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="CourtyardApproach" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1049149013]
 position = Vector2(1210, 540)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SurfaceMaterial = 1
 SectorId = 3
 SkinSize = Vector2(140, 40)
@@ -720,7 +734,7 @@ polygon = PackedVector2Array(-70, -3, 70, -3, 70, 3, -70, 3)
 
 [node name="ShortcutStep3476" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1550229422]
 position = Vector2(75, 2764)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(150, 16)
 CatchShelf = true
@@ -733,7 +747,7 @@ polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
 [node name="ShortcutStep3476Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1243355642]
 position = Vector2(18, 2646)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(36, 60)
 metadata/material_family = "grip-stone-masonry"
@@ -745,7 +759,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="ShortcutStep3316" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=139424915]
 position = Vector2(335, 2612)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(150, 32)
 CatchShelf = true
@@ -758,7 +772,7 @@ polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
 [node name="ShortcutStep3316Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=487345366]
 position = Vector2(392, 2486)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(36, 60)
 metadata/material_family = "grip-stone-masonry"
@@ -770,7 +784,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="ShortcutStep3156" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1757220489]
 position = Vector2(75, 2452)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(150, 32)
 CatchShelf = true
@@ -783,7 +797,7 @@ polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
 [node name="ShortcutStep3156Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=994414738]
 position = Vector2(18, 2326)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(36, 60)
 metadata/material_family = "grip-stone-masonry"
@@ -795,7 +809,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="ShortcutStep2996" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1077359772]
 position = Vector2(335, 2292)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(150, 32)
 CatchShelf = true
@@ -808,7 +822,7 @@ polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
 [node name="ShortcutStep2996Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=829158860]
 position = Vector2(392, 2166)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(36, 60)
 metadata/material_family = "grip-stone-masonry"
@@ -820,7 +834,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="ShortcutStep2836" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1316039841]
 position = Vector2(75, 2132)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(150, 32)
 CatchShelf = true
@@ -833,7 +847,7 @@ polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
 [node name="ShortcutStep2836Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1422172234]
 position = Vector2(18, 2006)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(36, 60)
 metadata/material_family = "grip-stone-masonry"
@@ -845,7 +859,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="ShortcutStep2676" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=870104383]
 position = Vector2(335, 1972)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(150, 32)
 CatchShelf = true
@@ -858,7 +872,7 @@ polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
 [node name="ShortcutStep2676Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1731719979]
 position = Vector2(392, 1846)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(36, 60)
 metadata/material_family = "grip-stone-masonry"
@@ -870,7 +884,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="ShortcutStep2516" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1556130691]
 position = Vector2(75, 1812)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(150, 32)
 CatchShelf = true
@@ -883,7 +897,7 @@ polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
 [node name="ShortcutStep2516Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=468252807]
 position = Vector2(18, 1686)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(36, 60)
 metadata/material_family = "grip-stone-masonry"
@@ -895,7 +909,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="ShortcutStep2356" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1095129129]
 position = Vector2(335, 1652)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(150, 32)
 CatchShelf = true
@@ -908,7 +922,7 @@ polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
 [node name="ShortcutStep2356Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=520163896]
 position = Vector2(392, 1526)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(36, 60)
 metadata/material_family = "grip-stone-masonry"
@@ -920,7 +934,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="ShortcutStep2196" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=771384617]
 position = Vector2(75, 1492)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(150, 32)
 CatchShelf = true
@@ -933,7 +947,7 @@ polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
 [node name="ShortcutStep2196Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1425745217]
 position = Vector2(18, 1366)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(36, 60)
 metadata/material_family = "grip-stone-masonry"
@@ -945,7 +959,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="ShortcutStep2036" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1153214460]
 position = Vector2(335, 1332)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(150, 32)
 CatchShelf = true
@@ -958,7 +972,7 @@ polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
 [node name="ShortcutStep2036Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=727634331]
 position = Vector2(392, 1206)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(36, 60)
 metadata/material_family = "grip-stone-masonry"
@@ -970,7 +984,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="ShortcutStep1876" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=262281418]
 position = Vector2(75, 1172)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(150, 32)
 CatchShelf = true
@@ -983,7 +997,7 @@ polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
 [node name="ShortcutStep1876Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=183882012]
 position = Vector2(18, 1046)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(36, 60)
 metadata/material_family = "grip-stone-masonry"
@@ -995,7 +1009,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="ShortcutStep1716" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=194417339]
 position = Vector2(335, 1012)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(150, 32)
 CatchShelf = true
@@ -1008,7 +1022,7 @@ polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
 [node name="ShortcutStep1716Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=546505121]
 position = Vector2(392, 886)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(36, 60)
 metadata/material_family = "grip-stone-masonry"
@@ -1020,7 +1034,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="ShortcutStep1556" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1479977375]
 position = Vector2(75, 852)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(150, 32)
 CatchShelf = true
@@ -1033,7 +1047,7 @@ polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
 [node name="ShortcutStep1556Grip" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=386944873]
 position = Vector2(18, 726)
-script = ExtResource("3_kanwa")
+script = ExtResource("3_ybwrx")
 SectorId = 3
 SkinSize = Vector2(36, 60)
 metadata/material_family = "grip-stone-masonry"
@@ -1045,7 +1059,7 @@ polygon = PackedVector2Array(-18, -3, 18, -3, 18, 3, -18, 3)
 
 [node name="CounterweightLiftControl" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=854993265]
 position = Vector2(1260, 2700)
-script = ExtResource("4_ga1rw")
+script = ExtResource("4_gpx15")
 SurfaceMaterial = 2
 Radius = 22.0
 metadata/material_family = "thread-anchor-cyan"
@@ -1157,17 +1171,56 @@ polygon = PackedVector2Array(-40, -6, 40, -6, 40, 6, -40, 6)
 
 [node name="UpperBasinShortcutControl" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1754680625]
 position = Vector2(500, 700)
-script = ExtResource("4_ga1rw")
+script = ExtResource("4_gpx15")
 SurfaceMaterial = 2
 Radius = 22.0
 metadata/material_family = "thread-anchor-cyan"
 
 [node name="CourtyardSealLinkageControl" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=552823136]
 position = Vector2(1080, 540)
-script = ExtResource("4_ga1rw")
+script = ExtResource("4_gpx15")
 SurfaceMaterial = 2
 Radius = 22.0
 metadata/material_family = "thread-anchor-cyan"
+
+[node name="PendulumResidentFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=985691878]
+position = Vector2(1188, 1820)
+script = ExtResource("3_ybwrx")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(184, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/PendulumResidentFloor" unique_id=971902129]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-92, -3, 92, -3, 92, 3, -92, 3)
+
+[node name="PendulumResidentRoof" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1089293898]
+position = Vector2(1216, 1644)
+script = ExtResource("3_ybwrx")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(128, 40)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/PendulumResidentRoof" unique_id=1089857215]
+position = Vector2(0, -17)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-64, -3, 64, -3, 64, 3, -64, 3)
+
+[node name="PendulumResidentBackWall" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=89738724]
+position = Vector2(1268, 1752)
+script = ExtResource("3_ybwrx")
+SurfaceMaterial = 1
+SectorId = 3
+SkinSize = Vector2(24, 176)
+metadata/material_family = "riveted-temple-brass"
+
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/PendulumResidentBackWall" unique_id=1166085660]
+position = Vector2(0, -85)
+color = Color(0.7254902, 0.654902, 0.48235294, 1)
+polygon = PackedVector2Array(-12, -3, 12, -3, 12, 3, -12, 3)
 
 [node name="Foreground" type="Node2D" parent="VisualRoot" unique_id=599778377]
 z_index = 20
@@ -1212,7 +1265,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/LiftEntryFloor" unique_id=496487719]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1227,7 +1280,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/LiftAccessStepOne" unique_id=1489440242]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1242,7 +1295,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/LiftAccessStepTwo" unique_id=1785277099]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1257,7 +1310,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/LiftBackLanding" unique_id=1741876197]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1271,7 +1324,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/LiftBackLandingGrip" unique_id=419466842]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1286,7 +1339,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip1" unique_id=1464054009]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1300,7 +1353,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip1Grip" unique_id=1780420563]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1315,7 +1368,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip2" unique_id=562601660]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1329,7 +1382,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip2Grip" unique_id=163795296]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1344,7 +1397,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip3" unique_id=844286299]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1358,7 +1411,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip3Grip" unique_id=609656426]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1373,7 +1426,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip4" unique_id=1721525625]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1387,7 +1440,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip4Grip" unique_id=1750894558]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1402,7 +1455,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip5" unique_id=1863367873]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1416,7 +1469,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip5Grip" unique_id=1070629369]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1431,7 +1484,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip6" unique_id=1418162987]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1445,7 +1498,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip6Grip" unique_id=475058413]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1460,7 +1513,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip7" unique_id=413825280]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1474,7 +1527,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip7Grip" unique_id=704315783]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1489,12 +1542,16 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip8" unique_id=1085461642]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
 [node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip8" unique_id=1135951434]
 shape = SubResource("RectangleShape2D_8v6l3")
+
+[node name="RaisedBaffle" type="CollisionShape2D" parent="Gameplay/Collision/AscentGrip8"]
+position = Vector2(-118, -29.5)
+shape = SubResource("RectangleShape2D_grip8_lip")
 
 [node name="AscentGrip8Grip" type="StaticBody2D" parent="Gameplay/Collision" unique_id=955714055]
 position = Vector2(926, 790)
@@ -1503,7 +1560,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip8Grip" unique_id=1675579073]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1518,7 +1575,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip9" unique_id=1784873259]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1532,7 +1589,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentGrip9Grip" unique_id=640283649]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1546,7 +1603,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/PendulumCeiling" unique_id=1764742595]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1561,7 +1618,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/SplitUpperGallery" unique_id=930508083]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1576,7 +1633,7 @@ metadata/catch_shelf = true
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentFinalCatch" unique_id=1406251565]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1590,7 +1647,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/AscentFinalCatchGrip" unique_id=55620625]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1604,7 +1661,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/CourtyardApproach" unique_id=782034983]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 1
 UseCollisionHitPoint = true
 
@@ -1620,7 +1677,7 @@ metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 metadata/public_main_junction = false
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3476" unique_id=1033114307]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1634,7 +1691,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3476Grip" unique_id=1485562404]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1650,7 +1707,7 @@ metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 metadata/public_main_junction = false
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3316" unique_id=109037424]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1664,7 +1721,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3316Grip" unique_id=1852073621]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1680,7 +1737,7 @@ metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 metadata/public_main_junction = false
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3156" unique_id=967590699]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1694,7 +1751,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep3156Grip" unique_id=1365571001]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1710,7 +1767,7 @@ metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 metadata/public_main_junction = false
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2996" unique_id=451907674]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1724,7 +1781,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2996Grip" unique_id=1026319180]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1740,7 +1797,7 @@ metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 metadata/public_main_junction = false
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2836" unique_id=961418973]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1754,7 +1811,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2836Grip" unique_id=715424937]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1770,7 +1827,7 @@ metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 metadata/public_main_junction = false
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2676" unique_id=2095979409]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1784,7 +1841,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2676Grip" unique_id=2075960896]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1800,7 +1857,7 @@ metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 metadata/public_main_junction = false
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2516" unique_id=1668569852]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1814,7 +1871,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2516Grip" unique_id=1148869006]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1830,7 +1887,7 @@ metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 metadata/public_main_junction = false
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2356" unique_id=993199709]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1844,7 +1901,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2356Grip" unique_id=1864067962]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1860,7 +1917,7 @@ metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 metadata/public_main_junction = false
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2196" unique_id=779032758]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1874,7 +1931,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2196Grip" unique_id=1177850304]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1890,7 +1947,7 @@ metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 metadata/public_main_junction = false
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2036" unique_id=97719908]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1904,7 +1961,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep2036Grip" unique_id=908378645]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1920,7 +1977,7 @@ metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 metadata/public_main_junction = false
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep1876" unique_id=869212207]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1934,7 +1991,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep1876Grip" unique_id=280592588]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1950,7 +2007,7 @@ metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 metadata/public_main_junction = false
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep1716" unique_id=639789481]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1964,7 +2021,7 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep1716Grip" unique_id=129724831]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1980,7 +2037,7 @@ metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 metadata/public_main_junction = false
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep1556" unique_id=902981324]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
@@ -1994,18 +2051,60 @@ collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/ShortcutStep1556Grip" unique_id=118474311]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 0
 UseCollisionHitPoint = true
 
 [node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/ShortcutStep1556Grip" unique_id=260023278]
 shape = SubResource("RectangleShape2D_o60gw")
 
+[node name="PendulumResidentFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1679577357]
+position = Vector2(1188, 1820)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/PendulumResidentFloor" unique_id=2024235151]
+script = ExtResource("5_12arx")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/PendulumResidentFloor" unique_id=1005225388]
+shape = SubResource("RectangleShape2D_vt7hv")
+
+[node name="PendulumResidentRoof" type="StaticBody2D" parent="Gameplay/Collision" unique_id=337703244]
+position = Vector2(1216, 1644)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/PendulumResidentRoof" unique_id=2041193599]
+script = ExtResource("5_12arx")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/PendulumResidentRoof" unique_id=1968735234]
+shape = SubResource("RectangleShape2D_uwoe1")
+
+[node name="PendulumResidentBackWall" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1882773797]
+position = Vector2(1268, 1752)
+collision_layer = 33
+collision_mask = 0
+metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
+
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/PendulumResidentBackWall" unique_id=1104471267]
+script = ExtResource("5_12arx")
+Material = 1
+UseCollisionHitPoint = true
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/PendulumResidentBackWall" unique_id=1059809751]
+shape = SubResource("RectangleShape2D_3gw6y")
+
 [node name="GrappleSurfaces" type="Node2D" parent="Gameplay" unique_id=817843747]
 
 [node name="CounterweightLiftControl" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=1283159728]
 position = Vector2(1260, 2700)
-script = ExtResource("6_3uv5q")
+script = ExtResource("6_fj5ux")
 Kind = 3
 PullReceiverPath = NodePath("../../Mechanisms/CounterweightLift")
 metadata/target_role = "mechanism-control"
@@ -2018,11 +2117,11 @@ collision_mask = 0
 shape = SubResource("CircleShape2D_asoe0")
 
 [node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/GrappleSurfaces/CounterweightLiftControl" unique_id=1479273660]
-script = ExtResource("7_poi1l")
+script = ExtResource("7_jhv7s")
 
 [node name="UpperBasinShortcutControl" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=1560883864]
 position = Vector2(500, 700)
-script = ExtResource("6_3uv5q")
+script = ExtResource("6_fj5ux")
 Kind = 3
 PullReceiverPath = NodePath("../../Mechanisms/UpperBasinShortcutWinch")
 metadata/target_role = "mechanism-control"
@@ -2035,11 +2134,11 @@ collision_mask = 0
 shape = SubResource("CircleShape2D_7ejjv")
 
 [node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/GrappleSurfaces/UpperBasinShortcutControl" unique_id=752004489]
-script = ExtResource("7_poi1l")
+script = ExtResource("7_jhv7s")
 
 [node name="CourtyardSealLinkageControl" type="Node2D" parent="Gameplay/GrappleSurfaces" unique_id=63396280]
 position = Vector2(1080, 540)
-script = ExtResource("6_3uv5q")
+script = ExtResource("6_fj5ux")
 Kind = 3
 PullReceiverPath = NodePath("../../Mechanisms/CourtyardSealLinkage")
 metadata/target_role = "mechanism-control"
@@ -2052,12 +2151,12 @@ collision_mask = 0
 shape = SubResource("CircleShape2D_71py2")
 
 [node name="LegacyThreadInteractionAdapter" type="Node" parent="Gameplay/GrappleSurfaces/CourtyardSealLinkageControl" unique_id=29883025]
-script = ExtResource("7_poi1l")
+script = ExtResource("7_jhv7s")
 
 [node name="TraversalContracts" type="Node2D" parent="Gameplay" unique_id=278853756]
 
 [node name="canyonv2routelift-to-pendulums" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=1184463117]
-script = ExtResource("8_5d71p")
+script = ExtResource("8_gk80k")
 SegmentId = &"canyon.v2.route.lift-to-pendulums"
 Kind = 1
 RequiredAbilities = 3
@@ -2076,7 +2175,7 @@ color = Color(0.82, 0.66, 0.32, 0.34)
 polygon = PackedVector2Array(560, 1568, 640, 1568, 640, 1640, 560, 1640)
 
 [node name="canyonv2routependulums-to-split-level" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=488657881]
-script = ExtResource("8_5d71p")
+script = ExtResource("8_gk80k")
 SegmentId = &"canyon.v2.route.pendulums-to-split-level"
 Kind = 1
 RequiredAbilities = 3
@@ -2095,7 +2194,7 @@ color = Color(0.82, 0.66, 0.32, 0.34)
 polygon = PackedVector2Array(560, 608, 640, 608, 640, 680, 560, 680)
 
 [node name="canyonv2routesplit-level-to-courtyard" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=1178216860]
-script = ExtResource("8_5d71p")
+script = ExtResource("8_gk80k")
 SegmentId = &"canyon.v2.route.split-level-to-courtyard"
 Kind = 1
 RequiredAbilities = 3
@@ -2114,7 +2213,7 @@ color = Color(0.82, 0.66, 0.32, 0.34)
 polygon = PackedVector2Array(1340, 448, 1560, 448, 1560, 520, 1340, 520)
 
 [node name="canyonv2routeupper-to-basin-shortcut" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=1302062663]
-script = ExtResource("8_5d71p")
+script = ExtResource("8_gk80k")
 SegmentId = &"canyon.v2.route.upper-to-basin-shortcut"
 RequiredAbilities = 1
 LaunchZone = Rect2(260, 688, 120, 72)
@@ -2142,7 +2241,7 @@ position = Vector2(220, 2878)
 position = Vector2(400, 2878)
 
 [node name="SteamRejoinSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=382325774]
-position = Vector2(1152, 2878)
+position = Vector2(1184, 2878)
 
 [node name="SteamRejoinJumpSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=503872689]
 position = Vector2(1056, 2878)
@@ -2156,21 +2255,11 @@ position = Vector2(1278, 484)
 position = Vector2(728, 2872)
 collision_layer = 0
 collision_mask = 2
-script = ExtResource("9_6d1g4")
+script = ExtResource("9_yd31u")
 RoomControllerPath = NodePath("../../../../../..")
 
 [node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume" unique_id=309572079]
 shape = SubResource("RectangleShape2D_ctmpo")
-
-[node name="RecoveryVolume2" type="Area2D" parent="Gameplay/FallRecovery" unique_id=1953508727]
-position = Vector2(1264, 2872)
-collision_layer = 0
-collision_mask = 2
-script = ExtResource("9_6d1g4")
-RoomControllerPath = NodePath("../../../../../..")
-
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume2" unique_id=2146537927]
-shape = SubResource("RectangleShape2D_8bu5q")
 
 [node name="RecoveryLanding" type="Marker2D" parent="Gameplay/FallRecovery" unique_id=587210532]
 position = Vector2(80, 2804)
@@ -2203,7 +2292,7 @@ metadata/challenge_kind = 9
 [node name="Mechanisms" type="Node2D" parent="Gameplay" unique_id=594666008]
 
 [node name="CounterweightLift" type="AnimatableBody2D" parent="Gameplay/Mechanisms" unique_id=489738638]
-script = ExtResource("10_3y46r")
+script = ExtResource("10_jbvkb")
 LowerPosition = Vector2(1000, 2820)
 UpperPosition = Vector2(1000, 2300)
 TravelSeconds = 1.8
@@ -2213,7 +2302,7 @@ EndpointDwellSeconds = 1.0
 shape = SubResource("RectangleShape2D_5oxmr")
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Mechanisms/CounterweightLift" unique_id=647308140]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 4
 UseCollisionHitPoint = true
 
@@ -2243,7 +2332,7 @@ polygon = PackedVector2Array(2.5, 0, 2.3776414, 0.7725425, 2.0225425, 1.4694631,
 
 [node name="PendulumHazard" type="AnimatableBody2D" parent="Gameplay/Mechanisms" unique_id=281066410]
 position = Vector2(1080, 1370)
-script = ExtResource("11_e6xdc")
+script = ExtResource("11_3r7vb")
 PeriodSeconds = 2.4
 MaxAngleDegrees = 58.0
 TelegraphPath = NodePath("../../../VisualRoot/GameplayReadable/MechanismTelegraphs/PendulumTelegraph")
@@ -2253,7 +2342,7 @@ position = Vector2(0, 110)
 shape = SubResource("RectangleShape2D_3koie")
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Mechanisms/PendulumHazard" unique_id=1870465558]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 4
 UseCollisionHitPoint = true
 
@@ -2263,7 +2352,7 @@ color = Color(0.64705884, 0.43529412, 0.23921569, 1)
 polygon = PackedVector2Array(-14, -110, 14, -110, 14, 110, -14, 110)
 
 [node name="UpperBasinShortcutWinch" type="Node2D" parent="Gameplay/Mechanisms" unique_id=1865583091]
-script = ExtResource("12_ago8t")
+script = ExtResource("12_iak4o")
 ClosedVisualPath = NodePath("../../../VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutClosed")
 OpenVisualPath = NodePath("../../../VisualRoot/GameplayReadable/MechanismTelegraphs/UpperBasinShortcutOpen")
 CorridorBounds = Rect2(0, 780, 410, 2060)
@@ -2276,7 +2365,7 @@ collision_mask = 0
 shape = SubResource("RectangleShape2D_xswhy")
 
 [node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Mechanisms/UpperBasinShortcutWinch/Barrier" unique_id=2129998795]
-script = ExtResource("5_be73d")
+script = ExtResource("5_12arx")
 Material = 4
 UseCollisionHitPoint = true
 
@@ -2314,7 +2403,7 @@ polygon = PackedVector2Array(-22.72, -2, 22.72, -2, 22.72, 2, -22.72, 2)
 
 [node name="CourtyardSealLinkage" type="Node2D" parent="Gameplay/Mechanisms" unique_id=499219041]
 position = Vector2(1080, 620)
-script = ExtResource("13_op74x")
+script = ExtResource("13_q28sk")
 ActivationId = "canyon.v2.courtyard-crank"
 PairedJetPath = NodePath("")
 
@@ -2356,14 +2445,14 @@ position = Vector2(890, 2324)
 collision_layer = 0
 collision_mask = 2
 monitorable = false
-script = ExtResource("14_ka627")
+script = ExtResource("14_tbcej")
 StableId = "canyon.v2.fragment.ascent-mid"
 
 [node name="Collision" type="CollisionShape2D" parent="Gameplay/QuestFragments/ascent-mid" unique_id=2116433409]
 shape = SubResource("CircleShape2D_hop23")
 
 [node name="AvailableVisual" type="Node2D" parent="Gameplay/QuestFragments/ascent-mid" unique_id=1057407580]
-script = ExtResource("15_ewd72")
+script = ExtResource("15_1cw50")
 metadata/replaceable_art_layer = true
 metadata/gameplay_authority = false
 
@@ -2380,12 +2469,12 @@ horizontal_alignment = 1
 [node name="Encounters" type="Node2D" parent="Gameplay" unique_id=809707358]
 
 [node name="CounterweightLiftEncounter" type="Node" parent="Gameplay/Encounters" unique_id=986893995]
-script = ExtResource("16_fy3o2")
+script = ExtResource("16_ltdkd")
 EncounterId = &"canyon.v2.encounter.counterweight-lift"
 
 [node name="PendulumGalleryEncounter" type="Node" parent="Gameplay/Encounters" unique_id=177297037]
-script = ExtResource("16_fy3o2")
+script = ExtResource("16_ltdkd")
 EncounterId = &"canyon.v2.encounter.pendulum-gallery"
 
 [node name="SplitLevelEncounter" type="Node" parent="Gameplay/Encounters" unique_id=179321094]
-script = ExtResource("16_fy3o2")
+script = ExtResource("16_ltdkd")

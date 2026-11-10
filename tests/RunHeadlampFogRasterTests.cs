@@ -4,13 +4,21 @@ using Knight.Tests.Presentation;
 
 namespace Knight.Tests;
 
-/// <summary>Display-backed GPU-only acceptance; never the headless CPU/runtime runner.</summary>
+/// <summary>Default is display-backed GPU acceptance. The explicit storage-only probe makes no raster claim.</summary>
 public partial class RunHeadlampFogRasterTests : SceneTree
 {
     public override async void _Initialize()
     {
         try
         {
+            string[] args = OS.GetCmdlineUserArgs();
+            if (args.Length == 1 && args[0] == "--fog-baseline-read-only")
+            {
+                await HeadlampFogRasterTests.RunNormalShaderComparison(this, baselineReadOnly: true);
+                GD.Print("FOG_BASELINE_READ_ONLY_OK");
+                Quit(0);
+                return;
+            }
             TestAssert.True(!DisplayServer.GetName().Equals("headless", StringComparison.OrdinalIgnoreCase),
                 "fog raster acceptance requires a normal display, not headless");
             TestAssert.Equal("gl_compatibility",

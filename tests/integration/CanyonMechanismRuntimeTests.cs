@@ -10,12 +10,933 @@ using Knight.Mechanisms;
 using Knight.Player;
 using Knight.Prologue;
 using Knight.Prologue.Seamless;
+using Knight.Prologue.Guidance;
+using Knight.Prologue.Residents;
+using Knight.Settings;
 using Knight.Shared;
+using Knight.Tests.Presentation;
+using Knight.Presentation.Fog;
 
 namespace Knight.Tests.Integration;
 
-public static class CanyonMechanismRuntimeTests
+public static partial class CanyonMechanismRuntimeTests
 {
+    public static async Task RunRecyclingFogCommands(SceneTree tree)
+    {
+        Type type=typeof(CanyonMechanismRuntimeTests).Assembly.GetType("Knight.Presentation.Fog.FogRecyclingReadabilityOverlay");
+        TestAssert.True(type!=null,
+            "RECYCLING_FOG_MISSING: saved hazards require a real protected native-footprint consumer, not high ZIndex alone");
+        var world=new Node2D { Name="RecyclingFogCommandFixture" };
+        var sector=GD.Load<PackedScene>("res://scenes/prologue/sectors/CanyonEntrance.tscn").Instantiate<PrologueSector>();
+        var overlay=(Node2D)Activator.CreateInstance(type);
+        var layer=new CanvasLayer { Name="ProtectedCues", Layer=2, FollowViewportEnabled=true };
+        var ownedWall=new RectangleShape2D { Size=new(8,236) };
+        HeadlampOcclusionSampler sampler=null;
+        try
+        {
+            world.AddChild(sector); layer.AddChild(overlay); world.AddChild(layer);
+            tree.Root.AddChild(world); await Frames(tree,3);
+            var pad=sector.GetNode<CanyonSpringboard>("Gameplay/Mechanisms/CombinationSpringboard");
+            var gear=sector.GetNode<CanyonFixedGear>("Gameplay/Mechanisms/CombinationFixedGear");
+            sampler=new HeadlampOcclusionSampler(world);
+            HeadlampOcclusionFrame frame=sampler.Capture();
+            TestAssert.True(frame.IsComplete,"command fixture uses a complete current native terrain snapshot");
+            var sources=new CollisionObject2D[] {pad,gear,gear};
+            void Present(Vector2? actor=null, HeadlampOcclusionFrame snapshot=null) =>
+                type.GetMethod("PresentSources").Invoke(overlay,new object[]{sources,actor??new Vector2(160,600),snapshot??frame});
+            int Count(string property)=>(int)type.GetProperty(property).GetValue(overlay);
+            void Positive()
+            {
+                Present();
+                TestAssert.True(Count("PresentedGearCount")==1 && Count("PresentedPadCount")==1 &&
+                    Count("PresentedSegmentCount")>=5 && ReferenceEquals(type.GetProperty("LastOcclusionFrame").GetValue(overlay),frame),
+                    "both actual nearby sources submit one deduplicated protected command set from the same frame");
+            }
+            Positive();
+            gear.Visible=false; Present(); TestAssert.Equal(0,Count("PresentedGearCount"),"hidden native gear withdraws commands");
+            gear.Visible=true; var collider=gear.GetNode<CollisionShape2D>("Collision");
+            collider.Disabled=true; await Frames(tree,2); frame=sampler.Capture(); Present();
+            TestAssert.Equal(0,Count("PresentedGearCount"),"disabled native hazard cannot retain a danger cue");
+            collider.Disabled=false; await Frames(tree,2); frame=sampler.Capture(); Positive();
+            var wall=new StaticBody2D { Position=new(152,518), CollisionLayer=CombatCollisionLayers.World,
+                CollisionMask=CombatCollisionLayers.None };
+            wall.AddChild(new CollisionShape2D { Shape=ownedWall }); world.AddChild(wall);
+            await Frames(tree,2); frame=sampler.Capture(); Present();
+            TestAssert.True(Count("PresentedGearCount")==0 && Count("PresentedPadCount")==1,
+                "actual intervening wall hides every gear edge without hiding the clear-side pad or revealing a room");
+            wall.QueueFree(); await Frames(tree,2); frame=sampler.Capture(); Positive();
+            Present(new Vector2(2000,600)); TestAssert.Equal(0,Count("PresentedSegmentCount"),"local cue range does not reveal distant devices");
+            Present(snapshot:new HeadlampOcclusionFrame(Array.Empty<HeadlampOccluder>(),false,"negative control"));
+            TestAssert.Equal(0,Count("PresentedSegmentCount"),"incomplete snapshots never authorize retained commands");
+            sector.SetMeta("_seamless_staged",true); Present();
+            TestAssert.Equal(0,Count("PresentedSegmentCount"),"staged owner withdraws both current source identities");
+            sector.RemoveMeta("_seamless_staged"); Positive();
+            tree.Paused=true; Present();
+            TestAssert.True(Count("PresentedSegmentCount")==0 && type.GetProperty("LastOcclusionFrame").GetValue(overlay)==null,
+                "pause withdraws geometry and provenance, not a cached last picture");
+            tree.Paused=false; Positive(); world.QueueFree(); Present();
+            TestAssert.Equal(0,Count("PresentedSegmentCount"),"queued consumer ancestor clears without repainting stale devices");
+            GD.Print("RECYCLING_FOG_COMMANDS_OK native_saved_sources=true same_snapshot=true deduplicated=true " +
+                "wall=true hidden_disabled=true staged_pause_queued=true local_range=true pixels=false human=false");
+        }
+        finally
+        {
+            tree.Paused=false; sampler?.Dispose();
+            if(GodotObject.IsInstanceValid(world) && !world.IsQueuedForDeletion()) world.QueueFree();
+            await Frames(tree,2); ownedWall.Dispose();
+        }
+    }
+
+    public static async Task RunGeneratedRecyclingPassage(SceneTree tree)
+    {
+        bool sawActualLaunchCard=false;
+        int sourceCardCases=0;
+        for (int variant=0; variant<2; variant++)
+        {
+            var level=GD.Load<PackedScene>("res://scenes/prologue/PrologueLevel.tscn")
+                .Instantiate<PrologueLevelController>();
+            KeyboardRouteInputDriver driver=null;
+            try
+            {
+                IsolatedPrologueFixture.Configure(level,"recycling-entrance-"+variant);
+                var flow=level.GetNode<PrologueGameFlowController>("GameFlow");
+                flow.HeadlessAutoStart=false; flow.AutomationAutoStart=false;
+                tree.Root.AddChild(level);
+                for(int i=0;i<3;i++) await tree.ToSignal(tree,SceneTree.SignalName.ProcessFrame);
+                TestAssert.True(flow.State==PrologueGameFlowState.Title &&
+                    level.GetNode<Button>("ProductUi/MainMenu/Panel/Buttons/Start").HasFocus(),
+                    "generated recycling fixture starts on the real focused Main title");
+                KeyboardActionRuntimeTests.KeyEvent(Key.Enter,true);
+                await tree.ToSignal(tree,SceneTree.SignalName.ProcessFrame);
+                KeyboardActionRuntimeTests.KeyEvent(Key.Enter,false);
+                for(int i=0;i<30 && flow.State!=PrologueGameFlowState.Playing;i++)
+                    await tree.ToSignal(tree,SceneTree.SignalName.ProcessFrame);
+                TestAssert.Equal(PrologueGameFlowState.Playing,flow.State,"actual Enter starts the saved normal Main");
+                CharacterBody2D player=level.Player;
+                var input=player.GetNode<PlayerInputReader>("Input");
+                var health=player.GetNode<HealthComponent>("Health");
+                var motor=player.GetNode<PlayerMotor>("Motor");
+                await ThrusterPlayerRuntimeTests.Frames(tree,input,8);
+                TestAssert.True(player.IsOnFloor() && player.Position.DistanceTo(new(160,600))<2 && health.CurrentHealth==5,
+                    "normal unchanged start has real support and full original Health");
+                PrologueSector sector=level.CurrentSectorRoot;
+                var pad=sector.GetNode<CanyonSpringboard>("Gameplay/Mechanisms/CombinationSpringboard");
+                var gear=sector.GetNode<CanyonFixedGear>("Gameplay/Mechanisms/CombinationFixedGear");
+                var guidance=level.GetNode<PrologueGuidanceController>("Guidance");
+                guidance.SetLanguage(GameLanguage.ChineseSimplified); guidance.RefreshNow();
+                TestAssert.True(guidance.CurrentInstruction.Visible &&
+                    guidance.CurrentInstruction.StepText.Contains("弹板") && guidance.CurrentInstruction.StepText.Contains("齿轮") &&
+                    guidance.CurrentInstruction.StepText.Contains("SPACE") && guidance.CurrentInstruction.StepText.Contains("反推"),
+                    "RECYCLING_GUIDANCE_MISSING: the actual visible saved combination must announce pressure, danger, jump and reverse-brake controls in the existing fixed reading area");
+                TestAssert.True(guidance.CurrentInstruction.Targets.Count==0,
+                    "mechanism ECHO uses the existing fixed view without world target boxes");
+                gear.Visible=false; guidance.RefreshNow();
+                TestAssert.True(!guidance.CurrentInstruction.StepText.Contains("弹板"),
+                    "a withdrawn actual paired gear cannot authorize the combination card");
+                gear.Visible=true; guidance.SetGuidanceEnabled(false);
+                TestAssert.True(!guidance.CurrentInstruction.Visible,"the actual guidance option clears the device card");
+                guidance.SetGuidanceEnabled(true); guidance.RefreshNow();
+                TestAssert.True(guidance.CurrentInstruction.StepText.Contains("弹板"),"current restored sources restore their card");
+                InputEvent[] oldJump=InputMap.ActionGetEvents(InputActions.Jump).ToArray();
+                InputEvent[] oldRight=InputMap.ActionGetEvents(InputActions.MoveRight).ToArray();
+                try
+                {
+                    InputMap.ActionEraseEvents(InputActions.Jump);
+                    InputMap.ActionAddEvent(InputActions.Jump,new InputEventKey { PhysicalKeycode=Key.H });
+                    InputMap.ActionEraseEvents(InputActions.MoveRight);
+                    InputMap.ActionAddEvent(InputActions.MoveRight,new InputEventKey { PhysicalKeycode=Key.N });
+                    guidance.RefreshNow();
+                    TestAssert.True(guidance.CurrentInstruction.StepText.Contains("H：跳过弹板") &&
+                        guidance.CurrentInstruction.StepText.Contains("N：空中反推制动") &&
+                        !guidance.CurrentInstruction.StepText.Contains("SPACE"),
+                        "normal source-bound combination card resolves the actual live jump/brake bindings");
+                }
+                finally
+                {
+                    InputMap.ActionEraseEvents(InputActions.Jump);foreach(InputEvent binding in oldJump) InputMap.ActionAddEvent(InputActions.Jump,binding);
+                    InputMap.ActionEraseEvents(InputActions.MoveRight);foreach(InputEvent binding in oldRight) InputMap.ActionAddEvent(InputActions.MoveRight,binding);
+                    guidance.RefreshNow();
+                }
+                TestAssert.True(guidance.CurrentInstruction.StepText.Contains("SPACE") && guidance.CurrentInstruction.StepText.Contains("D：空中反推制动"),
+                    "real combination controls restore defaults before ordinary route input starts");
+                sourceCardCases++;
+                int deaths=0,recoveries=0; ulong launchFrame=0,deathFrame=0,gearAtDeath=0;
+                int jumpsAtLaunch=-1;
+                string routeStage=variant==0?"unreacted_walk":"outbound_first";
+                pad.Launched+=(_,_,_)=>{launchFrame=Engine.GetPhysicsFrames();jumpsAtLaunch=motor.AcceptedJumpCount;};
+                health.Died+=()=>{deaths++;deathFrame=Engine.GetPhysicsFrames();gearAtDeath=gear.ContactSequence;};
+                health.Damaged+=(remaining,_)=>GD.Print($"RECYCLING_GENERATED_DAMAGE_OBSERVATION variant={variant} " +
+                    $"stage={routeStage} hp={remaining} position={player.GlobalPosition} velocity={player.Velocity} " +
+                    $"physics={Engine.GetPhysicsFrames()} pad={pad.LaunchSequence} gear={gear.ContactSequence} jumps={motor.AcceptedJumpCount}");
+                level.RecoveryRequested+=_=>recoveries++;
+                driver=KeyboardRouteInputDriver.Begin(player);
+                driver.Command(InputActions.MoveRight,true);
+                ulong playerId=player.GetInstanceId();
+                async Task Tick()
+                {
+                    await ThrusterPlayerRuntimeTests.Frames(tree,input,1);
+                    TestAssert.True(level.Player==player && player.GetInstanceId()==playerId,
+                        "the real mounted player identity is never substituted");
+                    if(variant==0 && !sawActualLaunchCard && launchFrame>0 && health.CurrentHealth>0)
+                    {
+                        guidance.RefreshNow();
+                        TestAssert.True(guidance.CurrentInstruction.StepText.Contains("弹板已弹射") &&
+                            guidance.CurrentInstruction.Targets.Count==0,
+                            "the actual captured source launch, not a button or guessed position, selects the launched card");
+                        sawActualLaunchCard=true;
+                    }
+                    if(variant==1) TestAssert.True(deaths==0 && recoveries==0 && health.CurrentHealth==5,
+                        $"generated bypass uses no death/recovery/HP write: stage={routeStage} pos={player.GlobalPosition} " +
+                        $"hp={health.CurrentHealth} deaths={deaths} recoveries={recoveries} pad={pad.LaunchSequence}");
+                }
+                if(variant==0)
+                {
+                    for(int i=0;i<160 && deaths==0;i++) await Tick();
+                    TestAssert.True(deaths==1 && launchFrame>0 && deathFrame>launchFrame && gearAtDeath>0 &&
+                        jumpsAtLaunch==0,
+                        $"RECYCLING_GENERATED_COMBO_RED: real saved placement must produce the claimed chain, " +
+                        $"not a fixture-only trajectory; deaths={deaths} hp={health.CurrentHealth} " +
+                        $"launch={launchFrame} death={deathFrame} gear_at_death={gearAtDeath} " +
+                        $"position={player.GlobalPosition} velocity={player.Velocity}");
+                    GD.Print("RECYCLING_GENERATED_COMBO_OK saved_main=true actual_enter=true actual_pad_then_gear=true " +
+                        "no_space=true initial_pose_writes=0 human=false whole_route=false");
+                }
+                else
+                {
+                    async Task JumpPlateToFragment()
+                    {
+                        for(int i=0;i<30 && player.Position.X<176;i++) await Tick();
+                        TestAssert.True(player.IsOnFloor() && player.Position.X<195,"first jump begins before the actual plate");
+                        driver.Command(InputActions.Jump,true);
+                        for(int i=0;i<7;i++) await Tick();
+                        driver.Command(InputActions.Jump,false);
+                        for(int i=0;i<50 && player.Position.X<280;i++) await Tick();
+                        driver.Command(InputActions.MoveRight,false);
+                        for(int i=0;i<40 && !player.IsOnFloor();i++) await Tick();
+                        TestAssert.True(player.IsOnFloor() && player.Position.X is >=270 and <=310 && pad.LaunchSequence==0,
+                            $"RECYCLING_GENERATED_BYPASS_RED: ordinary short jump lands beyond the plate, " +
+                            $"before erosion; pos={player.Position} velocity={player.Velocity} pad={pad.LaunchSequence}");
+                    }
+                    await JumpPlateToFragment();
+                    TestAssert.True(level.Progress.CollectedFragmentIds.Contains("canyon.v2.fragment.entrance"),
+                        "the unchanged first fragment is actually collected on the live passage");
+                    routeStage="reverse_runup";
+                    driver.Command(InputActions.MoveLeft,true);
+                    for(int i=0;i<30 && (player.Position.X>260 || player.Velocity.X>-240);i++) await Tick();
+                    TestAssert.True(player.IsOnFloor() && player.Position.X>252 && pad.LaunchSequence==0,
+                        "reverse run-up remains on the far side of the live pressure plate");
+                    routeStage="return_jump"; driver.Command(InputActions.Jump,true);
+                    for(int i=0;i<7;i++) await Tick();
+                    driver.Command(InputActions.Jump,false);
+                    int returnFrames=0;
+                    for(;returnFrames<100 && player.Position.X>196;returnFrames++) await Tick();
+                    // The real leftward return clears the plate first. Brake in
+                    // the air on its safe left side, land, then walk under the
+                    // overhead gear. All stages share the previous 50+50 cap.
+                    routeStage="return_air_brake"; driver.Command(InputActions.MoveLeft,false);
+                    driver.Command(InputActions.MoveRight,true);
+                    for(;returnFrames<100 && player.Velocity.X<0;returnFrames++) await Tick();
+                    driver.Command(InputActions.MoveRight,false); routeStage="return_settle";
+                    for(;returnFrames<100 && !player.IsOnFloor();returnFrames++) await Tick();
+                    TestAssert.True(returnFrames<100 && player.IsOnFloor() && player.Position.X<204 && pad.LaunchSequence==0,
+                        "opposite-key air braking yields a real safe-side landing before walking beneath the overhead gear");
+                    routeStage="return_ground_walk"; driver.Command(InputActions.MoveLeft,true);
+                    for(;returnFrames<100 && player.Position.X>160;returnFrames++) await Tick();
+                    driver.Command(InputActions.MoveLeft,false);
+                    TestAssert.True(player.IsOnFloor() && player.Position.X<176 &&
+                        motor.AcceptedJumpCount==2 && motor.AcceptedDashCount==0 && pad.LaunchSequence==0,
+                        $"RECYCLING_GENERATED_RETURN_RED: original low remnant must permit a genuine return; " +
+                        $"pos={player.Position} jumps={motor.AcceptedJumpCount} pad={pad.LaunchSequence}");
+                    routeStage="outbound_again"; driver.Command(InputActions.MoveRight,true); await JumpPlateToFragment();
+                    driver.Command(InputActions.MoveRight,true);
+                    for(int i=0;i<30 && player.Position.X<300;i++) await Tick();
+                    TestAssert.True(player.IsOnFloor() && player.Position.X is >=295 and <=310,
+                        "unchanged near erosion bank is still a genuinely grounded launch");
+                    routeStage="erosion_gap"; driver.Command(InputActions.Jump,true);
+                    bool farBank=false;
+                    for(int i=0;i<100;i++)
+                    {
+                        await Tick();
+                        if(player.Position.X>=440) driver.Command(InputActions.MoveRight,false);
+                        for(int j=0;j<player.GetSlideCollisionCount();j++)
+                        {
+                            using KinematicCollision2D hit=player.GetSlideCollision(j);
+                            farBank|=hit.GetCollider() is StaticBody2D { Name: var name } &&
+                                name=="BridgeFarBank" && hit.GetNormal().Y<-.98f;
+                        }
+                        if(farBank && player.IsOnFloor() && player.Position.X>=440) break;
+                    }
+                    driver.Command(InputActions.Jump,false); driver.Command(InputActions.MoveRight,false);
+                    TestAssert.True(farBank && player.IsOnFloor() && motor.AcceptedJumpCount==4 &&
+                        motor.AcceptedDashCount==0 && pad.LaunchSequence==0,
+                        "new plate bypass plus unchanged erosion gap use four distinct grounded jumps across the complete out/back/out route");
+                    guidance.RefreshNow();
+                    TestAssert.True(!guidance.CurrentInstruction.StepText.Contains("弹板"),"leaving the actual combination region withdraws its card");
+                    var environment=ResidentEnvironmentInventory.Capture(level.GetNode<Node2D>("WorldRoot"));
+                    TestAssert.Equal(0,environment.Issues.Count,"mounted environment reservations remain structurally valid");
+                    foreach((string prefix,string name,Rect2 bounds) in new[]{
+                        ("fixed-gear","CombinationFixedGear",new Rect2(86,476,60,60)),
+                        ("fixed-gear","PracticeFixedGear",new Rect2(870,400,60,60)),
+                        ("springboard","CombinationSpringboard",new Rect2(204,624,48,12)),
+                        ("springboard","PracticeSpringboard",new Rect2(756,624,48,12))})
+                    {
+                        string id=prefix+":Sectors/CanyonEntrance/Gameplay/Mechanisms/"+name+"/Collision";
+                        ResidentKeepOut[] found=environment.Regions.Where(region=>region.SourceId==id).ToArray();
+                        TestAssert.True(found.Length==1 && found[0].Kind==ResidentKeepOutKind.Hazard && found[0].WorldBounds==bounds,
+                            "new hazard reservation has a unique literal identity and actual saved footprint: "+id);
+                    }
+                    TestAssert.Equal(158,level.GetNode<Knight.Presentation.Minimap.PrologueMinimapController>("MinimapController").Catalog.SolidCount,
+                        "new Areas do not masquerade as terrain; current minimap includes the structural annex shapes");
+                    GD.Print("RECYCLING_INVENTORY_OK identities=4 native_scene_bounds=true hazard_kind=true solids=158 whole_map_census=false");
+                    GD.Print("RECYCLING_GENERATED_PASSAGE_OK saved_main=true actual_enter=true out_back_out=true " +
+                        "first_fragment=true erosion_gap=true jumps=4 dash=0 health=5->5 recovery=0 pose_writes=0 " +
+                        "real_air_brake=true human=false whole_route=false");
+                }
+            }
+            finally
+            {
+                driver?.Dispose(); KeyboardActionRuntimeTests.KeyEvent(Key.Enter,false);
+                await TestSceneTeardown.FreeSceneAfterAudioDrain(tree,level);
+            }
+        }
+        TestAssert.True(sourceCardCases==2 && sawActualLaunchCard,"both real saved sessions and the actual launch event exercised ECHO");
+        GD.Print("RECYCLING_GUIDANCE_RUNTIME_OK actual_sources=true hidden_source_veto=true setting_clear=true " +
+            "launch_event=true fixed_existing_view=true no_world_targets=true pixels=false");
+    }
+
+    public static void RunSavedRecyclingContract()
+    {
+        // Off-tree artifact contract only; ordinary route and visible fog are
+        // separate gates, not inferred from four nodes in a PackedScene.
+        PrologueSector child = GD.Load<PackedScene>("res://scenes/prologue/sectors/CanyonEntrance.tscn")
+            .Instantiate<PrologueSector>();
+        PrologueLevelController parent = null;
+        PrologueSector referenced = null;
+        try
+        {
+            AssertSaved(child, "saved child");
+            parent = GD.Load<PackedScene>("res://scenes/prologue/PrologueLevel.tscn")
+                .Instantiate<PrologueLevelController>();
+            PrologueSectorDefinition definition = parent.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors")
+                .Definitions.Single(item => item.Id == PrologueSectorId.CanyonEntrance);
+            referenced = definition.Scene.Instantiate<PrologueSector>();
+            AssertSaved(referenced, "parent-referenced child");
+            TestAssert.True(parent.GetNodeOrNull<Node2D>("ProtectedCues/Recycling")?.GetType().FullName==
+                "Knight.Presentation.Fog.FogRecyclingReadabilityOverlay",
+                "saved parent contains the new protected consumer rather than relying on unprotected world Draw");
+            QuestFragmentPlacementTests.Run();
+            GD.Print("RECYCLING_SAVED_CONTRACT_OK child=true parent_reference=true pads=2 gears=2 " +
+                "native_shapes_authored=true fragment_contract=9 structural_only=true passage=false pixels=false");
+        }
+        finally
+        {
+            referenced?.Free(); parent?.Free(); child.Free();
+        }
+
+        static void AssertSaved(PrologueSector sector, string context)
+        {
+            Node mechanisms = sector.GetNode("Gameplay/Mechanisms");
+            var combo = mechanisms.GetNodeOrNull<CanyonSpringboard>("CombinationSpringboard");
+            var gear = mechanisms.GetNodeOrNull<CanyonFixedGear>("CombinationFixedGear");
+            var practice = mechanisms.GetNodeOrNull<CanyonSpringboard>("PracticeSpringboard");
+            var practiceGear = mechanisms.GetNodeOrNull<CanyonFixedGear>("PracticeFixedGear");
+            TestAssert.True(combo != null && gear != null && practice != null && practiceGear != null,
+                $"RECYCLING_SAVED_MISSING: {context} must actually contain both new mechanism families, not only fixtures");
+            TestAssert.True(mechanisms.GetChildren().OfType<CanyonSpringboard>().Count() == 2 &&
+                mechanisms.GetChildren().OfType<CanyonFixedGear>().Count() == 2,
+                "saved entrance has exactly the four requested combo/practice devices");
+            TestAssert.True(combo.Position == new Vector2(228, 636) && combo.Width == 48f &&
+                combo.LaunchVelocity == new Vector2(-620, -480) &&
+                combo.SupportBodyPath.ToString() == "../../Collision/StartFloor" &&
+                gear.Position == new Vector2(116, 506) && gear.Radius == 30f && gear.Damage == 5 &&
+                practice.Position == new Vector2(780, 636) && practice.Width == 48f &&
+                practice.LaunchVelocity == new Vector2(0, -420) &&
+                practice.SupportBodyPath.ToString() == "../../Collision/BridgeFarBank" &&
+                practiceGear.Position == new Vector2(900, 430) && practiceGear.Radius == 30f,
+                "saved literal placement/force/support preserve the candidate's actual meaning");
+            foreach (CanyonSpringboard pad in new[] { combo, practice })
+                TestAssert.True(pad.GetNode<CollisionShape2D>("Collision") is
+                    { Position: { X: 0, Y: -6 }, Shape: RectangleShape2D { Size: { X: 48, Y: 12 } } },
+                    "saved plate sensor fits the authored top width exactly");
+            foreach (CanyonFixedGear source in new[] { gear, practiceGear })
+                TestAssert.True(source.GetNode<CollisionShape2D>("Collision") is
+                    { Position: { X: 0, Y: 0 }, Shape: CircleShape2D { Radius: 30 } },
+                    "saved native gear circle matches its damaging radius");
+        }
+    }
+
+    public static async Task RunDirectionalSpringboard(SceneTree tree)
+    {
+        // Controlled native fixture, not whole-map or normal-display proof.
+        var root = new Node2D { Name = "DirectionalSpringboardFixture" };
+        var owned = new List<Shape2D>();
+        KeyboardRouteInputDriver driver = null;
+        try
+        {
+            var floor = new StaticBody2D { Name = "Floor", CollisionLayer = CombatCollisionLayers.World,
+                CollisionMask = CombatCollisionLayers.None };
+            var floorShape = new RectangleShape2D { Size = new Vector2(800, 40) }; owned.Add(floorShape);
+            floor.AddChild(new CollisionShape2D { Position = new Vector2(400, 520), Shape = floorShape });
+            root.AddChild(floor);
+            CharacterBody2D player = GD.Load<PackedScene>("res://scenes/player/Player.tscn")
+                .Instantiate<CharacterBody2D>();
+            player.Name = "Player"; player.Position = new Vector2(180, 464);
+            // PrologueLevelController registers its saved Player this way.
+            player.AddToGroup("player");
+            player.GetNode<Camera2D>("Camera2D").Enabled = false;
+            root.AddChild(player); tree.Root.AddChild(root); await Frames(tree, 8);
+            var health = player.GetNode<HealthComponent>("Health");
+            var motor = player.GetNode<PlayerMotor>("Motor");
+            int hp = health.CurrentHealth, jumps = motor.AcceptedJumpCount;
+            TestAssert.True(player.IsOnFloor() && hp == 5 && !motor.IsDashing && player.IsInGroup("player"),
+                "spring fixture starts with saved live Player on real support and unchanged mobility/resources");
+            Type boardType = typeof(CanyonMechanismRuntimeTests).Assembly.GetType("Knight.Mechanisms.CanyonSpringboard");
+            TestAssert.True(boardType != null,
+                "DIRECTIONAL_SPRINGBOARD_MISSING: real support has no directional springboard mechanism yet");
+            var board = (Area2D)Activator.CreateInstance(boardType);
+            board.Name = "Pad"; board.Position = new Vector2(300, 500);
+            boardType.GetProperty("SupportBodyPath").SetValue(board, new NodePath("../Floor"));
+            var padShape = new RectangleShape2D { Size = new Vector2(64, 12) }; owned.Add(padShape);
+            board.AddChild(new CollisionShape2D { Name = "Collision", Position = new Vector2(0, -6), Shape = padShape });
+            root.AddChild(board); await Frames(tree, 2);
+            long Sequence() => Convert.ToInt64(boardType.GetProperty("LaunchSequence").GetValue(board));
+            driver = KeyboardRouteInputDriver.Begin(player);
+            driver.Command(InputActions.MoveRight, true);
+            int frames = 0;
+            bool sampledRight = false;
+            for (; frames < 80 && Sequence() == 0; frames++)
+            {
+                sampledRight |= Input.IsPhysicalKeyPressed(Key.D) &&
+                    player.GetNode<PlayerInputReader>("Input").Current.KeyboardActions;
+                await Frames(tree, 1);
+                if (player.GlobalPosition.X is < 270f or > 330f || frames % 3 != 0) continue;
+                Godot.Collections.Array<Node2D> overlaps = board.GetOverlappingBodies();
+                using Godot.Collections.Array backing = (Godot.Collections.Array)overlaps;
+                GD.Print($"SPRING_CONTACT_OBSERVATION frame={frames} player={player.GlobalPosition} velocity={player.Velocity} " +
+                    $"floor={player.IsOnFloor()} contacts={player.GetSlideCollisionCount()} player_layer={player.CollisionLayer} " +
+                    $"sensor={board.Monitoring}/{board.CollisionMask} overlap={overlaps.Count} support={floor.GetRid().Id}");
+                for (int index = 0; index < player.GetSlideCollisionCount(); index++)
+                {
+                    KinematicCollision2D hit = player.GetSlideCollision(index);
+                    GD.Print($"SPRING_CONTACT_POINT collider={hit.GetColliderRid().Id} point={hit.GetPosition()} " +
+                        $"normal={hit.GetNormal()} local={board.ToLocal(hit.GetPosition())}");
+                }
+            }
+            Vector2 launched = player.Velocity;
+            driver.Command(InputActions.MoveRight, false);
+            TestAssert.True(Sequence() == 1 && frames < 80 && launched.X < -400f && launched.Y < -300f &&
+                health.CurrentHealth == hp && motor.AcceptedJumpCount == jumps &&
+                sampledRight && driver.KeyDownCount > 0,
+                $"DIRECTIONAL_SPRINGBOARD_LAUNCH_RED: real D walk must become one physical left/up launch, " +
+                $"sequence={Sequence()} frames={frames} velocity={launched} hp={hp}->{health.CurrentHealth} " +
+                $"jumps={jumps}->{motor.AcceptedJumpCount} sampled_real_D={sampledRight}");
+            driver.Command(InputActions.MoveRight, true);
+            float firstUpward = 0f;
+            for (int i = 0; i < 8; i++)
+            {
+                await ThrusterPlayerRuntimeTests.Frames(tree, player.GetNode<PlayerInputReader>("Input"), 1);
+                if (i == 0) firstUpward = player.Velocity.Y;
+            }
+            TestAssert.True(firstUpward < -400f,
+                $"ENVIRONMENT_LAUNCH_JUMP_CUT_RED: unheld Space must not turn a real -480 external launch " +
+                $"into an ordinary short jump; first_observed_vy={firstUpward:R} " +
+                $"hp={health.CurrentHealth} ordinary_jumps={motor.AcceptedJumpCount - jumps}");
+            TestAssert.True(player.Velocity.X > launched.X && player.Velocity.X < 0f && !player.IsOnFloor() &&
+                health.CurrentHealth == hp && motor.AcceptedJumpCount == jumps && Sequence() == 1,
+                "opposite D genuinely brakes leftward airborne inertia without instant reversal, extra jump or repeated pad launch");
+            GD.Print("CANYON_SPRINGBOARD_RUNTIME_OK real_keyboard=true real_floor_contact=true launch=left_up " +
+                "reverse_brake=true launch_count=1 extra_jump=0 pose_writes=0 whole_route=false human=false");
+        }
+        finally
+        {
+            driver?.Dispose();
+            root.QueueFree(); await Frames(tree, 2);
+            foreach (Shape2D shape in owned) shape.Dispose();
+        }
+    }
+
+    public static async Task RunSpringboardControls(SceneTree tree)
+    {
+        int cases = 0;
+        async Task Check(string name, Action<SpringboardFixture> setup, Func<SpringboardFixture, Task> body)
+        {
+            var f = new SpringboardFixture(tree);
+            try
+            {
+                setup(f); await f.Mount(); await body(f); cases++;
+                GD.Print("SPRINGBOARD_CONTROL_OK " + name);
+            }
+            finally { await f.DisposeAsync(); }
+        }
+        await Check("ordinary_space_bypasses_plate", f => { }, async f =>
+        {
+            f.Driver = KeyboardRouteInputDriver.Begin(f.Player);
+            f.Driver.Command(InputActions.MoveRight, true);
+            for (int i = 0; i < 50 && f.Player.Position.X < 240f; i++) await Frames(tree, 1);
+            TestAssert.True(f.Player.IsOnFloor() && f.Board.LaunchSequence == 0,
+                "Space starts before actual pad rather than after a launch");
+            int jumps = f.Motor.AcceptedJumpCount;
+            f.Driver.Command(InputActions.Jump, true); await Frames(tree, 7);
+            f.Driver.Command(InputActions.Jump, false);
+            for (int i = 0; i < 60 && f.Player.Position.X < 380f; i++) await Frames(tree, 1);
+            f.Driver.Command(InputActions.MoveRight, false);
+            for (int i = 0; i < 80 && !f.Player.IsOnFloor(); i++) await Frames(tree, 1);
+            TestAssert.True(f.Player.Position.X > 360f && f.Player.IsOnFloor() &&
+                f.Board.LaunchSequence == 0 && f.Motor.AcceptedJumpCount == jumps + 1 && f.Health.CurrentHealth == 5,
+                "one real ordinary Space clears the pressure plate and naturally lands on unchanged floor");
+        });
+        await Check("unregistered_body_rejected", f =>
+        {
+            f.Player.Position = new Vector2(300, 464); f.RegisterPlayer = false;
+        }, async f =>
+        {
+            await Frames(tree, 20);
+            TestAssert.True(f.Player.IsOnFloor() && !f.Player.IsInGroup("player") &&
+                f.Board.LaunchSequence == 0 && f.Player.Velocity == Vector2.Zero,
+                "saved healthy body without production player registration never launches");
+        });
+        await Check("below_one_way_support_rejected", f =>
+        {
+            f.FloorCollider.OneWayCollision = true; f.FloorCollider.OneWayCollisionMargin = 1f;
+            f.Player.Position = new Vector2(300, 514);
+            f.AddFloor("LowerFloor", new Rect2(0, 550, 800, 40));
+        }, async f =>
+        {
+            await Frames(tree, 20);
+            Godot.Collections.Array<Node2D> overlaps = f.Board.GetOverlappingBodies();
+            using Godot.Collections.Array backing = (Godot.Collections.Array)overlaps;
+            bool lower = false;
+            for (int i = 0; i < f.Player.GetSlideCollisionCount(); i++)
+                lower |= f.Player.GetSlideCollision(i).GetColliderRid() == f.LowerFloor.GetRid();
+            TestAssert.True(f.Player.IsOnFloor() && lower && overlaps.Contains(f.Player) &&
+                f.Board.LaunchSequence == 0 && f.Health.CurrentHealth == 5,
+                "actual below-sensor overlap and another real floor are not top contact on the configured one-way support");
+        });
+        await Check("occupancy_pause_checkpoint_sequence", f =>
+        {
+            f.Player.Position = new Vector2(300, 464); f.Board.LaunchVelocity = new(-160, 0);
+            f.Board.RechargeSeconds = .2f;
+        }, async f =>
+        {
+            await Frames(tree, 40);
+            TestAssert.True(f.Board.LaunchSequence == 1 && f.Player.IsOnFloor() && f.Player.Velocity.IsZeroApprox(),
+                "after recharge expires a resting body still occupying the plate is not repeatedly launched");
+            tree.Paused = true;
+            try
+            {
+                f.Board.ResetForCheckpoint(); f.Board._PhysicsProcess(2d);
+                await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                TestAssert.Equal(1UL, f.Board.LaunchSequence, "paused direct stale callback cannot launch even after reset");
+            }
+            finally { tree.Paused = false; }
+            await Frames(tree, 4);
+            TestAssert.Equal(2UL, f.Board.LaunchSequence,
+                "normal unpaused fresh reset permits one new launch without replaying the old sequence");
+        });
+        await Check("snapshot_and_natural_reentry", f =>
+        {
+            f.Player.Position = new Vector2(300, 464); f.Board.LaunchVelocity = new(-160, 0);
+            f.Board.RechargeSeconds = .2f;
+        }, async f =>
+        {
+            await Frames(tree, 12);
+            bool invalidRejected = false; f.Board.Width = float.NaN;
+            try { f.Board._Ready(); }
+            catch (InvalidOperationException) { invalidRejected = true; }
+            finally { f.Board.Width = 64f; }
+            TestAssert.True(invalidRejected, "invalid reinitialization is rejected before partially replacing the live snapshot");
+            f.Board.LaunchVelocity = new(600, 0);
+            f.Driver = KeyboardRouteInputDriver.Begin(f.Player);
+            f.Driver.Command(InputActions.MoveRight, true);
+            for (int i = 0; i < 80 && f.Player.Position.X < 380f; i++) await Frames(tree, 1);
+            f.Driver.Command(InputActions.MoveRight, false);
+            f.Driver.Command(InputActions.MoveLeft, true);
+            for (int i = 0; i < 80 && f.Board.LaunchSequence < 2; i++) await Frames(tree, 1);
+            TestAssert.True(f.Board.LaunchSequence == 2 && f.Player.Velocity.X < -100f &&
+                f.Health.CurrentHealth == 5 && f.Motor.AcceptedJumpCount == 0,
+                "leaving and naturally walking back rearms with the original immutable left launch, not a hot-edit right velocity");
+        });
+        await Check("dead_player_rejected", f =>
+        {
+            f.Player.Position = new Vector2(300, 464); f.Board.LaunchVelocity = new(-160, 0);
+        }, async f =>
+        {
+            await Frames(tree, 12);
+            f.Health.ReceiveDamage(new DamageRequest(5, Vector2.Zero, 0, 99101, f.Board.GetInstanceId(), DamageGuardClass.Unblockable));
+            ulong sequence = f.Board.LaunchSequence;
+            f.Board.ResetForCheckpoint(); f.Board._PhysicsProcess(2d);
+            TestAssert.True(f.Health.CurrentHealth == 0 && f.Board.LaunchSequence == sequence,
+                "dead saved player is not revived or launched by reset/late sensor delivery");
+        });
+        await Check("actual_shift_burn_replaced", f => { }, async f =>
+        {
+            f.Driver = KeyboardRouteInputDriver.Begin(f.Player);
+            f.Driver.Command(InputActions.MoveRight, true);
+            for (int i = 0; i < 50 && f.Player.Position.X < 220f; i++) await Frames(tree, 1);
+            int dashes = f.Motor.AcceptedDashCount, jumps = f.Motor.AcceptedJumpCount;
+            f.Driver.Command(InputActions.Dash, true);
+            await ThrusterPlayerRuntimeTests.Frames(tree, f.Player.GetNode<PlayerInputReader>("Input"), 1);
+            TestAssert.True(f.Motor.IsDashing && f.Motor.ThrusterState.BurnRemaining > .1f &&
+                f.Motor.AcceptedDashCount == dashes + 1 && f.Board.LaunchSequence == 0,
+                $"actual fresh D+Shift burns before native pad contact, not a pre-accept abort; " +
+                $"burning={f.Motor.IsDashing} remaining={f.Motor.ThrusterState.BurnRemaining:R} " +
+                $"dashes={dashes}->{f.Motor.AcceptedDashCount} pad={f.Board.LaunchSequence} " +
+                $"player={f.Player.Position} velocity={f.Player.Velocity} raw_shift={Input.IsPhysicalKeyPressed(Key.Shift)} " +
+                $"sampled_dash={f.Player.GetNode<PlayerInputReader>("Input").Current.DashPressed}");
+            for (int i = 0; i < 8 && f.Board.LaunchSequence == 0; i++)
+                await ThrusterPlayerRuntimeTests.Frames(tree, f.Player.GetNode<PlayerInputReader>("Input"), 1);
+            TestAssert.True(f.Board.LaunchSequence == 1 && !f.Motor.IsDashing &&
+                f.Motor.ThrusterState.BurnRemaining == 0 && f.Player.Velocity.X < -400f &&
+                f.Player.Velocity.Y < -300f && f.Motor.AcceptedDashCount == dashes + 1,
+                "real plate contact interrupts the still-live burn and owns physical left/up launch");
+            await ThrusterPlayerRuntimeTests.Frames(tree, f.Player.GetNode<PlayerInputReader>("Input"), 5);
+            TestAssert.True(!f.Motor.IsDashing && f.Motor.AcceptedDashCount == dashes + 1 &&
+                f.Motor.AcceptedJumpCount == jumps && f.Health.CurrentHealth == 5,
+                "held Shift is not replayed by claw cleanup or pad takeover");
+        });
+        await Check("actual_grounded_reel_replaced", f =>
+        {
+            var wall = new StaticBody2D { Name = "GripWall", Position = new(540, 450),
+                CollisionLayer = CombatCollisionLayers.World, CollisionMask = CombatCollisionLayers.None };
+            wall.AddChild(new CollisionShape2D { Shape = f.Own(new RectangleShape2D { Size = new(36, 100) }) });
+            wall.AddChild(new GrappleSurface2D { Name = "GrappleSurfaceProfile",
+                Material = GrappleSurfaceMaterial.GripStone, UseCollisionHitPoint = true });
+            f.Root.AddChild(wall);
+        }, async f =>
+        {
+            var claw = f.Player.GetNode<MechanicalClawController>("MechanicalClaw");
+            GrappleSurface2D anchor = f.Root.GetNode<GrappleSurface2D>("GripWall/GrappleSurfaceProfile");
+            bool floorReel = false; ulong attachedAuthority = 0;
+            var probe = new SpringboardPhysicsProbe { ProcessPhysicsPriority = 50, Observe = () =>
+            {
+                if (claw.CurrentFrame.State != MechanicalClawState.Reel || claw.CurrentTarget != anchor ||
+                    !f.Player.IsOnFloor()) return;
+                for (int i = 0; i < f.Player.GetSlideCollisionCount(); i++)
+                    if (f.Player.GetSlideCollision(i).GetColliderRid() == f.Floor.GetRid() &&
+                        f.Player.GetSlideCollision(i).GetNormal().Dot(Vector2.Up) > .98f)
+                    { floorReel = true; attachedAuthority = claw.AuthorityRevision; }
+            }};
+            f.Root.AddChild(probe);
+            f.Driver = KeyboardRouteInputDriver.Begin(f.Player);
+            f.Driver.Command(InputActions.MoveRight, true);
+            await ThrusterPlayerRuntimeTests.Frames(tree, f.Player.GetNode<PlayerInputReader>("Input"), 1);
+            TestAssert.True(claw.KeyboardPreview.Surface == anchor && claw.KeyboardPreview.Snapshot.HasLineOfSight,
+                "real D preview selects the actual visible grippable solid, not a synthetic target state");
+            f.Driver.Command(InputActions.Claw, true);
+            await ThrusterPlayerRuntimeTests.Frames(tree, f.Player.GetNode<PlayerInputReader>("Input"), 1);
+            f.Driver.Command(InputActions.Claw, false); f.Driver.Command(InputActions.MoveRight, false);
+            for (int i = 0; i < 80 && f.Board.LaunchSequence == 0; i++)
+                await ThrusterPlayerRuntimeTests.Frames(tree, f.Player.GetNode<PlayerInputReader>("Input"), 1);
+            TestAssert.True(floorReel && f.Board.LaunchSequence == 1 &&
+                claw.CurrentFrame.State == MechanicalClawState.Idle && claw.CurrentTarget == null &&
+                claw.ResidencyTarget == null && claw.AuthorityRevision > attachedAuthority &&
+                f.Player.Velocity.X < -400f && f.Player.Velocity.Y < -300f && f.Motor.GrappleMovementScale == 1f,
+                "SPRING_REAL_REEL_HANDOFF_RED: native floor-contact Reel is cancelled before the pad owns launch");
+            await ThrusterPlayerRuntimeTests.Frames(tree, f.Player.GetNode<PlayerInputReader>("Input"), 5);
+            TestAssert.True(claw.CurrentFrame.State == MechanicalClawState.Idle && claw.CurrentTarget == null &&
+                f.Motor.AcceptedJumpCount == 0 && f.Health.CurrentHealth == 5 && f.Player.Velocity.Y < 0,
+                "old real cast cannot reattach or overwrite the continuing physical pad flight");
+        });
+        foreach(bool reset in new[]{true,false})
+        await Check(reset?"real_reel_callback_reset_wins":"real_reel_callback_replacement_wins", f=>
+        {
+            var wall=new StaticBody2D { Name="GripWall", Position=new(540,450),
+                CollisionLayer=CombatCollisionLayers.World, CollisionMask=CombatCollisionLayers.None };
+            wall.AddChild(new CollisionShape2D { Shape=f.Own(new RectangleShape2D { Size=new(36,100) }) });
+            wall.AddChild(new GrappleSurface2D { Name="GrappleSurfaceProfile",
+                Material=GrappleSurfaceMaterial.GripStone, UseCollisionHitPoint=true });
+            f.Root.AddChild(wall);
+        }, async f=>
+        {
+            var claw=f.Player.GetNode<MechanicalClawController>("MechanicalClaw");
+            var anchor=f.Root.GetNode<GrappleSurface2D>("GripWall/GrappleSurfaceProfile");
+            bool armed=false,replaced=false,captured=false,floorReel=false;
+            ulong callbackPhysics=0,committedRevision=0,observedRevision=0,observedLaunches=0;
+            Vector2 expected=reset?Vector2.Zero:new(310,-350), observed=default;
+            void Replace(MechanicalClawFrame frame,GrappleSurface2D target)
+            {
+                if(!armed || replaced || frame.State!=MechanicalClawState.Idle) return;
+                replaced=true; callbackPhysics=Engine.GetPhysicsFrames();
+                if(reset) f.Motor.ResetTransientState(); else f.Motor.ExternalImpulse(expected);
+                committedRevision=f.Motor.MotionAuthorityRevision;
+            }
+            claw.ClawFrameChanged+=Replace;
+            try
+            {
+                f.Root.AddChild(new SpringboardPhysicsProbe { ProcessPhysicsPriority=50, Observe=()=>
+                {
+                    if(claw.CurrentFrame.State!=MechanicalClawState.Reel || claw.CurrentTarget!=anchor || !f.Player.IsOnFloor()) return;
+                    for(int i=0;i<f.Player.GetSlideCollisionCount();i++)
+                        if(f.Player.GetSlideCollision(i).GetColliderRid()==f.Floor.GetRid() &&
+                            f.Player.GetSlideCollision(i).GetNormal().Dot(Vector2.Up)>.98f)
+                        { floorReel=true;armed=true; }
+                }});
+                f.Root.AddChild(new SpringboardPhysicsProbe { ProcessPhysicsPriority=150, Observe=()=>
+                {
+                    if(!replaced || captured || Engine.GetPhysicsFrames()!=callbackPhysics) return;
+                    captured=true;observed=f.Player.Velocity;
+                    observedRevision=f.Motor.MotionAuthorityRevision;observedLaunches=f.Board.LaunchSequence;
+                }});
+                f.Driver=KeyboardRouteInputDriver.Begin(f.Player);
+                f.Driver.Command(InputActions.MoveRight,true);
+                await ThrusterPlayerRuntimeTests.Frames(tree,f.Player.GetNode<PlayerInputReader>("Input"),1);
+                TestAssert.True(claw.KeyboardPreview.Surface==anchor,"callback control begins with the actual visible solid grip");
+                f.Driver.Command(InputActions.Claw,true);
+                await ThrusterPlayerRuntimeTests.Frames(tree,f.Player.GetNode<PlayerInputReader>("Input"),1);
+                f.Driver.Command(InputActions.Claw,false);f.Driver.Command(InputActions.MoveRight,false);
+                for(int i=0;i<80 && !captured;i++)
+                    await ThrusterPlayerRuntimeTests.Frames(tree,f.Player.GetNode<PlayerInputReader>("Input"),1);
+                TestAssert.True(floorReel && replaced && captured && observedLaunches==0 &&
+                    observed==expected && observedRevision==committedRevision &&
+                    f.Player.GetNode<PlayerMotor>("Motor")==f.Motor && f.Health.CurrentHealth==5,
+                    $"SPRING_MOTOR_AUTHORITY_RED: real floor-contact Reel cleanup callback wins; reset={reset} " +
+                    $"floor_reel={floorReel} replaced={replaced} captured={captured} pad={observedLaunches} " +
+                    $"velocity={observed}/{expected} revision={observedRevision}/{committedRevision} physics={callbackPhysics}");
+            }
+            finally { claw.ClawFrameChanged-=Replace; }
+        });
+        await Check("hidden_disabled_sensor_rejects_contact", f =>
+        {
+            f.Player.Position = new(300,464); f.Board.Visible = false;
+        }, async f =>
+        {
+            await Frames(tree,4);
+            TestAssert.True(f.Board.LaunchSequence == 0 && !f.Board.IsDangerTelegraphActive,
+                "SPRING_HIDDEN_SENSOR_RED: a hidden plate cannot launch a player without a visible cue");
+            f.Board.Visible = true; f.Board.Monitoring = false; await Frames(tree,3);
+            TestAssert.True(f.Board.LaunchSequence == 0 && !f.Board.IsDangerTelegraphActive,
+                "monitoring disabled also withdraws the plate's activation authority");
+            var collider = f.Board.GetNode<CollisionShape2D>("Collision");
+            collider.Disabled = true; f.Board.Monitoring = true; await Frames(tree,4);
+            TestAssert.True(f.Board.LaunchSequence == 0 && !f.Board.IsDangerTelegraphActive,
+                "disabled sensor cannot authorize a stale overlap launch");
+            collider.Disabled = false; await Frames(tree,4);
+            TestAssert.True(f.Board.LaunchSequence == 1 && f.Player.Velocity.Y < -350f,
+                "restored visible native plate launches normally without resetting Health or pose");
+        });
+        await Check("native_sensor_shape_is_authoritative", f => { }, async f =>
+        {
+            var collider = f.Board.GetNode<CollisionShape2D>("Collision");
+            var shape = (RectangleShape2D)collider.Shape; // This fixture owns it.
+            shape.Size = new(96,12);
+            f.Driver = KeyboardRouteInputDriver.Begin(f.Player);
+            f.Driver.Command(InputActions.MoveRight,true);
+            for(int i=0;i<60 && f.Player.Position.X<300;i++)
+                await ThrusterPlayerRuntimeTests.Frames(tree,f.Player.GetNode<PlayerInputReader>("Input"),1);
+            f.Driver.Command(InputActions.MoveRight,false); await Frames(tree,3);
+            TestAssert.True(f.Board.LaunchSequence == 0 && f.Health.CurrentHealth == 5 &&
+                !f.Board.IsDangerTelegraphActive && f.Player.IsOnFloor(),
+                "mutated larger native sensor cannot make the unchanged smaller visible plate launch");
+            shape.Size = new(64,12); await Frames(tree,4);
+            TestAssert.True(f.Board.LaunchSequence == 1,
+                "restoring the original authored native footprint restores ordinary activation");
+        });
+        await Check("queued_ancestor_revokes_contact", f =>
+        {
+            f.Player.Position = new Vector2(300, 464); f.Board.LaunchVelocity = new(-160, 0);
+        }, async f =>
+        {
+            await Frames(tree, 12);
+            f.Board.ResetForCheckpoint(); ulong sequence = f.Board.LaunchSequence;
+            f.Root.QueueFree();
+            TestAssert.True(f.Root.IsQueuedForDeletion() && !f.Board.IsQueuedForDeletion() &&
+                !f.Player.IsQueuedForDeletion(), "test exercises ancestor-only queued retirement before native deletion");
+            f.Board._PhysicsProcess(2d);
+            TestAssert.Equal(sequence, f.Board.LaunchSequence,
+                "SPRING_QUEUED_OWNER_RED: a queued room already revokes contact before child ExitTree");
+        });
+        GD.Print($"CANYON_SPRINGBOARD_CONTROLS_OK cases={cases} native_player=true " +
+            "natural_jump_and_reentry=true lifecycle=true human=false whole_route=false");
+    }
+
+    public static async Task RunFixedGearContact(SceneTree tree)
+    {
+        var f = new SpringboardFixture(tree);
+        int deaths = 0; bool guardAtDamage = false; ulong guardPhysics = 0;
+        void OnDied() => deaths++;
+        void OnDamaged(int remaining, Vector2 impulse) => guardAtDamage |=
+            remaining == 0 && guardPhysics == Engine.GetPhysicsFrames();
+        try
+        {
+            f.Board.Position = new Vector2(700, 500); // Separate the standalone gear from the pad fixture.
+            await f.Mount();
+            TestAssert.True(f.Player.IsOnFloor() && f.Health.CurrentHealth == 5,
+                "fixed-gear test starts with real saved player and floor");
+            Type gearType = typeof(CanyonMechanismRuntimeTests).Assembly.GetType("Knight.Mechanisms.CanyonFixedGear");
+            TestAssert.True(gearType != null,
+                "FIXED_GEAR_MISSING: existing pistons are not the requested continuous fixed-tooth hazard");
+            var gear = (Area2D)Activator.CreateInstance(gearType);
+            gear.Name = "Gear"; gear.Position = new(420, 464);
+            gear.AddChild(new CollisionShape2D { Name = "Collision",
+                Shape = f.Own(new CircleShape2D { Radius = 30f }) });
+            f.Root.AddChild(gear);
+            f.Root.AddChild(new SpringboardPhysicsProbe { ProcessPhysicsPriority = 50, Observe = () =>
+            {
+                if (f.Health.CurrentHealth > 0 && f.Player.Position.DistanceTo(gear.Position) < 85f &&
+                    f.Player.GetNode<PlayerShieldController>("Shield").IsActive &&
+                    f.Player.GetNode<PlayerInputReader>("Input").Current.KeyboardShieldHeld)
+                    guardPhysics = Engine.GetPhysicsFrames();
+            }});
+            f.Health.Died += OnDied; f.Health.Damaged += OnDamaged;
+            f.Driver = KeyboardRouteInputDriver.Begin(f.Player);
+            f.Driver.Command(InputActions.MoveRight, true);
+            f.Driver.PointerButton(MouseButton.Right, true, f.Player, gear.GlobalPosition);
+            for (int i = 0; i < 160 && f.Health.CurrentHealth > 0; i++)
+                await ThrusterPlayerRuntimeTests.Frames(tree, f.Player.GetNode<PlayerInputReader>("Input"), 1);
+            TestAssert.True(f.Health.CurrentHealth == 0 && deaths == 1 && guardAtDamage &&
+                f.Board.LaunchSequence == 0 && f.Motor.AcceptedJumpCount == 0,
+                $"FIXED_GEAR_NATIVE_DAMAGE_RED: real guarded walking contact must deliver lethal gear damage once; " +
+                $"hp={f.Health.CurrentHealth} deaths={deaths} actual_guard_at_damage={guardAtDamage} position={f.Player.Position}");
+            await Frames(tree, 10);
+            TestAssert.True(deaths == 1 && f.Health.CurrentHealth == 0,
+                "continued overlap cannot repeat player death or reset Health");
+            GD.Print("CANYON_FIXED_GEAR_RUNTIME_OK native_contact=true real_guard=true unblockable=true " +
+                "death_events=1 native_player=true human=false whole_route=false");
+        }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(f.Player))
+            { f.Health.Died -= OnDied; f.Health.Damaged -= OnDamaged; }
+            await f.DisposeAsync();
+        }
+    }
+
+    public static async Task RunRecyclingCombo(SceneTree tree)
+    {
+        for (int variant = 0; variant < 2; variant++)
+        {
+            var f = new SpringboardFixture(tree);
+            int deaths = 0; ulong launchPhysics = 0, deathPhysics = 0;
+            void OnDied() { deaths++; deathPhysics = Engine.GetPhysicsFrames(); }
+            try
+            {
+                (CanyonFixedGear comboGear, _) = AddFixedGearFixture(f, new Vector2(180, 370));
+                f.Board.Launched += (_, _, _) => launchPhysics = Engine.GetPhysicsFrames();
+                await f.Mount(); f.Health.Died += OnDied;
+                f.Driver = KeyboardRouteInputDriver.Begin(f.Player);
+                f.Driver.Command(InputActions.MoveRight, true);
+                Vector2 previous = f.Player.Position;
+                float maximumStep = 0f;
+                int flightRows = 0;
+                async Task Tick()
+                {
+                    await ThrusterPlayerRuntimeTests.Frames(tree, f.Player.GetNode<PlayerInputReader>("Input"), 1);
+                    maximumStep = Mathf.Max(maximumStep, previous.DistanceTo(f.Player.Position));
+                    previous = f.Player.Position;
+                    if (variant == 0 && launchPhysics > 0 && flightRows < 18)
+                    {
+                        flightRows++;
+                        GD.Print($"RECYCLING_FLIGHT_OBSERVATION row={flightRows}/18 physics={Engine.GetPhysicsFrames()} " +
+                            $"player={f.Player.Position} velocity={f.Player.Velocity} floor={f.Player.IsOnFloor()} " +
+                            $"gear={comboGear.GlobalPosition} active={comboGear.IsDangerTelegraphActive} " +
+                            $"contact_sequence={comboGear.ContactSequence} gravity={f.Motor.MotionSettings.Gravity:R} " +
+                            $"health={f.Health.CurrentHealth}");
+                    }
+                }
+                if (variant == 0)
+                {
+                    for (int i = 0; i < 160 && f.Health.CurrentHealth > 0; i++) await Tick();
+                    TestAssert.True(f.Board.LaunchSequence == 1 && launchPhysics > 0 && deathPhysics > launchPhysics &&
+                        f.Health.CurrentHealth == 0 && deaths == 1 && f.Motor.AcceptedJumpCount == 0 &&
+                        f.Motor.AcceptedDashCount == 0 && maximumStep < 24f,
+                        $"RECYCLING_COMBO_FLIGHT_RED: holding real D without Space must fly from pad into gear, " +
+                        $"not teleport or scripted damage; hp={f.Health.CurrentHealth} deaths={deaths} " +
+                        $"launch={f.Board.LaunchSequence}/{launchPhysics} death={deathPhysics} " +
+                        $"position={f.Player.Position} max_step={maximumStep:R}");
+                    GD.Print("RECYCLING_COMBO_FLIGHT_OK actual_pad=true later_native_gear_contact=true held_D=true " +
+                        "ordinary_jumps=0 dash=0 one_death=true pose_writes=0");
+                }
+                else
+                {
+                    for (int i = 0; i < 50 && f.Player.Position.X < 240f; i++) await Tick();
+                    f.Driver.Command(InputActions.Jump, true);
+                    for (int i = 0; i < 7; i++) await Tick();
+                    f.Driver.Command(InputActions.Jump, false);
+                    for (int i = 0; i < 60 && f.Player.Position.X < 380f; i++) await Tick();
+                    f.Driver.Command(InputActions.MoveRight, false);
+                    for (int i = 0; i < 80 && !f.Player.IsOnFloor(); i++) await Tick();
+                    TestAssert.True(f.Player.IsOnFloor() && f.Player.Position.X > 360f &&
+                        f.Board.LaunchSequence == 0 && f.Health.CurrentHealth == 5 && f.Motor.AcceptedJumpCount == 1,
+                        "one actual ordinary Space avoids both mechanisms and lands beyond the combination");
+                    GD.Print($"RECYCLING_RETURN_OBSERVATION stage=before_reverse_jump player={f.Player.Position} " +
+                        $"velocity={f.Player.Velocity} floor={f.Player.IsOnFloor()} jumps={f.Motor.AcceptedJumpCount} " +
+                        $"space={Input.IsPhysicalKeyPressed(Key.Space)} physics={Engine.GetPhysicsFrames()}");
+                    f.Driver.Command(InputActions.MoveLeft, true);
+                    int returnFrames = 0;
+                    // Landing still carries +260 rightward momentum. Brake on the
+                    // real floor and take a short leftward run-up before jumping;
+                    // all of this consumes the original 80-frame return budget.
+                    for (; returnFrames < 80 && (f.Player.Position.X > 360f || f.Player.Velocity.X > -240f);
+                        returnFrames++) await Tick();
+                    TestAssert.True(returnFrames < 80 && f.Player.IsOnFloor() &&
+                        f.Health.CurrentHealth == 5 && f.Board.LaunchSequence == 0,
+                        "return run-up uses real grounded reverse braking before the same ordinary Space");
+                    f.Driver.Command(InputActions.Jump, true);
+                    for (int i = 0; i < 7; i++, returnFrames++) await Tick();
+                    f.Driver.Command(InputActions.Jump, false);
+                    for (; returnFrames < 80 && f.Player.Position.X > 230f; returnFrames++) await Tick();
+                    f.Driver.Command(InputActions.MoveLeft, false);
+                    for (int i = 0; i < 80 && !f.Player.IsOnFloor(); i++) await Tick();
+                    TestAssert.True(f.Player.IsOnFloor() && f.Player.Position.X < 248f &&
+                        f.Board.LaunchSequence == 0 && f.Health.CurrentHealth == 5 && deaths == 0 &&
+                        f.Motor.AcceptedJumpCount == 2 && f.Motor.AcceptedDashCount == 0 && maximumStep < 24f,
+                        $"RECYCLING_COMBO_RETURN_RED: ordinary Space route must also return safely; " +
+                        $"hp={f.Health.CurrentHealth} pad={f.Board.LaunchSequence} jumps={f.Motor.AcceptedJumpCount} " +
+                        $"position={f.Player.Position} max_step={maximumStep:R}");
+                    GD.Print("RECYCLING_COMBO_BYPASS_OK natural_space_out_and_back=true ordinary_jumps=2 " +
+                        "dash=0 health=5->5 launches=0 pose_writes=0");
+                }
+            }
+            finally
+            {
+                if (GodotObject.IsInstanceValid(f.Player)) f.Health.Died -= OnDied;
+                await f.DisposeAsync();
+            }
+        }
+        var control = new SpringboardFixture(tree);
+        try
+        {
+            control.Player.Position = new(300, 464); control.Board.Position = new(700, 500);
+            (CanyonFixedGear gear, CircleShape2D shape) = AddFixedGearFixture(control, new(300, 464), 1);
+            control.Root.SetMeta("_seamless_staged", true);
+            await control.Mount();
+            TestAssert.True(control.Health.CurrentHealth == 5 && gear.ContactSequence == 0,
+                "staged room cannot deliver even a real native gear overlap");
+            control.Root.RemoveMeta("_seamless_staged"); shape.Radius = 45f;
+            await Frames(tree, 6);
+            TestAssert.True(control.Health.CurrentHealth == 5 && !gear.IsDangerTelegraphActive,
+                "mutated native footprint cannot create an invisible larger damaging circle");
+            shape.Radius = 30f; gear.Visible = false; await Frames(tree, 6);
+            TestAssert.True(control.Health.CurrentHealth == 5 && gear.ContactSequence == 0,
+                "hidden gear is not an invisible damage source");
+            gear.Visible = true; gear.Monitoring = false; await Frames(tree, 2);
+            TestAssert.True(control.Health.CurrentHealth == 5, "monitoring disabled never polls an invalid overlap list");
+            gear.Monitoring = true; CollisionShape2D collider = gear.GetNode<CollisionShape2D>("Collision");
+            collider.Disabled = true; await Frames(tree, 4);
+            TestAssert.True(control.Health.CurrentHealth == 5 && !gear.IsDangerTelegraphActive,
+                "disabled native circle vetoes stale overlap delivery");
+            collider.Disabled = false; await Frames(tree, 4);
+            TestAssert.True(control.Health.CurrentHealth == 4 && gear.ContactSequence == 1,
+                "restored exact visible native geometry genuinely damages through configured one-point contact");
+            ulong sequence = gear.ContactSequence;
+            gear.ResetForCheckpoint(); control.Root.QueueFree(); gear._PhysicsProcess(2d);
+            TestAssert.True(control.Health.CurrentHealth == 4 && gear.ContactSequence == sequence,
+                "queued ancestor synchronously revokes even reset gear before child exit");
+            GD.Print("RECYCLING_GEAR_CONTROLS_OK staged=true geometry=true hidden=true disabled=true " +
+                "restored_real_damage=1 queued_ancestor=true native_player=true");
+        }
+        finally { await control.DisposeAsync(); }
+    }
+
+    private static (CanyonFixedGear Gear, CircleShape2D Shape) AddFixedGearFixture(
+        SpringboardFixture fixture, Vector2 position, int damage = 5)
+    {
+        var gear = new CanyonFixedGear { Name = "Gear", Position = position, Damage = damage };
+        var shape = fixture.Own(new CircleShape2D { Radius = 30f });
+        gear.AddChild(new CollisionShape2D { Name = "Collision", Shape = shape });
+        fixture.Root.AddChild(gear); return (gear, shape);
+    }
+
     public static async Task Run(SceneTree tree)
     {
         await CounterweightMovesARealPassengerAndStopsAtEndpoints(tree);
@@ -1493,6 +2414,63 @@ public static class CanyonMechanismRuntimeTests
         Input.ActionRelease(InputActions.MoveDown);
         Input.ActionRelease(InputActions.Jump);
         Input.ActionRelease(InputActions.Dash);
+    }
+
+    private sealed class SpringboardFixture
+    {
+        private readonly SceneTree _tree;
+        private readonly List<Shape2D> _owned = new();
+        public Node2D Root { get; } = new() { Name = "SpringboardControlFixture" };
+        public StaticBody2D Floor { get; }
+        public StaticBody2D LowerFloor { get; private set; }
+        public CollisionShape2D FloorCollider { get; }
+        public CharacterBody2D Player { get; }
+        public CanyonSpringboard Board { get; }
+        public bool RegisterPlayer { get; set; } = true;
+        public KeyboardRouteInputDriver Driver;
+        public PlayerMotor Motor => Player.GetNode<PlayerMotor>("Motor");
+        public HealthComponent Health => Player.GetNode<HealthComponent>("Health");
+        public SpringboardFixture(SceneTree tree)
+        {
+            _tree = tree;
+            Floor = AddFloor("Floor", new Rect2(0, 500, 800, 40));
+            FloorCollider = Floor.GetNode<CollisionShape2D>("Collision");
+            Player = GD.Load<PackedScene>("res://scenes/player/Player.tscn").Instantiate<CharacterBody2D>();
+            Player.Position = new Vector2(180, 464); Player.GetNode<Camera2D>("Camera2D").Enabled = false;
+            Root.AddChild(Player);
+            Board = new CanyonSpringboard { Name = "Pad", Position = new(300, 500), SupportBodyPath = new("../Floor") };
+            var sensor = new RectangleShape2D { Size = new(64, 12) }; _owned.Add(sensor);
+            Board.AddChild(new CollisionShape2D { Name = "Collision", Position = new(0, -6), Shape = sensor });
+            Root.AddChild(Board);
+        }
+        public StaticBody2D AddFloor(string name, Rect2 bounds)
+        {
+            var floor = new StaticBody2D { Name = name, CollisionLayer = CombatCollisionLayers.World,
+                CollisionMask = CombatCollisionLayers.None };
+            var shape = new RectangleShape2D { Size = bounds.Size }; _owned.Add(shape);
+            floor.AddChild(new CollisionShape2D { Name = "Collision", Position = bounds.GetCenter(), Shape = shape });
+            Root.AddChild(floor); if (name == "LowerFloor") LowerFloor = floor; return floor;
+        }
+        public T Own<T>(T shape) where T : Shape2D { _owned.Add(shape); return shape; }
+        public async Task Mount()
+        {
+            if (RegisterPlayer) Player.AddToGroup("player");
+            _tree.Root.AddChild(Root); await Frames(_tree, 8);
+        }
+        public async Task DisposeAsync()
+        {
+            Driver?.Dispose();
+            if (GodotObject.IsInstanceValid(Root) && !Root.IsQueuedForDeletion()) Root.QueueFree();
+            await Frames(_tree, 2);
+            foreach (Shape2D shape in _owned) shape.Dispose();
+            _owned.Clear();
+        }
+    }
+
+    private partial class SpringboardPhysicsProbe : Node
+    {
+        public Action Observe;
+        public override void _PhysicsProcess(double delta) => Observe?.Invoke();
     }
 
     private static class MechanismFixture

@@ -53,7 +53,7 @@ public partial class PrologueCompletionController : Node
         _level = GetNode<PrologueLevelController>(LevelPath);
         _hud = GetNode<PrologueHud>(HudPath);
         _startedAtMilliseconds = Time.GetTicksMsec();
-        if (!BasinQualitySampleMode)
+        if (!BasinQualitySampleMode && _level.WorldProfile==null)
         {
             _level.RecoveryRequested += OnRecoveryRequested;
             EnsureAttackObservation();
@@ -66,7 +66,11 @@ public partial class PrologueCompletionController : Node
 
     public override void _PhysicsProcess(double delta)
     {
+        if(_level.WorldProfile!=null)return;
         if (BasinQualitySampleMode) { ObserveSampleExit(); return; }
+        // A restored sector is not an observed objective until the session begins.
+        if (_level.GetNodeOrNull<PrologueGameFlowController>("GameFlow")?.State is
+            PrologueGameFlowState.Title or PrologueGameFlowState.Intro) return;
         if (_model.Current == PrologueObjective.Complete) { ObserveNormalExit(); return; }
         EnsureAttackObservation();
         EnsureClawObservation();
@@ -113,7 +117,7 @@ public partial class PrologueCompletionController : Node
         _attackStartedWhileCurrent = false;
         _clawAttachedWhileCurrent = false;
         _shieldRisingEdgeWhileCurrent = false;
-        if (!BasinQualitySampleMode) _model.Observe(PrologueProgressEvent.Woke);
+        if (!BasinQualitySampleMode && _level.WorldProfile==null) _model.Observe(PrologueProgressEvent.Woke);
         _hud?.ResetForNewGame();
         Display();
     }
@@ -121,7 +125,7 @@ public partial class PrologueCompletionController : Node
     public void RestoreSession(PrologueObjective objective, bool completeMappedLegacyBossResult = false)
     {
         ResetSession();
-        if (BasinQualitySampleMode) return;
+        if (BasinQualitySampleMode || _level.WorldProfile!=null) return;
         int target = Array.IndexOf(Enum.GetValues<PrologueObjective>(), objective);
         if (target < 1) return;
         _completeMappedLegacyBossResult = completeMappedLegacyBossResult;
@@ -134,7 +138,7 @@ public partial class PrologueCompletionController : Node
 
     public override void _ExitTree()
     {
-        if (IsInstanceValid(_level) && !BasinQualitySampleMode)
+        if (IsInstanceValid(_level) && !BasinQualitySampleMode && _level.WorldProfile==null)
             _level.RecoveryRequested -= OnRecoveryRequested;
         if (IsInstanceValid(_combat)) _combat.AttackStarted -= OnAttackStarted;
         if (IsInstanceValid(_claw)) _claw.ClawFrameChanged -= OnClawFrameChanged;
@@ -303,7 +307,17 @@ public partial class PrologueCompletionController : Node
              reason.Contains("FALL", StringComparison.OrdinalIgnoreCase))) _deaths++;
     }
 
-    private void Display() => _hud.SetObjective(BasinQualitySampleMode
+    private string DevelopmentObjective(PrologueWorldProfile profile)
+    {
+        char last=(char)('A'+profile.AuthoredBranches-1);
+        string range=profile.AuthoredBranches==1?"A":$"A–{last}";
+        return _language==GameLanguage.English
+            ? $"DEVELOPMENT: ENTRY 01–{profile.AuthoredMainSegments:00} + {(profile.AuthoredBranches==1?"BRANCH":"BRANCHES")} {range}"
+            : $"开发样段：入口01–{profile.AuthoredMainSegments:00}＋{range}分路（并非完整首关）";
+    }
+    private void Display() => _hud.SetObjective(_level.WorldProfile is {} profile
+        ? DevelopmentObjective(profile)
+        : BasinQualitySampleMode
         ? _language == GameLanguage.English
             ? "DEV SAMPLE: CAMP > BATTLE > GRAPPLE SUPPLY > RETURN (IN DEVELOPMENT)"
             : "开发样片：营地 > 战斗 > 机械爪补给 > 返回（开发中）"

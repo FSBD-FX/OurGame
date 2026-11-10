@@ -46,6 +46,8 @@ public partial class MechanicalClawController : Node
     public ulong AuthorityRevision { get; private set; } = 1UL;
     public GrappleSurface2D CurrentTarget { get; private set; }
     public MechanicalClawTargetResolution KeyboardPreview { get; private set; } = MechanicalClawTargetResolution.None;
+    // Optional scalar evidence for exactly the next existing keyboard preview.
+    internal MechanicalClawKeyboardTrace NextKeyboardPreviewTrace { private get; set; }
 
     // Streamers subscribe first, then immediately read this property to acquire an
     // already-active target. A false callback runs while the old value is still readable.
@@ -112,8 +114,10 @@ public partial class MechanicalClawController : Node
         bool castRequested = command == MechanicalClawCommand.Cast;
         if (castRequested) InvalidateAuthority();
         ulong authority = AuthorityRevision;
+        var keyboardTrace = NextKeyboardPreviewTrace;
+        NextKeyboardPreviewTrace = null;
         KeyboardPreview = sampled.KeyboardActions && !active && _health.CurrentHealth > 0
-            ? _resolver.ResolveKeyboard(_player, _input.KeyboardAimDirection)
+            ? _resolver.ResolveKeyboard(_player, _input.KeyboardAimDirection, keyboardTrace)
             : MechanicalClawTargetResolution.None;
         if (sampled.KeyboardActions && castRequested) _keyboardCastSelection = KeyboardPreview;
         MechanicalClawTargetResolution resolution = ResolveTarget(previous, sampled.MouseWorld, castRequested);
@@ -202,7 +206,18 @@ public partial class MechanicalClawController : Node
         {
             if (!snapshot.HasLineOfSight || (!arrived && (targetContactObstructed || stalled)) ||
                 PullMotionIsObstructed(previous, next, seconds))
+            {
+#if CLAW_OBSTRUCTION_IDENTITY
+                GD.Print($"CLAW_NATIVE_OBSTRUCTION_GATE physics={Engine.GetPhysicsFrames()} " +
+                    $"caster={_player.GetInstanceId()} path={_player.GetPath()} cast={next.CastId} " +
+                    $"previous={previous.State} next={next.State} command={command} " +
+                    $"los={snapshot.HasLineOfSight} arrived={arrived} saved_contact={targetContactObstructed} stalled={stalled} " +
+                    $"position={_player.GlobalPosition} velocity={_player.Velocity} " +
+                    $"target={CurrentTarget?.GetPath()} target_id={snapshot.RuntimeId} " +
+                    $"anchor={next.AnchorPoint} dock={next.DockPoint} source=actual_controller_branch diagnostic_only=true");
+#endif
                 next = ObstructedRelease(next);
+            }
         }
         if (next.State is MechanicalClawState.Idle or MechanicalClawState.Released or
             MechanicalClawState.Failed)
@@ -241,7 +256,10 @@ public partial class MechanicalClawController : Node
                 0f);
             CurrentTarget = null;
             Publish(released);
-            if (IsCurrentAuthority(authority) && CurrentFrame == released) ApplyMotor(released, sampled.MoveAxis);
+            // An effect-only hit never installed a physical tether. Relinquish
+            // casting constraints without projecting the caster's real velocity
+            // against the point target's aim normal as if it were a wall.
+            if (IsCurrentAuthority(authority) && CurrentFrame == released) _motor.ClearGrappleConstraint();
             return;
         }
 
@@ -308,6 +326,7 @@ public partial class MechanicalClawController : Node
 
     public override void _ExitTree()
     {
+        NextKeyboardPreviewTrace = null;
         InvalidateAuthority();
         KeyboardPreview = MechanicalClawTargetResolution.None;
         _keyboardCastSelection = MechanicalClawTargetResolution.None;
@@ -660,6 +679,18 @@ public partial class MechanicalClawController : Node
         bool targetCollider = collider != null && CurrentTarget != null &&
             GodotObject.IsInstanceValid(CurrentTarget) &&
             MechanicalClawTargetResolver.ColliderBelongsToSurface(collider, CurrentTarget);
+#if CLAW_OBSTRUCTION_IDENTITY
+        GD.Print($"CLAW_NATIVE_PULL_HIT physics={Engine.GetPhysicsFrames()} " +
+            $"caster={_player.GetInstanceId()} path={_player.GetPath()} cast={next.CastId} " +
+            $"previous={previous.State} next={next.State} from={_player.GlobalPosition} " +
+            $"motion={intendedMotion} end={_player.GlobalPosition + intendedMotion} " +
+            $"velocity={intendedVelocity} delta={seconds:R} previous_correction={previousCorrection} correction={next.VelocityCorrection} " +
+            $"collider_id={collision.GetColliderId()} collider={collider?.GetPath()} " +
+            $"point={collision.GetPosition()} normal={collision.GetNormal()} " +
+            $"travel={collision.GetTravel()} remainder={collision.GetRemainder()} depth={collision.GetDepth():R} " +
+            $"target_collider={targetCollider} target={CurrentTarget?.GetPath()} " +
+            $"anchor={next.AnchorPoint} dock={next.DockPoint} source=actual_test_move diagnostic_only=true");
+#endif
         // Downward inertia may reach the departure floor before the bounded
         // upward servo reverses it. Let MoveAndSlide resolve that real landing;
         // the same Reel can then lift off. Walls, ceilings and target faces

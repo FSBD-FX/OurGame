@@ -65,12 +65,13 @@ public static class PrologueGameFlowTests
         await Frames(tree, 2);
         PrologueGameFlowController flow = level.GetNode<PrologueGameFlowController>("GameFlow");
         TestAssert.True(!flow.HasSave,
-            "completed schema-3/layout-2 save cannot advertise Continue");
-        flow.StartNew();
-        await Frames(tree, 1);
-        PrologueSaveData restarted = PrologueSaveStore.LoadOrNew(savePath);
-        TestAssert.True(!restarted.Completed && !restarted.HasActivatedCheckpoint &&
-            !restarted.ShortcutOpen && restarted.Discoveries.Count == 0,
+            "completed current-layout save cannot advertise Continue");
+        PrologueSaveData restarted = await ObserveEntryCommit(tree, level, flow.StartNew, writesSlot: true);
+        TestAssert.True(!restarted.WasRecovered && !restarted.Completed && !restarted.HasActivatedCheckpoint &&
+            restarted.CheckpointId == "canyon.v2.start" && !restarted.BossDefeated &&
+            !restarted.ShortcutOpen && restarted.OpenShortcuts.Count == 0 &&
+            restarted.ActivatedMechanisms.Count == 0 && restarted.Discoveries.Count == 0 &&
+            restarted.CompletedTutorials.Count == 0,
             "Start New clears continuous progress authority on disk");
         TestAssert.Equal(123.5d, restarted.BestHumanCompletionSeconds,
             "Start New preserves the best human completion time");
@@ -89,12 +90,15 @@ public static class PrologueGameFlowTests
         PrologueGameFlowController flow = level.GetNode<PrologueGameFlowController>("GameFlow");
         TestAssert.True(flow.Save.WasRecovered && !flow.HasSave,
             "corrupt save fails closed and cannot masquerade as Continue data");
-        flow.StartNew();
-        await Frames(tree, 1);
-        PrologueSaveData restarted = PrologueSaveStore.LoadOrNew(savePath);
-        TestAssert.True(!restarted.Completed && !restarted.HasActivatedCheckpoint &&
+        byte[] corruptBytes = File.ReadAllBytes(savePath);
+        PrologueSaveData restarted = await ObserveEntryCommit(tree, level, flow.StartNew, writesSlot: true);
+        TestAssert.True(!restarted.WasRecovered && !restarted.Completed && !restarted.HasActivatedCheckpoint &&
+            restarted.CheckpointId == "canyon.v2.start" &&
             restarted.CheckpointSector == nameof(PrologueSectorId.CanyonEntrance),
             "Start New after corrupt recovery persists a clean canyon run");
+        string[] backups = Directory.GetFiles(root, Path.GetFileName(savePath) + ".preserved-*.json");
+        TestAssert.True(backups.Length == 1 && SameBytes(corruptBytes, File.ReadAllBytes(backups[0])),
+            "the real replacement leaves an exact backup of the corrupt file");
         await Dispose(tree, level);
     }
 
@@ -104,30 +108,86 @@ public static class PrologueGameFlowTests
         string savePath = Path.Combine(root, "completed-first-death.json");
         WriteCompleted(savePath);
         PrologueLevelController level = Instantiate("CompletedFirstDeathFixture", savePath);
-        tree.Root.AddChild(level);
-        await Frames(tree, 2);
         PrologueGameFlowController flow = level.GetNode<PrologueGameFlowController>("GameFlow");
-        flow.StartNew();
-        await Frames(tree, 1);
-
-        PrologueCheckpointSnapshot start = level.Progress.RestoreCheckpoint();
-        TestAssert.True(!start.HasActivatedCheckpoint &&
-            start.SectorId == PrologueSectorId.CanyonEntrance,
-            "completed save starts clean at the canyon round start");
-        HealthComponent health = level.Player.GetNode<HealthComponent>("Health");
-        bool recovered = false;
-        level.RecoveryCompleted += _ => recovered = true;
-        TestAssert.True(health.ApplyDamage(new DamageRequest(
-                health.CurrentHealth, Vector2.Down, 0f, 900001UL)),
-            "real generated player health reaches physical death before checkpoint activation");
-        for (int frame = 0; frame < 6 && !recovered; frame++) await Frames(tree, 1);
-        TestAssert.True(recovered, "first-death recovery completes after leaving the damage callback");
-        TestAssert.True(level.CurrentSector == PrologueSectorId.CanyonEntrance &&
-            level.Player.GlobalPosition.DistanceTo(start.WorldPosition) < 1.1f,
-            "the first physical death returns to the exact round start without advancing checkpoint");
-        TestAssert.True(health.CurrentHealth == health.MaxHealth,
-            "round-start recovery restores full health");
-        await Dispose(tree, level);
+        CharacterBody2D player = level.GetNode<CharacterBody2D>("PlayerRoot/Player");
+        HealthComponent health = player.GetNode<HealthComponent>("Health");
+        ulong playerId = player.GetInstanceId();
+        Exception primary = null;
+        bool recovered = false, subscribed = false, applyingLethal = false, outsideDamage = false, committed = false;
+        Vector2 completionPosition = default;
+        int requested = 0, completed = 0;
+        void Requested(string _) => requested++;
+        void Completed(string _)
+        {
+            recovered = true; completed++;
+            outsideDamage = !applyingLethal;
+            committed = !level.ResidentPreparationPending && level.ResidentPreparationFailure.Length == 0;
+            completionPosition = player.GlobalPosition;
+        }
+        object Snapshot() => new
+        {
+            State = flow.State.ToString(), Pending = level.ResidentPreparationPending,
+            Failure = level.ResidentPreparationFailure, Recovering = level.RecoveryInProgress,
+            Health = health.CurrentHealth, Requested = requested, Completed = completed,
+            Sector = level.CurrentSector?.ToString(), Position = player.GlobalPosition.ToString(),
+            Physics = Engine.GetPhysicsFrames()
+        };
+        try
+        {
+            tree.Root.AddChild(level);
+            await Frames(tree, 2);
+            await ObserveEntryCommit(tree, level, flow.StartNew, writesSlot: true);
+            PrologueCheckpointSnapshot start = level.Progress.RestoreCheckpoint();
+            TestAssert.True(!start.HasActivatedCheckpoint && start.SectorId == PrologueSectorId.CanyonEntrance,
+                "completed save starts clean at the canyon round start");
+            level.RecoveryRequested += Requested;
+            level.RecoveryCompleted += Completed;
+            subscribed = true;
+            object beforeLethal = Snapshot();
+            applyingLethal = true;
+            try
+            {
+                TestAssert.True(health.ApplyDamage(new DamageRequest(health.CurrentHealth, Vector2.Down, 0f, 900001UL)),
+                    "real generated player health reaches physical death before checkpoint activation");
+            }
+            finally { applyingLethal = false; }
+            object afterLethal = Snapshot();
+            int recoveryFrames = 0;
+            while (!recovered && recoveryFrames < 180)
+            {
+                TestAssert.True(flow.State == PrologueGameFlowState.Recovering &&
+                    level.ResidentPreparationFailure.Length == 0,
+                    "accepted first-death recovery retains ownership until its real resident commit: " +
+                    level.ResidentPreparationFailure);
+                await Frames(tree, 1);
+                recoveryFrames++;
+            }
+            if (!recovered) GD.Print("COMPLETED_SAVE_FIRST_DEATH_FAILURE " +
+                System.Text.Json.JsonSerializer.Serialize(new { Before = beforeLethal, After = afterLethal, Final = Snapshot() }));
+            TestAssert.True(recovered && requested == 1 && completed == 1 && outsideDamage && committed &&
+                flow.State == PrologueGameFlowState.Playing,
+                "first-death recovery completes once after leaving the damage callback and committing its real session");
+            TestAssert.True(level.CurrentSector == PrologueSectorId.CanyonEntrance &&
+                completionPosition.DistanceTo(start.WorldPosition) < 1.1f &&
+                player.GlobalPosition.DistanceTo(start.WorldPosition) < 1.1f &&
+                !level.Progress.RestoreCheckpoint().HasActivatedCheckpoint &&
+                player.GetInstanceId() == playerId && ReferenceEquals(level.Player, player),
+                "the first physical death returns the same player to the exact round start without advancing checkpoint");
+            TestAssert.True(health.CurrentHealth == health.MaxHealth, "round-start recovery restores full health");
+            GD.Print($"COMPLETED_SAVE_FIRST_DEATH_COMMIT_OK actual_playing=true real_lethal=true requested=1 completed=1 " +
+                $"outside_damage=true same_player=true round_start=true resident_commit=true wait_physics={recoveryFrames}");
+        }
+        catch (Exception error) { primary = error; throw; }
+        finally
+        {
+            if (subscribed && GodotObject.IsInstanceValid(level))
+            {
+                level.RecoveryRequested -= Requested;
+                level.RecoveryCompleted -= Completed;
+            }
+            tree.Paused = false;
+            await ApprovedLanternRuntimeTests.ReleaseOwnedLevel(tree, level, primary);
+        }
     }
 
     private static async Task TitleNewSettingsCompletionAndInvalidRecovery(
@@ -141,8 +201,7 @@ public static class PrologueGameFlowTests
         PrologueUiRoot ui = level.GetNode<PrologueUiRoot>("ProductUi");
         TestAssert.True(flow.State == PrologueGameFlowState.Title && ui.Visible,
             "finished build begins at title with gameplay disabled");
-        flow.StartNew();
-        await Frames(tree, 1);
+        await ObserveEntryCommit(tree, level, flow.StartNew, writesSlot: true);
         TestAssert.True(flow.State == PrologueGameFlowState.Playing && !ui.Visible,
             "Start New enters continuous gameplay");
         flow.ApplySettings(new GameSettingsData
@@ -173,7 +232,7 @@ public static class PrologueGameFlowTests
         await Frames(tree, 5);
         TestAssert.True(flow.State == PrologueGameFlowState.Completed && cancelledRequests == 0,
             "actual post-completion death cannot reopen checkpoint recovery");
-        flow.StartNew();
+        await ObserveEntryCommit(tree, level, flow.StartNew, writesSlot: true);
         await Frames(tree, 8);
         var replayPose = level.Player.GetNode<PlayerFormalVisual>("VisualRoot/Formal")
             .CurrentPlayerFrame.Locomotion.State;
@@ -201,9 +260,8 @@ public static class PrologueGameFlowTests
         tree.Root.AddChild(level);
         await Frames(tree, 2);
         PrologueGameFlowController flow = level.GetNode<PrologueGameFlowController>("GameFlow");
-        TestAssert.True(flow.HasSave, "valid schema-3/layout-2 disk save enables Continue");
-        flow.Continue();
-        await Frames(tree, 2);
+        TestAssert.True(flow.HasSave, "valid current-layout disk save enables Continue");
+        await ObserveEntryCommit(tree, level, flow.Continue, writesSlot: false);
         TestAssert.True(level.CurrentSector == PrologueSectorId.CanyonBasin &&
             level.Player.GlobalPosition.DistanceTo(BasinCheckpoint) < 1.1f,
             $"Continue restores the authored Basin checkpoint sector and world position; " +
@@ -226,13 +284,92 @@ public static class PrologueGameFlowTests
         PrologueGameFlowController recovered = corrupt.GetNode<PrologueGameFlowController>("GameFlow");
         TestAssert.True(recovered.Save.WasRecovered && !recovered.HasSave,
             "corrupt Continue data fails closed");
-        recovered.StartNew();
-        await Frames(tree, 1);
-        TestAssert.True(corrupt.CurrentSector == PrologueSectorId.CanyonEntrance &&
+        PrologueSaveData replaced = await ObserveEntryCommit(tree, corrupt, recovered.StartNew, writesSlot: true);
+        TestAssert.True(!replaced.WasRecovered && replaced.CheckpointId == "canyon.v2.start" &&
+            corrupt.CurrentSector == PrologueSectorId.CanyonEntrance &&
             !corrupt.Progress.RestoreCheckpoint().HasActivatedCheckpoint,
             "corrupt recovery starts a clean continuous run");
         await Dispose(tree, corrupt);
     }
+
+    private static async Task<PrologueSaveData> ObserveEntryCommit(SceneTree tree,
+        PrologueLevelController level, Action request, bool writesSlot)
+    {
+        var flow = level.GetNode<PrologueGameFlowController>("GameFlow");
+        var playerRoot = level.GetNode<Node2D>("PlayerRoot");
+        byte[] ReadSlot() => File.Exists(flow.SavePath) ? File.ReadAllBytes(flow.SavePath) : null;
+        byte[] before = ReadSlot(), publishedBytes = null;
+        DateTime? beforeWriteTime = null, publishedWriteTime = null;
+        if (!writesSlot)
+        {
+            // A deterministic SaveAtomic can replace the slot with identical bytes.
+            // Mark this isolated fixture so a normal rewrite cannot hide behind equality.
+            var sentinel = new DateTime(2001, 2, 3, 4, 5, 6, DateTimeKind.Utc);
+            TestAssert.True(before != null, "ordinary Continue requires an existing isolated slot");
+            File.SetLastWriteTimeUtc(flow.SavePath, sentinel);
+            beforeWriteTime = File.GetLastWriteTimeUtc(flow.SavePath);
+            TestAssert.True(beforeWriteTime == sentinel, "ordinary Continue fixture write marker is applied");
+        }
+        PrologueSaveData accepted = flow.Save, published = null, publishedAuthority = null;
+        bool playableAtSignal = false;
+        int signals = 0;
+        Exception readFailure = null;
+        void OnSessionStarted()
+        {
+            if (++signals != 1) return;
+            playableAtSignal = flow.State == PrologueGameFlowState.Playing &&
+                !level.ResidentPreparationPending && playerRoot.IsVisibleInTree();
+            publishedAuthority = flow.Save;
+            try
+            {
+                publishedBytes = ReadSlot();
+                if (!writesSlot) publishedWriteTime = File.GetLastWriteTimeUtc(flow.SavePath);
+                published = PrologueSaveStore.LoadOrNew(flow.SavePath, CanyonWorldLayout.CurrentLayoutVersion);
+            }
+            catch (Exception error) { readFailure = error; }
+        }
+        void AssertIntroUnpublished() => TestAssert.True(
+            flow.State == PrologueGameFlowState.Intro && level.ResidentPreparationPending &&
+            !playerRoot.IsVisibleInTree() && signals == 0 && ReferenceEquals(accepted, flow.Save) &&
+            SameBytes(before, ReadSlot()) &&
+            (writesSlot || beforeWriteTime == File.GetLastWriteTimeUtc(flow.SavePath)),
+            "actual full-world Intro keeps the old slot unpublished and gameplay hidden");
+
+        flow.SessionStarted += OnSessionStarted;
+        try
+        {
+            request();
+            AssertIntroUnpublished();
+            for (int frame = 0; frame < 180 && flow.State == PrologueGameFlowState.Intro; frame++)
+            {
+                await Frames(tree, 1);
+                if (flow.State == PrologueGameFlowState.Intro) AssertIntroUnpublished();
+            }
+            TestAssert.True(flow.State == PrologueGameFlowState.Playing && !level.ResidentPreparationPending,
+                $"entry must commit its real session: state={flow.State} pending={level.ResidentPreparationPending} " +
+                $"reason={level.ResidentPreparationFailure}");
+            TestAssert.True(signals == 1 && playableAtSignal && readFailure == null &&
+                publishedAuthority != null && ReferenceEquals(publishedAuthority, flow.Save) &&
+                publishedBytes != null && published != null && !published.WasRecovered &&
+                SameBytes(publishedBytes, ReadSlot()),
+                "exactly one real SessionStarted must publish a usable slot already on disk: " + readFailure?.Message);
+            TestAssert.True(writesSlot
+                    ? !ReferenceEquals(accepted, publishedAuthority) && !SameBytes(before, publishedBytes)
+                    : ReferenceEquals(accepted, publishedAuthority) && SameBytes(before, publishedBytes) &&
+                      beforeWriteTime == publishedWriteTime &&
+                      beforeWriteTime == File.GetLastWriteTimeUtc(flow.SavePath),
+                writesSlot ? "fresh entry replaces the accepted slot only when committed"
+                    : "ordinary Continue retains the accepted slot bytes and write marker through entry");
+            GD.Print($"GAME_FLOW_ENTRY_COMMIT_OK fixture={level.Name} wrote_slot={writesSlot} " +
+                "old_bytes_in_intro=true resident_ready=true session_events=1 usable_disk_at_signal=true" +
+                (writesSlot ? "" : " continue_write_marker_unchanged=true"));
+            return published;
+        }
+        finally { flow.SessionStarted -= OnSessionStarted; }
+    }
+
+    private static bool SameBytes(byte[] left, byte[] right) => left == null ? right == null :
+        right != null && left.AsSpan().SequenceEqual(right);
 
     private static void WriteCompleted(string path)
     {

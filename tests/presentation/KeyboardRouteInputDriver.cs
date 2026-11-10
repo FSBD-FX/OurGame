@@ -25,7 +25,7 @@ public sealed class KeyboardRouteInputDriver : IDisposable
     internal static readonly Key[] TraceKeys =
         [Key.A,Key.D,Key.W,Key.S,Key.Space,Key.Shift,Key.J,Key.K,Key.L,Key.Q,
          Key.Key1,Key.Key2,Key.Key3,Key.Key4,Key.Escape,Key.Enter];
-    private bool _clawIntent, _shieldHeld;
+    private bool _clawIntent, _shieldHeld, _stopForGuard;
     private Key? _primaryKey;
     private Vector2? _aimPoint;
     public int KeyDownCount { get; private set; }
@@ -81,12 +81,14 @@ public sealed class KeyboardRouteInputDriver : IDisposable
         // with K/L and the real production resolver/guard still decides the result.
     }
 
-    public void PointerButton(MouseButton button, bool pressed, CharacterBody2D player, Vector2 point)
+    public void PointerButton(MouseButton button, bool pressed, CharacterBody2D player, Vector2 point,
+        bool stopForGuard = false)
     {
         if(button==MouseButton.Left) { AimAt(player,point); Command(InputActions.PrimaryAction,pressed); return; }
         TestAssert.True(button==MouseButton.Right, "keyboard route only translates known strategy intents");
         if(pressed) AimAt(player,point);
         _shieldHeld=pressed;
+        _stopForGuard=pressed && stopForGuard;
         RefreshDirections();
         Emit(Key.L,pressed);
     }
@@ -100,8 +102,12 @@ public sealed class KeyboardRouteInputDriver : IDisposable
             int octant=(int)Mathf.Round(delta.Angle()/(Mathf.Pi/4f));
             Vector2 direction=Vector2.Right.Rotated(octant*Mathf.Pi/4f);
             wanted.Clear();
+            // Opt-in horizontal guard: acquire the real facing with a sampled
+            // key, then release directions and let the production motor brake.
+            // Keep planner intent in _directions; ReleaseAll can still cancel it.
+            // Vertical/diagonal aim retains its existing actual WASD behavior.
             bool neutralHorizontal = Mathf.Abs(direction.Y)<.5f &&
-                !_directions.Contains(Key.A) && !_directions.Contains(Key.D) &&
+                (_stopForGuard || !_directions.Contains(Key.A) && !_directions.Contains(Key.D)) &&
                 _player.GetNode<PlayerInputReader>("Input").KeyboardAimDirection.Dot(direction)>.99f;
             if(!neutralHorizontal && direction.X>.5f) wanted.Add(Key.D);
             if(!neutralHorizontal && direction.X<-.5f) wanted.Add(Key.A);
@@ -216,7 +222,7 @@ public sealed class KeyboardRouteInputDriver : IDisposable
     public void ReleaseAll()
     {
         foreach(Key key in new List<Key>(_held)) Emit(key,false);
-        _directions.Clear(); _primaryKey=null; _shieldHeld=false; _aimPoint=null;
+        _directions.Clear(); _primaryKey=null; _shieldHeld=false; _stopForGuard=false; _aimPoint=null;
     }
     public void ObserveFrame()
     {

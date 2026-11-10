@@ -16,8 +16,9 @@ public static class MinimapTerrainCatalogBuilder
     public const string Provenance = "CanyonContentBuilder.Solid/v1";
     private readonly record struct Entry(int Sector, string Path, Vector2 Offset, MinimapSolid Solid);
 
-    public static MinimapTerrainCatalog Build(IReadOnlyList<PrologueSectorDefinition> definitions)
+    public static MinimapTerrainCatalog Build(IReadOnlyList<PrologueSectorDefinition> definitions, int cellSize = 8)
     {
+        if (cellSize is not (8 or 16)) throw new ArgumentException("Unsupported minimap grid.");
         if (definitions == null || definitions.Count == 0) throw new ArgumentException("Sector definitions required.");
         var entries = new List<Entry>();
         var ids = new HashSet<PrologueSectorId>();
@@ -54,7 +55,7 @@ public static class MinimapTerrainCatalogBuilder
         }
         // Canonical binary digest: schema/grid/envelope/sector/path/offset/affine/rect/face/segment order.
         using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream);
-        writer.Write(1); writer.Write(8); Vector(envelope.Position); Vector(envelope.Size); writer.Write(entries.Count);
+        writer.Write(cellSize == 8 ? 1 : 2); writer.Write(cellSize); Vector(envelope.Position); Vector(envelope.Size); writer.Write(entries.Count);
         foreach (Entry e in entries)
         {
             writer.Write(e.Sector); writer.Write(e.Path); Vector(e.Offset);
@@ -63,7 +64,7 @@ public static class MinimapTerrainCatalogBuilder
         }
         writer.Write(boundaries.Count);
         foreach (var b in boundaries) { writer.Write(b.ShapeId); Vector(b.FromLocal); Vector(b.ToLocal); Vector(b.OutwardLocal); }
-        return new MinimapTerrainCatalog(envelope, Convert.ToHexString(SHA256.HashData(stream.ToArray())), solids, boundaries.ToArray());
+        return new MinimapTerrainCatalog(envelope, Convert.ToHexString(SHA256.HashData(stream.ToArray())), solids, boundaries.ToArray(), cellSize);
 
         void Vector(Vector2 v) { writer.Write(v.X); writer.Write(v.Y); }
         void Face(int shape, Vector2 a, Vector2 b, Vector2 normal)
@@ -134,19 +135,20 @@ public static class MinimapTerrainCatalogBuilder
         }
     }
 
-    public static Godot.Collections.Dictionary<string, Vector2> Checkpoints(IReadOnlyList<PrologueSectorDefinition> definitions)
+    public static Godot.Collections.Dictionary<string, Vector2> Checkpoints(IReadOnlyList<PrologueSectorDefinition> definitions,PrologueWorldProfile profile=null)
     {
+        profile?.ValidateDefinitions(definitions);
         var result = new Godot.Collections.Dictionary<string, Vector2>();
         foreach (var d in definitions)
         {
             var root = d.Scene.Instantiate<PrologueSector>();
             try
             {
-                if (d.Id == PrologueSectorId.CanyonEntrance)
+                if (d.Id == (profile?.Start.SectorId ?? PrologueSectorId.CanyonEntrance))
                 {
                     var spawn = root.GetNodeOrNull<Node2D>("Spawn") ?? throw new ArgumentException("Missing authored Spawn.");
                     ValidatePath(spawn, root);
-                    result.Add("canyon.v2.start", new Transform2D(0, d.WorldOffset) * spawn.Position);
+                    result.Add(profile?.Start.StableId ?? "canyon.v2.start", new Transform2D(0, d.WorldOffset) * spawn.Position);
                 }
                 Walk(root, new Transform2D(0, d.WorldOffset));
                 void Walk(Node node, Transform2D parent)
@@ -155,6 +157,8 @@ public static class MinimapTerrainCatalogBuilder
                     if (node is CheckpointTrigger cp)
                     {
                         ValidatePath(cp, root);
+                        if(profile!=null && (!profile.TryResolveCheckpoint(cp.EntranceId,out var sector,out var point) || sector!=d.Id || point!=t.Origin))
+                            throw new ArgumentException("Authored checkpoint differs from its selected profile.");
                         if (string.IsNullOrWhiteSpace(cp.EntranceId) || result.ContainsKey(cp.EntranceId))
                             throw new ArgumentException("Invalid authored checkpoint identity.");
                         result.Add(cp.EntranceId, t.Origin);
@@ -164,6 +168,8 @@ public static class MinimapTerrainCatalogBuilder
             }
             finally { root.Free(); }
         }
+        if(profile!=null && (result.Count!=profile.Checkpoints.Count || profile.Checkpoints.Any(c=>!result.TryGetValue(c.StableId,out var point) || point!=c.WorldPosition)))
+            throw new ArgumentException("Missing or displaced profile checkpoint/spawn.");
         return result;
     }
 }

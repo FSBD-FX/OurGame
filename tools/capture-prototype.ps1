@@ -2,7 +2,7 @@ param([switch]$FramesOnly)
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'EvidenceChecks.ps1')
-$godot = 'G:\godot\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
+$godot = 'G:\knight\Tools\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
 $proof = Join-Path $project 'screenshots\prototype'
 New-Item -ItemType Directory -Path $proof -Force | Out-Null
 $resolvedProof = (Resolve-Path -LiteralPath $proof).Path

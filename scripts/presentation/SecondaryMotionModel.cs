@@ -10,7 +10,8 @@ public readonly record struct SecondaryMotionInput(
     float LandingImpulse,
     float ContactImpulse,
     PlayerActionPhase ThreadPhase,
-    float ThreadEnergy);
+    float ThreadEnergy,
+    Vector2 GroundAttackDrive = default);
 
 public readonly record struct SecondaryMotionFrame(
     PoseTransform2D Mantle,
@@ -46,6 +47,24 @@ public sealed class SecondaryMotionModel
     private ChannelSpring _tether = new(13f);
     private SecondaryMotionFrame _lastFrame = SecondaryMotionFrame.Identity;
 
+    /// <summary>Re-express existing motion in a horizontally reflected parent basis.
+    /// Both position and momentum change local sign; world motion and time do not.</summary>
+    public void ReflectHorizontalBasis()
+    {
+        _mantle.ReflectHorizontalBasis();
+        _lantern.ReflectHorizontalBasis();
+        _spool.ReflectHorizontalBasis();
+        _tether.ReflectHorizontalBasis();
+        _lastFrame = new(Reflect(_lastFrame.Mantle), Reflect(_lastFrame.Lantern),
+            Reflect(_lastFrame.ShoulderSpool), Reflect(_lastFrame.Tether));
+    }
+
+    private static PoseTransform2D Reflect(PoseTransform2D value) => value with
+    {
+        Position = new(-value.Position.X, value.Position.Y),
+        RotationRadians = -value.RotationRadians
+    };
+
     public SecondaryMotionFrame Step(SecondaryMotionInput input, float deltaSeconds)
     {
         if (!IsFinite(deltaSeconds) || deltaSeconds <= 0f) return _lastFrame;
@@ -53,18 +72,22 @@ public sealed class SecondaryMotionModel
         SecondaryMotionInput safe = Sanitize(input);
         Vector2 mantleTarget = ClampPosition(
             new Vector2(-safe.Acceleration.X * 0.010f - safe.Velocity.X * 0.018f,
-                safe.Turn * 2.5f),
+                safe.Turn * 2.5f - safe.Velocity.Y * 0.006f + safe.LandingImpulse * 7f) -
+                safe.GroundAttackDrive * new Vector2(1.5f, .75f),
             SecondaryMotionLimits.MantlePosition);
         float mantleRotation = Clamp(
-            -safe.Acceleration.X * 0.00045f - safe.Velocity.X * 0.00065f - safe.Turn * 0.10f,
+            -safe.Acceleration.X * 0.00045f - safe.Velocity.X * 0.00065f - safe.Turn * 0.10f -
+                safe.GroundAttackDrive.X * .04f,
             SecondaryMotionLimits.MantleRotation);
 
         Vector2 lanternTarget = ClampPosition(
             new Vector2(-safe.Acceleration.X * 0.006f,
-                safe.Acceleration.Y * 0.005f + safe.LandingImpulse * 9f + safe.ContactImpulse * 4f),
+                safe.Acceleration.Y * 0.005f + safe.LandingImpulse * 9f + safe.ContactImpulse * 4f) -
+                safe.GroundAttackDrive * new Vector2(3.6f, 2.4f),
             SecondaryMotionLimits.LanternPosition);
         float lanternRotation = Clamp(
-            -safe.Acceleration.X * 0.00038f + safe.Turn * 0.06f + safe.ContactImpulse * 0.08f,
+            -safe.Acceleration.X * 0.00038f + safe.Turn * 0.06f + safe.ContactImpulse * 0.08f -
+                safe.GroundAttackDrive.X * .12f,
             SecondaryMotionLimits.LanternRotation);
 
         float phaseDrive = safe.ThreadPhase switch
@@ -121,7 +144,9 @@ public sealed class SecondaryMotionModel
         ClampFinite(input.LandingImpulse, -1f, 1f),
         ClampFinite(input.ContactImpulse, -1f, 1f),
         Enum.IsDefined(input.ThreadPhase) ? input.ThreadPhase : PlayerActionPhase.None,
-        ClampFinite(input.ThreadEnergy, 0f, 1f));
+        ClampFinite(input.ThreadEnergy, 0f, 1f),
+        new Vector2(ClampFinite(input.GroundAttackDrive.X, -1f, 1f),
+            ClampFinite(input.GroundAttackDrive.Y, -1f, 1f)));
 
     private static Vector2 Sanitize(Vector2 value) => new(
         IsFinite(value.X) ? value.X : 0f,
@@ -158,12 +183,24 @@ public sealed class SecondaryMotionModel
 
         public float StepRotation(float target, float deltaSeconds, float limit) =>
             _rotation.Step(target, deltaSeconds, _frequency, limit);
+
+        public void ReflectHorizontalBasis()
+        {
+            _x.Reflect();
+            _rotation.Reflect();
+        }
     }
 
     private struct ScalarSpring
     {
         private double _value;
         private double _velocity;
+
+        public void Reflect()
+        {
+            _value = -_value;
+            _velocity = -_velocity;
+        }
 
         public float Step(float target, float deltaSeconds, float frequency, float limit)
         {

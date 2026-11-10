@@ -162,7 +162,9 @@ public partial class RangedWeaponProjectile : Node2D
             return;
         }
         Guide(space, seconds);
-        float distance = (float)Math.Min((double)_settings.Speed * seconds, remaining);
+        double requestedDistance = (double)_settings.Speed * seconds;
+        bool rangeSpentThisTick = requestedDistance >= remaining;
+        float distance = (float)Math.Min(requestedDistance, remaining);
         Vector2 from = GlobalPosition;
         Vector2 desiredEnd = from + _direction * distance;
         if (!Finite(desiredEnd))
@@ -204,7 +206,10 @@ public partial class RangedWeaponProjectile : Node2D
             }
             return;
         }
-        if (areaBoundary || TravelledDistance + .00001f >= _settings.MaximumTravel ||
+        // Endpoint rounding in a large world can leave a positive sub-ULP
+        // remainder forever. Spend the logical range only AFTER the final
+        // native Sweep/contact/ledger above; keep actual travelled distance.
+        if (areaBoundary || rangeSpentThisTick || TravelledDistance + .00001f >= _settings.MaximumTravel ||
             (_settings.Role == RangedWeaponRole.Missile && _age + .0000001d >= _settings.MaximumAge))
             FinishFlight();
     }

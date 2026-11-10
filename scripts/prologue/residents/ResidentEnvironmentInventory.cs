@@ -44,6 +44,17 @@ public static class ResidentEnvironmentInventory
             {
                 case KillZone recovery: ReserveBody(recovery,"recovery",ResidentKeepOutKind.Hazard); break;
                 case CanyonSteamJet steam: ReserveBody(steam,"steam",ResidentKeepOutKind.Hazard); break;
+                case CanyonArcGear arc:
+                    if(!arc.HasValidMotionGeometry) issues.Add("invalid_motion:"+Path(arc));
+                    else Add("arc-gear:"+Path(arc),ResidentKeepOutKind.Hazard,arc.MotionWorldBounds);
+                    break;
+                case CanyonMovingGear moving:
+                    if(!moving.HasValidMotionGeometry) issues.Add("invalid_motion:"+Path(moving));
+                    else Add("moving-gear:"+Path(moving),ResidentKeepOutKind.Hazard,moving.MotionWorldBounds);
+                    break;
+                case CanyonFixedGear gear: ReserveBody(gear,"fixed-gear",ResidentKeepOutKind.Hazard); break;
+                case CanyonIncinerator pool: ReserveBody(pool,"incinerator",ResidentKeepOutKind.Hazard); break;
+                case CanyonSpringboard pad: ReserveBody(pad,"springboard",ResidentKeepOutKind.Hazard); break;
                 case CanyonShieldLaneHazard electric: ReserveBody(electric,"electric",ResidentKeepOutKind.Hazard); break;
                 case CanyonGearPiston piston:
                     Linear(piston,piston.RetractedPosition,piston.ExtendedPosition);

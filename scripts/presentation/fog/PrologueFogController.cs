@@ -49,6 +49,8 @@ public partial class PrologueFogController : Node
     private FogPressureGateReadabilityOverlay _gateCues;
     private FogMovingGeometryReadabilityOverlay _movingCues;
     private FogBarrierReadabilityOverlay _barrierCues;
+    private FogRecyclingReadabilityOverlay _recyclingCues;
+    private readonly List<CollisionObject2D> _recycling=new();
     private readonly List<StaticBody2D> _barriers = new();
     private readonly List<AnimatableBody2D> _movingBodies = new();
     private readonly List<CanyonPressureGateVisual> _gates = new();
@@ -73,6 +75,7 @@ public partial class PrologueFogController : Node
         _gateCues = GetNodeOrNull<FogPressureGateReadabilityOverlay>("../ProtectedCues/PressureGates");
         _movingCues = GetNodeOrNull<FogMovingGeometryReadabilityOverlay>("../ProtectedCues/MovingBodies");
         _barrierCues = GetNodeOrNull<FogBarrierReadabilityOverlay>("../ProtectedCues/Barriers");
+        _recyclingCues = GetNodeOrNull<FogRecyclingReadabilityOverlay>("../ProtectedCues/Recycling");
         _canvas.Visible = false;
         RenderingServer.FramePreDraw += OnFramePreDraw;
     }
@@ -89,6 +92,7 @@ public partial class PrologueFogController : Node
         if (Live(_gateCues)) _gateCues.Clear();
         if (Live(_movingCues)) _movingCues.Clear();
         if (Live(_barrierCues)) _barrierCues.Clear();
+        if (Live(_recyclingCues)) _recyclingCues.Clear();
         if (!Playing() || !Live(_level.Player)) return;
         PlayerInputReader input = _level.Player.GetNodeOrNull<PlayerInputReader>("Input");
         if (!Live(input)) return;
@@ -121,6 +125,7 @@ public partial class PrologueFogController : Node
         if (Live(_gateCues)) _gateCues.Clear();
         if (Live(_movingCues)) _movingCues.Clear();
         if (Live(_barrierCues)) _barrierCues.Clear();
+        if (Live(_recyclingCues)) _recyclingCues.Clear();
         if (!Playing() || !Live(_level.Player)) return;
         PlayerPresentationCoordinator presentation =
             _level.Player.GetNodeOrNull<PlayerPresentationCoordinator>("Presentation");
@@ -140,12 +145,13 @@ public partial class PrologueFogController : Node
         LastOcclusionFrame = _sampler.Capture();
         Transform2D pixelToWorld =
             (GetViewport().GetFinalTransform() * world.GetCanvasTransform()).AffineInverse();
-        CurrentProfile = PrologueFogModel.ResolveProfile(_level.Player.GlobalPosition);
+        var selectedProfile=_level.WorldProfile;
+        CurrentProfile = PrologueFogModel.ResolveProfile(_level.Player.GlobalPosition,selectedProfile?.FogFields ?? PrologueFogModel.Fields);
         // ApplySettings replaces its normalized data object; read the live
         // option for every submission rather than retaining startup settings.
         bool reducedFog = _level.GetNodeOrNull<PrologueGameFlowController>("GameFlow")?.Settings.ReducedFog == true;
         _canvas.Present(_level.Player.GlobalPosition, LampWorldPosition, _direction,
-            pixelToWorld, LastOcclusionFrame, reducedFog);
+            pixelToWorld, LastOcclusionFrame, reducedFog,selectedProfile);
         PresentMountedFragments(world);
         PresentMountedAttacks(world);
         PresentMountedTerrain(world);
@@ -154,6 +160,7 @@ public partial class PrologueFogController : Node
         PresentMountedGates(world);
         PresentMountedMovingBodies(world);
         PresentMountedBarriers(world);
+        PresentMountedRecycling(world);
         if (Live(_interactionCue)) _interactionCue.PresentInteraction(
             _level.Player.GetNodeOrNull<EnvironmentInteractionController>("EnvironmentInteraction"), LastOcclusionFrame);
         // Initial/paused/retired frames remain hidden. Missing presentation
@@ -170,7 +177,7 @@ public partial class PrologueFogController : Node
     private bool ProtectedConsumersReady() =>
         Protected(_fragmentCues) && Protected(_attackCues) && Protected(_interactionCue) &&
         Protected(_terrainCues) && Protected(_steamCues) && Protected(_laneCues) &&
-        Protected(_gateCues) && Protected(_movingCues) && Protected(_barrierCues);
+        Protected(_gateCues) && Protected(_movingCues) && Protected(_barrierCues) && Protected(_recyclingCues);
 
     private static bool Protected(Node2D consumer) => Live(consumer) && consumer.IsVisibleInTree();
 
@@ -353,6 +360,20 @@ public partial class PrologueFogController : Node
         _barrierCues.PresentBarriers(_barriers,_level.Player.GlobalPosition,LastOcclusionFrame);
     }
 
+    private void PresentMountedRecycling(Node2D world)
+    {
+        _recycling.Clear();
+        if(!Live(_recyclingCues) || world.GetNodeOrNull<SeamlessPrologueWorld>("Sectors") is not {} sectors ||
+            !Live(sectors)) return;
+        foreach(PrologueSectorId id in sectors.MountedSectorIds)
+            if(sectors.TryGetMountedSector(id,out PrologueSector sector) && Live(sector) &&
+                sector.GetNodeOrNull<Node>("Gameplay/Mechanisms") is {} mechanisms && Live(mechanisms))
+                for(int i=0;i<mechanisms.GetChildCount();i++)
+                    if(mechanisms.GetChild(i) is CollisionObject2D body && body is CanyonFixedGear or CanyonSpringboard or CanyonIncinerator)
+                        _recycling.Add(body);
+        _recyclingCues.PresentSources(_recycling,_level.Player.GlobalPosition,LastOcclusionFrame);
+    }
+
     private static bool Live(Node node) => IsInstanceValid(node) && node.IsInsideTree() && !node.IsQueuedForDeletion();
 
     public override void _ExitTree()
@@ -365,6 +386,8 @@ public partial class PrologueFogController : Node
         if (IsInstanceValid(_gateCues)) _gateCues.Clear();
         if (IsInstanceValid(_movingCues)) _movingCues.Clear();
         if (IsInstanceValid(_barrierCues)) _barrierCues.Clear();
+        if (IsInstanceValid(_recyclingCues)) _recyclingCues.Clear();
+        _recycling.Clear();
         _sampler?.Dispose();
         _sampler = null;
         _world = null;
@@ -378,6 +401,7 @@ public partial class PrologueFogController : Node
         _laneCues = null;
         _gateCues = null;
         _movingCues = null;
+        _recyclingCues = null;
         _barrierCues = null;
         _fragments.Clear();
         _attacks.Clear();

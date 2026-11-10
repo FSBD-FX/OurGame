@@ -59,8 +59,8 @@ public partial class PrologueUiRoot : CanvasLayer
         SetSettings(settings);
         _main.Visible = false;
         _controls.Visible = false;
-        _settings.Present(_currentSettings);
-        GetNode<HSlider>("SettingsMenu/Panel/Rows/Master/Value").GrabFocus();
+        _settings.Present(_currentSettings, allowGuidance: !BasinQualitySampleMode);
+        _settings.Value<HSlider>("Master").GrabFocus();
     }
 
     public void ShowControls()
@@ -70,6 +70,13 @@ public partial class PrologueUiRoot : CanvasLayer
         _settings.Visible = false;
         _controls.Present(LastInputDevice, Language);
         GetNode<Button>("ControlsView/Panel/Back").GrabFocus();
+    }
+
+    internal void UpdateContinueAvailability(bool hasSave)
+    {
+        _hasSave = hasSave;
+        EnsureNodes();
+        _main.UpdateContinueAvailability(hasSave);
     }
 
     public void SetLastInputDevice(InputDeviceKind device)
@@ -108,24 +115,23 @@ public partial class PrologueUiRoot : CanvasLayer
         EnsureNodes();
         int[] widths = [1280, 1920, 2560, 3840];
         int[] heights = [720, 1080, 1440, 2160];
-        int resolution = Mathf.Clamp(GetNode<OptionButton>("SettingsMenu/Panel/Rows/Resolution/Value").Selected, 0, 3);
+        int resolution = Mathf.Clamp(_settings.Value<OptionButton>("Resolution").Selected, 0, 3);
         return new GameSettingsData
         {
-            MasterVolume = (float)GetNode<HSlider>("SettingsMenu/Panel/Rows/Master/Value").Value,
-            MusicVolume = (float)GetNode<HSlider>("SettingsMenu/Panel/Rows/Music/Value").Value,
-            EffectsVolume = (float)GetNode<HSlider>("SettingsMenu/Panel/Rows/Effects/Value").Value,
-            AmbienceVolume = (float)GetNode<HSlider>("SettingsMenu/Panel/Rows/Ambience/Value").Value,
-            UiVolume = (float)GetNode<HSlider>("SettingsMenu/Panel/Rows/UiVolume/Value").Value,
-            WindowMode = (GameWindowMode)GetNode<OptionButton>("SettingsMenu/Panel/Rows/WindowMode/Value").Selected,
+            MasterVolume = (float)_settings.Value<HSlider>("Master").Value,
+            MusicVolume = (float)_settings.Value<HSlider>("Music").Value,
+            EffectsVolume = (float)_settings.Value<HSlider>("Effects").Value,
+            AmbienceVolume = (float)_settings.Value<HSlider>("Ambience").Value,
+            UiVolume = (float)_settings.Value<HSlider>("UiVolume").Value,
+            WindowMode = (GameWindowMode)_settings.Value<OptionButton>("WindowMode").Selected,
             ResolutionWidth = widths[resolution], ResolutionHeight = heights[resolution],
-            VSync = GetNode<CheckButton>("SettingsMenu/Panel/Rows/VSync/Value").ButtonPressed,
-            UiScale = (float)GetNode<HSlider>("SettingsMenu/Panel/Rows/UiScale/Value").Value,
-            ScreenShake = (float)GetNode<HSlider>("SettingsMenu/Panel/Rows/ScreenShake/Value").Value,
-            ReduceFlashes = GetNode<CheckButton>("SettingsMenu/Panel/Rows/ReduceFlashes/Value").ButtonPressed,
-            ReducedFog = GetNode<CheckButton>("SettingsMenu/Panel/Rows/ReducedFog/Value").ButtonPressed,
-            Language = (GameLanguage)GetNode<OptionButton>("SettingsMenu/Panel/Rows/Language/Value").Selected,
-            GuidanceEnabled = _currentSettings.GuidanceEnabled
-                && !BasinQualitySampleMode
+            VSync = _settings.Value<CheckButton>("VSync").ButtonPressed,
+            UiScale = (float)_settings.Value<HSlider>("UiScale").Value,
+            ScreenShake = (float)_settings.Value<HSlider>("ScreenShake").Value,
+            ReduceFlashes = _settings.Value<CheckButton>("ReduceFlashes").ButtonPressed,
+            ReducedFog = _settings.Value<CheckButton>("ReducedFog").ButtonPressed,
+            Language = (GameLanguage)_settings.Value<OptionButton>("Language").Selected,
+            GuidanceEnabled = !BasinQualitySampleMode && _settings.Value<CheckButton>("Guidance").ButtonPressed
         }.Normalize();
     }
 

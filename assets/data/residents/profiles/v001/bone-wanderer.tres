@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="ResidentSubtypeProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSubtypeProfile.cs" id="1_m4who"]
+
+[resource]
+script = ExtResource("1_m4who")
+SubtypeId = "bone-wanderer"
+Family = 3
+Carrier = 1
+BoneWeakness = 2

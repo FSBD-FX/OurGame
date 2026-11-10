@@ -486,11 +486,11 @@ public static class NormalWorldPhysicalExitTests
         string caseRoot = Path.GetDirectoryName(storage)!;
         string expectedTemp = Path.Combine(caseRoot, "unit-temp");
         if (!string.Equals(Path.GetDirectoryName(caseRoot), Trim(Path.GetFullPath(
-                "E:/OurGame/Knight/.evidence/september09-continuous-canyon/task10")), StringComparison.OrdinalIgnoreCase) ||
+                "G:/knight/验证证据/september09-continuous-canyon/task10")), StringComparison.OrdinalIgnoreCase) ||
             Path.GetFileName(storage) != "storage" || !Directory.Exists(storage) ||
             Directory.EnumerateFileSystemEntries(storage).Any() || !Directory.Exists(expectedTemp) ||
             !string.Equals(Trim(Path.GetFullPath(ProjectSettings.GlobalizePath("res://"))), Trim(Path.GetFullPath(
-                "E:/OurGame/Knight/.worktrees/task6-certified-final-20260902T0555")), StringComparison.OrdinalIgnoreCase))
+                "G:/knight/Knight")), StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("focused external case storage must be empty and in exact linked checkout");
         foreach (string name in new[] { "TMP", "TEMP" })
         {

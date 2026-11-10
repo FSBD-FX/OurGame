@@ -139,10 +139,10 @@ public partial class RunTask17SteamDiverterIntegrationTests : SceneTree
             throw new ArgumentException("Task17B case root must be absolute.");
         string storage = Trim(Path.GetFullPath(raw));
         string evidence = Trim(Path.GetFullPath(
-            "E:/OurGame/Knight/.evidence/september09-continuous-canyon/task17b"));
+            "G:/knight/验证证据/september09-continuous-canyon/task17b"));
         string project = Trim(Path.GetFullPath(ProjectSettings.GlobalizePath("res://")));
         string expectedProject = Trim(Path.GetFullPath(
-            "E:/OurGame/Knight/.worktrees/task6-certified-final-20260902T0555"));
+            "G:/knight/Knight"));
         string? caseDirectory = Path.GetDirectoryName(storage);
         string? caseParent = caseDirectory == null ? null : Path.GetDirectoryName(caseDirectory);
         string expectedTemp = caseDirectory == null ? "" : Path.Combine(caseDirectory, "unit-temp");

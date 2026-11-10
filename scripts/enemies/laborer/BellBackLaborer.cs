@@ -15,7 +15,11 @@ public partial class BellBackLaborer : CharacterBody2D, IEncounterActor, IThread
     [Export] public NodePath ArmorPath { get; set; } = new("Armor");
     [Export] public NodePath HurtboxPath { get; set; } = new("Hurtbox");
     [Export] public NodePath AttackHitboxPath { get; set; } = new("AttackHitbox");
+#if REFCOUNTED_FATAL_IDENTITY
+    [Export] public BellBackLaborerTuning Tuning { get; set; } = Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveOriginalDefault(new BellBackLaborerTuning(), "scripts/enemies/laborer/BellBackLaborer.cs:Tuning");
+#else
     [Export] public BellBackLaborerTuning Tuning { get; set; } = new();
+#endif
 
     public event Action<BellBackLaborerFrame, int> FrameChanged;
     public event Action<AttackPresentationFrame> AttackFrameChanged;
@@ -23,6 +27,7 @@ public partial class BellBackLaborer : CharacterBody2D, IEncounterActor, IThread
     public event Action Defeated;
 
     public BellBackLaborerState CurrentState { get; private set; } = BellBackLaborerState.Idle;
+    internal float AttackTelegraphSeconds => _model?.AttackTelegraphSeconds ?? 0f;
     public BellBackLaborerFrame CurrentFrame { get; private set; } =
         new(BellBackLaborerState.Idle, 0f, false, false, false);
     public int Facing { get; private set; } = 1;
@@ -126,12 +131,15 @@ public partial class BellBackLaborer : CharacterBody2D, IEncounterActor, IThread
     {
         // Terrain separates encounter layers. Sensors, inactive attack areas and
         // other actors are not solid terrain and must not blind this enemy.
-        var query = PhysicsRayQueryParameters2D.Create(GlobalPosition, target, CombatCollisionLayers.World);
+        using var query = PhysicsRayQueryParameters2D.Create(GlobalPosition, target, CombatCollisionLayers.World);
         query.CollideWithBodies = true;
         query.CollideWithAreas = false;
         query.HitFromInside = true;
-        query.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
-        return GetWorld2D().DirectSpaceState.IntersectRay(query).Count == 0;
+        var exclusions = new Godot.Collections.Array<Rid> { GetRid() };
+        using Godot.Collections.Array exclusionBacking = (Godot.Collections.Array)exclusions;
+        query.Exclude = exclusions;
+        using Godot.Collections.Dictionary hit = GetWorld2D().DirectSpaceState.IntersectRay(query);
+        return hit.Count == 0;
     }
 
     public void ResetForCheckpoint()

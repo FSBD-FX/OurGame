@@ -14,9 +14,9 @@ if ([string]::IsNullOrWhiteSpace($VerifierPath)) {
     $VerifierPath = Join-Path $project 'tools\verify-p0.ps1'
 }
 $evidenceRoot = Join-Path $project 'screenshots\task4-capture-exit'
-$godot = 'G:\godot\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
-$dotnet = 'G:\godot\dotnet-sdk\dotnet.exe'
-$env:DOTNET_ROOT = 'G:\godot\dotnet-sdk'
+$godot = 'G:\knight\Tools\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
+$dotnet = 'G:\knight\Tools\dotnet-sdk\dotnet.exe'
+$env:DOTNET_ROOT = 'G:\knight\Tools\dotnet-sdk'
 $env:DOTNET_ROOT_X64 = $env:DOTNET_ROOT
 $env:DOTNET_ROLL_FORWARD = 'LatestMajor'
 $env:Path = "$env:DOTNET_ROOT;$env:Path"

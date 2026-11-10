@@ -19,8 +19,103 @@ namespace Knight.Tests.Integration;
 
 public static class MinimapLifecycleTests
 {
+    // Freeing an instance must release the resources it created, without GC or
+    // a drain frame. Detaching/reparenting and clearing are not final deletion.
+    public static async Task RunOwnedViewResourceLifetime(SceneTree tree)
+    {
+        AssertTextureVariantOwnership();
+        var view = new PrologueMinimapView { Name = "OwnedMinimapLifetime", Size = new Vector2(260, 170) };
+        var survivor = new PrologueMinimapView { Name = "SurvivingMinimapLifetime", Size = new Vector2(260, 170) };
+        tree.Root.AddChild(view);
+        tree.Root.AddChild(survivor);
+        try
+        {
+            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            var model = new ExplorationMapModel(new MinimapTerrainCatalog(
+                new Rect2(-2048, -1024, 4096, 2048), "owned-lifetime"));
+            view.Present(model, Vector2.Zero, Vector2.Right, 0);
+            survivor.Present(model, Vector2.Zero, Vector2.Left, 0);
+            ulong[] owned = CaptureViewResourceIds(view);
+            ulong[] surviving = CaptureViewResourceIds(survivor);
+            ulong borrowedShader = CaptureViewShaderId(view);
+            TestAssert.True(owned.All(GodotObject.IsInstanceIdValid) &&
+                surviving.All(GodotObject.IsInstanceIdValid) &&
+                borrowedShader == CaptureViewShaderId(survivor),
+                "two live minimaps own distinct resources and borrow the same shader");
+            TestAssert.True(!owned.Intersect(surviving).Any(),
+                "instance-owned minimap resources cannot alias another view");
+
+            view.ClearPresentation();
+            TestAssert.True(owned.All(GodotObject.IsInstanceIdValid),
+                "clearing presentation retains the live view cache resources");
+            tree.Root.RemoveChild(view);
+            TestAssert.True(owned.All(GodotObject.IsInstanceIdValid),
+                "temporary detachment must not dispose resources needed on reentry");
+            tree.Root.AddChild(view);
+            view.Present(model, new Vector2(8, 0), Vector2.Right, 1d / 60);
+            TestAssert.True(view.Visible && view.TextureCreationCount == 1 &&
+                owned.SequenceEqual(CaptureViewResourceIds(view)),
+                "reattaching the same minimap resumes with its original usable cache");
+
+            ulong viewId = view.GetInstanceId();
+            view.Free();
+            bool[] stillAlive = owned.Select(GodotObject.IsInstanceIdValid).ToArray();
+            GD.Print($"MINIMAP_OWNED_RESOURCE_FACTS node_alive={GodotObject.IsInstanceIdValid(viewId)} " +
+                $"mask={stillAlive[0]} boundary={stillAlive[1]} image={stillAlive[2]} texture={stillAlive[3]} " +
+                "gc=false added_exit_frames=0");
+            TestAssert.True(!GodotObject.IsInstanceIdValid(viewId) && !stillAlive.Any(alive => alive),
+                "freeing a minimap releases all four instance-owned resources immediately without GC");
+            survivor.Present(model, new Vector2(16, 0), Vector2.Left, 1d / 60);
+            TestAssert.True(survivor.Visible && surviving.All(GodotObject.IsInstanceIdValid) &&
+                GodotObject.IsInstanceIdValid(borrowedShader) &&
+                borrowedShader == CaptureViewShaderId(survivor),
+                "deleting one view preserves another view and its borrowed shader");
+            survivor.Free();
+            TestAssert.True(!surviving.Any(GodotObject.IsInstanceIdValid),
+                "independent minimap deletion releases only its own resources too");
+            GD.Print("MINIMAP_OWNED_RESOURCE_LIFETIME_OK owned_resources=4 independent_views=2 " +
+                "detach_reentry_preserved=true borrowed_shader_preserved=true gc=false added_exit_frames=0");
+        }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(view)) view.Free();
+            if (GodotObject.IsInstanceValid(survivor)) survivor.Free();
+        }
+    }
+
+    private static ulong[] CaptureViewResourceIds(PrologueMinimapView view) =>
+        new[] { "_maskMaterial", "_boundaryMaterial", "_image", "_texture" }
+            .Select(name => ((GodotObject)typeof(PrologueMinimapView)
+                .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view)!).GetInstanceId())
+            .ToArray();
+
+    private static ulong CaptureViewShaderId(PrologueMinimapView view) =>
+        ((ShaderMaterial)view.GetNode<ColorRect>("KnownTerrain").Material).Shader.GetInstanceId();
+
+    private static void AssertTextureVariantOwnership()
+    {
+        // Characterize the ownership boundary without materializing a new
+        // wrapper between the two releases. IsInstanceIdValid calls
+        // InstanceFromId and can acquire a new owning wrapper at that point.
+        using Image image = Image.CreateFromData(1, 1, false, Image.Format.R8, new byte[] { 0 });
+        var texture = ImageTexture.CreateFromImage(image);
+        ulong id = texture.GetInstanceId();
+        Variant argument = Variant.From(texture);
+        try
+        {
+            texture.Dispose();
+        }
+        finally { argument.Dispose(); }
+        bool released = !GodotObject.IsInstanceIdValid(id);
+        GD.Print($"MINIMAP_VARIANT_OWNERSHIP_FACTS released_after_both_owners={released} " +
+            "intermediate_id_queries=0 gc=false frames=0");
+        TestAssert.True(released,
+            "disposing both the texture wrapper and its owned Variant releases the native texture");
+    }
+
     public static async Task Run(SceneTree tree)
     {
+        await RunOwnedViewResourceLifetime(tree);
         await QuitDurableSuccessRequiresActualWrite(tree);
         await CurrentFrameReveals(tree);
         await PauseNeverReveals(tree);
@@ -34,7 +129,7 @@ public static class MinimapLifecycleTests
         await QuitFailureRetryCancelStaysPaused(tree);
         await NormalQuitExactlyOnce(tree);
         await NoSaveExitAndStandalonePause(tree);
-        GD.Print("MINIMAP_LIFECYCLE_OK cases=13");
+        GD.Print("MINIMAP_LIFECYCLE_OK cases=14");
     }
 
     private static async Task QuitDurableSuccessRequiresActualWrite(SceneTree tree)
@@ -167,7 +262,22 @@ public static class MinimapLifecycleTests
             Map.Catalog = catalog ?? new MinimapTerrainCatalog(new Rect2(80, 480, 320, 320), "lifecycle-1");
             tree.Root.AddChild(Level);
         }
-        internal async Task Start(SceneTree tree) { await Frames(tree, 3); Flow.StartNew(); await Frames(tree, 3); }
+        internal async Task Start(SceneTree tree)
+        {
+            await Frames(tree, 3); // Let the authored flow initialize its title and isolated slot.
+            Flow.StartNew();
+            await WaitForPlaying(tree);
+            TestAssert.True(File.Exists(Paths.SavePath), "real new-game activation follows its isolated slot write");
+        }
+
+        internal async Task WaitForPlaying(SceneTree tree)
+        {
+            for (int frame = 0; frame < 180 && Flow.State == PrologueGameFlowState.Intro; frame++)
+                await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+            TestAssert.True(Flow.State == PrologueGameFlowState.Playing && !Level.ResidentPreparationPending,
+                $"minimap fixture must commit its actual session: state={Flow.State} pending={Level.ResidentPreparationPending} " +
+                $"reason={Level.ResidentPreparationFailure} rejected={Flow.LastRejectedTransition}");
+        }
         internal async Task Free(SceneTree tree)
         {
             KeyEvent(Key.Escape, false); KeyEvent(Key.Enter, false); KeyEvent(Key.Tab, false);
@@ -256,9 +366,21 @@ public static class MinimapLifecycleTests
         {
             await Frames(tree, 3);
             TestAssert.True(reloaded.Flow.HasSave, "same admitted slot offers Continue");
-            reloaded.Flow.Continue();
-            TestAssert.True(reloaded.Flow.State == PrologueGameFlowState.Playing, "actual Continue reaches Playing");
-            Same(durable, reloaded, "ContinueOnlyDurableMap: recreated actual flow restores A only, never unsaved B");
+            byte[] beforeContinue = File.ReadAllBytes(save);
+            string atCommit = null;
+            int commits = 0;
+            void ObserveCommit() { commits++; atCommit = Bits(reloaded); }
+            reloaded.Flow.SessionStarted += ObserveCommit;
+            try
+            {
+                reloaded.Flow.Continue();
+                await reloaded.WaitForPlaying(tree);
+            }
+            finally { reloaded.Flow.SessionStarted -= ObserveCommit; }
+            TestAssert.Equal(1, commits, "ContinueOnlyDurableMap: the real session commits exactly once");
+            TestAssert.Equal(durable, atCommit, "ContinueOnlyDurableMap: recreated actual flow restores A only, never unsaved B");
+            TestAssert.True(beforeContinue.AsSpan().SequenceEqual(File.ReadAllBytes(save)),
+                "ContinueOnlyDurableMap: ordinary Continue does not rewrite the slot");
             GD.Print("MINIMAP_CASE_OK ContinueOnlyDurableMap");
         }
         finally { await reloaded.Free(tree); }
@@ -270,10 +392,19 @@ public static class MinimapLifecycleTests
         try
         {
             await f.Start(tree); Present(f); string revealed = Bits(f);
+            f.Flow.PersistProgress("minimap-before-restart");
+            var previous = PrologueSaveStore.LoadOrNew(f.Paths.SavePath, CanyonWorldLayout.CurrentLayoutVersion, f.Map.Catalog);
+            TestAssert.True(!previous.WasRecovered && Convert.FromBase64String(revealed).Any(b => b != 0) &&
+                previous.ExplorationMap?.FreeCellsBase64 == revealed,
+                "NewGameClearsMap: the first session has nonzero durable exploration");
             f.Flow.ReturnToTitle(); f.Flow.StartNew();
-            TestAssert.True(Bits(f) != revealed && Array.TrueForAll(Convert.FromBase64String(Bits(f)), b => b == 0),
+            string cleared = Bits(f);
+            TestAssert.True(cleared != revealed && Array.TrueForAll(Convert.FromBase64String(cleared), b => b == 0),
                 "NewGameClearsMap: actual StartNew clears before new-game atomic save");
-            TestAssert.Equal(Bits(f), PrologueSaveStore.LoadOrNew(f.Paths.SavePath, mapCatalog: f.Map.Catalog).ExplorationMap.FreeCellsBase64,
+            await f.WaitForPlaying(tree);
+            var restarted = PrologueSaveStore.LoadOrNew(f.Paths.SavePath, CanyonWorldLayout.CurrentLayoutVersion, f.Map.Catalog);
+            TestAssert.True(!restarted.WasRecovered, "NewGameClearsMap: restarted slot is real current data, not a recovery default");
+            TestAssert.Equal(cleared, restarted.ExplorationMap?.FreeCellsBase64,
                 "NewGameClearsMap: disk stores cleared map");
             GD.Print("MINIMAP_CASE_OK NewGameClearsMap");
         }
@@ -313,7 +444,9 @@ public static class MinimapLifecycleTests
 
     private static async Task AdjacentMountedUnionAndUnload(SceneTree tree)
     {
-        var catalog = new MinimapTerrainCatalog(new Rect2(1276, 80, 8, 8), "union-1");
+        // Keep the complete 8px cell across the real x1280 seam, but place it
+        // in the V2 corridor, not inside the new solid y0..400 roof.
+        var catalog = new MinimapTerrainCatalog(new Rect2(1276, 512, 8, 8), "union-1");
         var f = new Fixture(tree, "adjacent-union", catalog: catalog);
         try
         {
@@ -321,7 +454,18 @@ public static class MinimapLifecycleTests
             var sectors = f.Level.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors");
             TestAssert.True(sectors.TryGetMountedSector(PrologueSectorId.CanyonEntrance, out _) &&
                 sectors.TryGetMountedSector(PrologueSectorId.CanyonDescent, out _), "actual adjacent sectors mounted");
-            f.Level.Player.GlobalPosition = new Vector2(1279, 76); await Frames(tree, 2); Present(f);
+            Rect2 cell = catalog.Cell(0);
+            Rect2 left = sectors.Definitions.Single(d => d.Id == PrologueSectorId.CanyonEntrance).WorldBounds;
+            Rect2 right = sectors.Definitions.Single(d => d.Id == PrologueSectorId.CanyonDescent).WorldBounds;
+            TestAssert.Equal(new Rect2(1276, 512, 8, 8), cell, "union probe retains a complete 8px cell");
+            TestAssert.True(left.End.X == 1280 && right.Position.X == 1280 &&
+                !left.Encloses(cell) && !right.Encloses(cell) &&
+                left.HasPoint(cell.Position) && right.HasPoint(cell.End - new Vector2(.001f, .001f)),
+                "neither mounted sector alone covers the complete seam cell");
+            f.Level.Player.GlobalPosition = new Vector2(1279, 508); await Frames(tree, 2); Present(f);
+            bool unobstructed = MinimapVisibility.CellAllowed(f.Level.Player.GlobalPosition, cell, f.Fog.LastOcclusionFrame);
+            GD.Print($"MINIMAP_UNION_GEOMETRY_FACTS cell={cell} left={left} right={right} unobstructed={unobstructed}");
+            TestAssert.True(unobstructed, "union probe uses actual unobstructed corridor space, never solid terrain");
             TestAssert.True(f.Map.Model.IsCellExplored(0), "AdjacentMountedUnion: entire8px cell straddles actual x1280 mount union");
             ulong generation = f.Map.WorldGeneration; string before = Bits(f);
             TestAssert.True(sectors.RestoreCheckpoint(PrologueSectorId.CanyonBasin, new Vector2(1600, 3800)), "actual stream relocation admitted");
@@ -355,13 +499,14 @@ public static class MinimapLifecycleTests
         var rejected = new Fixture(tree, "write-ineligible");
         try
         {
-            // Seed before deferred initialization; destination was admitted and
-            // configured before AddChild. No production/default save is touched.
-            System.IO.File.WriteAllText(rejected.Paths.SavePath, "not valid json");
-            await Frames(tree, 3);
+            // Fault only the admitted fixture slot after genuine activation:
+            // Title rejects for unrelated reasons and cannot prove slot admission.
+            await rejected.Start(tree);
+            File.WriteAllText(rejected.Paths.SavePath, "not valid json");
             TestAssert.True(!rejected.Flow.TrySaveBeforeQuit(out string failure) && !string.IsNullOrEmpty(failure),
                 "write eligibility rejection cannot report an early no-op as durable success");
-            TestAssert.Equal("not valid json", System.IO.File.ReadAllText(rejected.Paths.SavePath), "ineligible original slot untouched");
+            TestAssert.Equal("not valid json", File.ReadAllText(rejected.Paths.SavePath), "ineligible original slot untouched");
+            TestAssert.Equal(0, Directory.GetFiles(rejected.Paths.CaseRoot, "*.tmp").Length, "ineligible write leaves no temp files");
             GD.Print("MINIMAP_CASE_OK QuitWriteEligibilityNoFalseSuccess");
         }
         finally { await rejected.Free(tree); }
@@ -394,25 +539,20 @@ public static class MinimapLifecycleTests
 
     private static async Task CurrentFrameReveals(SceneTree tree)
     {
-        var level = GD.Load<PackedScene>("res://scenes/prologue/PrologueLevel.tscn")
-            .Instantiate<PrologueLevelController>();
-        IsolatedPrologueFixture.Configure(level, "minimap-live");
-        var flow = level.GetNode<PrologueGameFlowController>("GameFlow");
-        flow.HeadlessAutoStart = false;
-        var controller = level.GetNode<PrologueMinimapController>("MinimapController");
-        controller.Catalog = new MinimapTerrainCatalog(new Rect2(80, 480, 320, 320), "lifecycle-1");
-        tree.Root.AddChild(level);
+        var f = new Fixture(tree, "minimap-live");
         try
         {
-            await Frames(tree, 3);
-            flow.StartNew();
-            await Frames(tree, 3);
-            var fog = level.GetNode<PrologueFogController>("FogController");
-            typeof(PrologueFogController).GetMethod("OnFramePreDraw", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(fog, null);
-            TestAssert.True(controller.Model.RevisionCounter > 1,
-                "CurrentFrameReveals: successful live fog branch reveals actual player cells");
+            await f.Start(tree);
+            string before = Bits(f);
+            ulong revision = f.Map.Model.RevisionCounter;
+            var presented = f.Fog.PresentedFrameCount;
+            Present(f);
+            string after = Bits(f);
+            TestAssert.True(f.Fog.PresentedFrameCount == presented + 1 && f.Map.Model.RevisionCounter > revision &&
+                after != before && Convert.FromBase64String(after).Any(b => b != 0),
+                "CurrentFrameReveals: the actual fog frame adds exploration, not merely initialization revisions");
         }
-        finally { tree.Paused = false; level.QueueFree(); await Frames(tree, 3); }
+        finally { await f.Free(tree); }
     }
 
     private static async Task QuitFailureRetryCancelStaysPaused(SceneTree tree)

@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="ResidentSubtypeProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSubtypeProfile.cs" id="1_qpq7d"]
+
+[resource]
+script = ExtResource("1_qpq7d")
+SubtypeId = "cliff-diver"
+Archetype = 3
+Carrier = 3

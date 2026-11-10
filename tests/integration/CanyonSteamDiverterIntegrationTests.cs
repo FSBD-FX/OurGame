@@ -496,9 +496,9 @@ public static class CanyonSteamDiverterIntegrationTests
         }
         if (failures.Count != 0)
             throw new InvalidOperationException("Assertion failed: Task17B approved paired installations are missing or inconsistent\n" + string.Join("\n", failures));
-        TestAssert.Equal(new Rect2(3040, 3960, 1160, 360),
+        TestAssert.Equal(new Rect2(3040, 3800, 1160, 520),
             CanyonWorldLayout.Nodes.Single(node => node.Id == CanyonRouteNodeId.SteamValves).WorldBounds,
-            "SteamValves route supports the actual paired controls through x4200");
+            "SteamValves includes the real upper resident bay and paired controls through x4200");
         TestAssert.Equal(new Rect2(3040, 3960, 800, 360),
             CanyonEncounterCatalog.Normal.Single(encounter => encounter.StableId == "canyon.v2.encounter.steam-valves").ArenaBounds,
             "SteamValves enemy arena retains its approved 800-wide footprint");

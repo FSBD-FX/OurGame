@@ -3,11 +3,13 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Godot;
+using Knight.Build.Prologue;
 using Knight.Combat;
 using Knight.Enemies;
 using Knight.Enemies.Laborer;
 using Knight.Prologue;
 using Knight.Prologue.Guidance;
+using Knight.Prologue.Residents;
 using Knight.Prologue.Sample;
 using Knight.Prologue.Seamless;
 using Knight.Save;
@@ -261,6 +263,8 @@ public static class BasinQualitySampleEntryTests
         BasinQualitySampleEntry entry = null;
         try
         {
+            GameSettingsStore.SaveAtomic(Path.Combine(directory, "settings.json"),
+                new GameSettingsData { GuidanceEnabled = true });
             entry = await InstantiateSample(tree, directory);
             PrologueLevelController level = entry.Level;
             PrologueGameFlowController flow =
@@ -278,6 +282,25 @@ public static class BasinQualitySampleEntryTests
                 !level.GetNode<PrologueGuidanceController>("Guidance").GuidanceEnabled,
                 "sample disables full-route guidance and its re-enable control");
 
+            level.GetNode<Button>("ProductUi/MainMenu/Panel/Buttons/Settings")
+                .EmitSignal(Button.SignalName.Pressed);
+            var guidanceRow = ui.GetNode<Control>("SettingsMenu/Panel/Scroll/Rows/Guidance");
+            var guidanceToggle = guidanceRow.GetNode<CheckButton>("Value");
+            var reducedFog = ui.GetNode<CheckButton>("SettingsMenu/Panel/Scroll/Rows/ReducedFog/Value");
+            var language = ui.GetNode<OptionButton>("SettingsMenu/Panel/Scroll/Rows/Language/Value");
+            TestAssert.True(!guidanceRow.IsVisibleInTree() && guidanceToggle.Disabled &&
+                guidanceToggle.FocusMode == Control.FocusModeEnum.None &&
+                reducedFog.GetNodeOrNull<Control>(reducedFog.FocusNext) == language &&
+                language.GetNodeOrNull<Control>(language.FocusPrevious) == reducedFog,
+                "sample settings skips its unavailable guidance option in both keyboard directions");
+            guidanceToggle.ButtonPressed = true;
+            ui.GetNode<Button>("SettingsMenu/Panel/Back").EmitSignal(Button.SignalName.Pressed);
+            TestAssert.True(!flow.Settings.GuidanceEnabled &&
+                !GameSettingsStore.LoadOrDefault(flow.SettingsPath).GuidanceEnabled &&
+                !level.GetNode<PrologueGuidanceController>("Guidance").GuidanceEnabled,
+                "sample settings rejects even a directly altered hidden guidance value");
+            GD.Print("BASIN_SAMPLE_GUIDANCE_OPTION_OK hidden=true disabled=true focus_skipped=true persisted_false=true");
+
             level.GetNode<Button>("ProductUi/MainMenu/Panel/Buttons/Start")
                 .EmitSignal(Button.SignalName.Pressed);
             PrologueCheckpointSnapshot started = level.Progress.RestoreCheckpoint();
@@ -285,10 +308,12 @@ public static class BasinQualitySampleEntryTests
                 started.HasActivatedCheckpoint && started.SectorId == PrologueSectorId.CanyonBasin &&
                 started.WorldPosition.DistanceTo(AuthoredBasinStart) < .01f,
                 "production Start immediately owns the authored Basin checkpoint");
-            TestAssert.True(level.GetNode<Node2D>("WorldRoot").ProcessMode ==
-                Node.ProcessModeEnum.Inherit,
-                "production Start resumes the sample world");
             await Frames(tree, 2);
+            TestAssert.True(level.GetNode<Node2D>("WorldRoot").ProcessMode ==
+                Node.ProcessModeEnum.Inherit &&
+                level.GetNode<Node2D>("PlayerRoot").ProcessMode == Node.ProcessModeEnum.Inherit &&
+                level.Player.CanProcess(),
+                "production Start resumes the sample world after deferred collision-mode delivery");
 
             AssertIsolatedEncounter(level, "Start");
 
@@ -311,9 +336,13 @@ public static class BasinQualitySampleEntryTests
                 "death recovery restores the truthful static sample objective");
 
             ReturnToTitleThroughPause(level);
-            TestAssert.True(flow.State == PrologueGameFlowState.Title && !tree.Paused &&
-                level.GetNode<Node2D>("WorldRoot").ProcessMode == Node.ProcessModeEnum.Disabled,
-                "actual pause-menu Return to Title restores title state and freezes threats");
+            TestAssert.True(flow.State == PrologueGameFlowState.Title && !tree.Paused,
+                "actual pause-menu Return to Title synchronously restores the unpaused title state");
+            await Frames(tree, 2);
+            TestAssert.True(level.GetNode<Node2D>("WorldRoot").ProcessMode == Node.ProcessModeEnum.Disabled &&
+                level.GetNode<Node2D>("PlayerRoot").ProcessMode == Node.ProcessModeEnum.Disabled &&
+                !level.Player.CanProcess(),
+                "actual Return to Title freezes threats after deferred collision-mode delivery");
             await DisposeSample(tree, entry);
             entry = null;
 
@@ -449,7 +478,7 @@ public static class BasinQualitySampleEntryTests
                 "controls Back retains the Chinese sample label");
             level.GetNode<Button>("ProductUi/MainMenu/Panel/Buttons/Settings")
                 .EmitSignal(Button.SignalName.Pressed);
-            level.GetNode<OptionButton>("ProductUi/SettingsMenu/Panel/Rows/Language/Value").Selected =
+            level.GetNode<OptionButton>("ProductUi/SettingsMenu/Panel/Scroll/Rows/Language/Value").Selected =
                 (int)GameLanguage.English;
             level.GetNode<Button>("ProductUi/SettingsMenu/Panel/Back")
                 .EmitSignal(Button.SignalName.Pressed);
@@ -527,29 +556,54 @@ public static class BasinQualitySampleEntryTests
             .Instantiate<PrologueLevelController>();
         try
         {
-            var baseline = normal.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors")
-                .Definitions.Single(d => d.Id == PrologueSectorId.CanyonBasin);
+            var normalWorld = normal.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors");
+            var baseline = normalWorld.Definitions.Single(d => d.Id == PrologueSectorId.CanyonBasin);
             var selected = world.Definitions.Single(d => d.Id == PrologueSectorId.CanyonBasin);
-            TestAssert.True(selected.WorldOffset == baseline.WorldOffset &&
-                selected.Bounds == baseline.Bounds && selected.Previous == baseline.Previous &&
-                selected.Next == baseline.Next &&
-                selected.KeyInteractionBounds.SequenceEqual(baseline.KeyInteractionBounds),
-                stage + ": sample scene substitution preserves world geometry and stream contracts");
+            TestAssert.True(world.LayoutVersion == 1 &&
+                selected.WorldOffset == new Vector2(1280, 1440) &&
+                selected.Bounds == new Rect2(0, 0, 1600, 720) &&
+                selected.Previous == PrologueSectorId.CanyonDescent &&
+                selected.Next == PrologueSectorId.CanyonAscent &&
+                selected.KeyInteractionBounds.SequenceEqual(new[] { new Rect2(756, 336, 48, 48) }),
+                stage + ": the independent sample keeps its literal authored layout-one geometry and stream contract");
+            TestAssert.True(normalWorld.LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion &&
+                normal.ResidentContent == ResidentContentMode.DevelopmentV001 &&
+                !ReferenceEquals(selected, baseline),
+                stage + ": loading the sample never downgrades or shares its definition with the normal resident world");
             var original = baseline.Scene.Instantiate<PrologueSector>();
             try
             {
-                Node originalActors = original.GetNode("Gameplay/Actors");
-                TestAssert.Equal(1, originalActors.GetChildren().OfType<RustShellSquire>().Count(),
-                    stage + ": original full-game Basin retains its Rust enemy");
-                TestAssert.Equal(1, originalActors.GetChildren().OfType<BellBackLaborer>().Count(),
-                    stage + ": original full-game Basin retains its Laborer");
-                var originalEnemy = originalActors.GetChildren().OfType<BellBackLaborer>().Single();
-                var sampleEnemy = actors.GetChildren().OfType<BellBackLaborer>().Single();
-                TestAssert.Equal(originalEnemy.Tuning.ToSettings(), sampleEnemy.Tuning.ToSettings()
-                    with { DetectionRange = originalEnemy.Tuning.DetectionRange },
-                    stage + ": camp activation changes no attack, damage or counter timing");
-                TestAssert.True(originalEnemy.Tuning.DetectionRange > 270f,
-                    stage + ": sample camp activation cannot shrink the full game's detection range");
+                var group = original.GetNode<CanyonEncounterGroup>("Gameplay/Encounters/GearPistonsEncounter");
+                TestAssert.Equal("canyon.v2.encounter.gear-pistons", group.EncounterId.ToString(),
+                    stage + ": the normal saved Basin retains its actual Gear encounter binding");
+                var encounter = CanyonEncounterCatalog.Normal.Single(item => item.StableId == group.EncounterId.ToString());
+                TestAssert.Equal(2, encounter.Enemies.Count,
+                    stage + ": the authored Gear encounter retains both original enemy records");
+                var rust = encounter.Enemies.Single(item => item.ScenePath == CanyonEncounterCatalog.RustShellScene);
+                var bell = encounter.Enemies.Single(item => item.ScenePath == CanyonEncounterCatalog.LaborerScene);
+                TestAssert.True(rust.WorldPosition == new Vector2(2300, 3960) && rust.ActivationBatch == 0 &&
+                    bell.WorldPosition == new Vector2(2860, 3794) && bell.ActivationBatch == 1,
+                    stage + ": sample configuration cannot replace the normal Rust/Bell positions or activation batches");
+                Node originalRust = null;
+                BellBackLaborer originalEnemy = null;
+                try
+                {
+                    originalRust = GD.Load<PackedScene>(rust.ScenePath).Instantiate();
+                    originalEnemy = GD.Load<PackedScene>(bell.ScenePath).Instantiate<BellBackLaborer>();
+                    TestAssert.True(originalRust is RustShellSquire,
+                        stage + ": the authored normal Rust record still loads its real enemy type");
+                    var sampleEnemy = actors.GetChildren().OfType<BellBackLaborer>().Single();
+                    TestAssert.Equal(originalEnemy.Tuning.ToSettings(), sampleEnemy.Tuning.ToSettings()
+                        with { DetectionRange = originalEnemy.Tuning.DetectionRange },
+                        stage + ": camp activation changes no attack, damage or counter timing");
+                    TestAssert.True(originalEnemy.Tuning.DetectionRange > 270f,
+                        stage + ": sample camp activation cannot shrink the full game's detection range");
+                }
+                finally
+                {
+                    if (GodotObject.IsInstanceValid(originalRust)) originalRust.Free();
+                    if (GodotObject.IsInstanceValid(originalEnemy)) originalEnemy.Free();
+                }
             }
             finally { original.Free(); }
         }

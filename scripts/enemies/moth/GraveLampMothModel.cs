@@ -17,6 +17,8 @@ public sealed class GraveLampMothModel
     private Vector2 _lockedWorldTarget;
     private bool _hasLockedTarget;
 
+    public float AttackTelegraphSeconds => _settings.TelegraphSeconds;
+
     public GraveLampMothModel(EnemyArchetypeSettings settings)
     {
         if (EnemyArchetypeTuning.Validate(settings).Count > 0)

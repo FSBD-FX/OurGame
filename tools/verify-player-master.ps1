@@ -6,14 +6,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$python = 'E:\OurGame\ArtTools\.venvs\agent-sprite-forge\Scripts\python.exe'
+$python = 'G:\knight\Tools\python-3.14.6-master-v001\python.exe'
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "Required Python interpreter was not found: $python"
 }
 
 Push-Location $projectRoot
 try {
-    & $python -m unittest discover -s tests\art -p 'test_complete_master_*.py' -v
+    & $python -E -s -B -m unittest discover -s tests\art -p 'test_complete_master_*.py' -v
     if ($LASTEXITCODE -ne 0) {
         throw "Complete-master tests failed with exit code $LASTEXITCODE"
     }
@@ -26,7 +26,7 @@ try {
         throw '-Stage is required when -ExternalRoot is provided'
     }
 
-    $startedNs = & $python -c 'import time; print(time.time_ns())'
+    $startedNs = & $python -E -s -B -c 'import time; print(time.time_ns())'
     if ($LASTEXITCODE -ne 0) {
         throw 'Could not record verification start time'
     }
@@ -44,14 +44,14 @@ try {
     if ($prepareScripts.ContainsKey($Stage)) {
         $prepareScript = Join-Path $projectRoot $prepareScripts[$Stage]
         if (Test-Path -LiteralPath $prepareScript -PathType Leaf) {
-            & $python $prepareScript --external-root $ExternalRoot
+            & $python -E -s -B $prepareScript --external-root $ExternalRoot
             if ($LASTEXITCODE -ne 0) {
                 throw "Stage preparation failed with exit code $LASTEXITCODE"
             }
         }
     }
 
-    & $python tools\art\complete_master_qc.py `
+    & $python -E -s -B tools\art\complete_master_qc.py `
         --root $ExternalRoot `
         --stage $Stage `
         --verification-started-ns $startedNs

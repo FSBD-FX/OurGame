@@ -28,6 +28,14 @@ public partial class CheckpointTrigger : Area2D
     }
     public override void _ExitTree() => BodyEntered -= OnBodyEntered;
 
+    // Presentation only: the world restores its already committed checkpoint
+    // identity without replaying contact, VFX, signals, or a save transaction.
+    internal void RestorePresentation(bool activated)
+    {
+        _visual=GetNodeOrNull<PrologueMechanismVisual>(VisualPath);
+        _visual?.SetState(activated?MechanismVisualState.Restored:MechanismVisualState.Idle);
+    }
+
     private void OnBodyEntered(Node2D body)
     {
         if (!body.IsInGroup("player")) return;

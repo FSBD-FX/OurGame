@@ -23,9 +23,45 @@ public static class PrologueUiRuntimeTests
         await PauseReferenceFitsItsAuthoredPanel(tree);
     }
 
-    public static async Task PauseReferenceFitsItsAuthoredPanel(SceneTree tree)
+    public static async Task MainSceneOwnerSurvivesOriginalPauseCase(SceneTree tree)
     {
-        using PackedScene levelScene = GD.Load<PackedScene>("res://scenes/prologue/PrologueLevel.tscn");
+        IsolatedPrologueFixture.ValidateStorageRoot();
+        await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+        TestAssert.True(tree.Root.IsInsideTree(),
+            "main-scene owner probe enters the original caller's live SceneTree lifecycle");
+        PackedScene owner = GD.Load<PackedScene>("res://scenes/prologue/PrologueLevel.tscn");
+        TestAssert.True(owner != null && GodotObject.IsInstanceValid(owner),
+            "main-scene owner probe starts with a live cached PackedScene");
+        ulong ownerId = owner.GetInstanceId();
+        int observations = 0;
+        bool borrowedCacheAlias = false;
+        await PauseReferenceFitsItsAuthoredPanel(tree, borrowed =>
+        {
+            observations++;
+            ulong borrowedId = borrowed.GetInstanceId();
+            borrowedCacheAlias = ReferenceEquals(owner, borrowed) && ownerId == borrowedId;
+            GD.Print($"MAIN_SCENE_OWNER_FACTS stage=original-load alias={borrowedCacheAlias} " +
+                $"owner_id={ownerId} borrowed_id={borrowedId} observations={observations}");
+            TestAssert.True(borrowedCacheAlias,
+                "original pause case borrows the exact same managed and native cached main scene");
+        });
+        TestAssert.Equal(1, observations,
+            "original pause case exposes its existing scene load exactly once");
+        bool ownerValid = GodotObject.IsInstanceValid(owner);
+        GD.Print($"MAIN_SCENE_OWNER_FACTS stage=original-return owner_id={ownerId} valid={ownerValid}");
+        TestAssert.True(ownerValid,
+            "original pause reference case must preserve the caller's cached main-scene owner");
+        Knight.Tests.Unit.SeamlessPrologueMainSceneContractTests.VerifyProcessLifetimeOwner(
+            owner, 8, "ThrusterMainSceneOwnerOriginalPauseCase");
+        GD.Print("THRUSTER_MAIN_SCENE_OWNER_OK original_pause_case=true borrowed_cache_alias=true original_owner_valid=true repeated_instances=8 human=false");
+    }
+
+    public static async Task PauseReferenceFitsItsAuthoredPanel(SceneTree tree,
+        Action<PackedScene> sceneObserved = null)
+    {
+        // Borrow the cached scene; only the instantiated nodes belong to this fixture.
+        PackedScene levelScene = GD.Load<PackedScene>("res://scenes/prologue/PrologueLevel.tscn");
+        sceneObserved?.Invoke(levelScene);
         Node level = levelScene.Instantiate();
         ProloguePauseMenu pause = level.GetNode<ProloguePauseMenu>("PauseMenu");
         level.RemoveChild(pause);
@@ -79,7 +115,7 @@ public static class PrologueUiRuntimeTests
                 ui.ShowControls();
                 await ProcessFrames(tree, 2);
 
-                Label grapple = ui.GetNode<Label>("ControlsView/Panel/Rows/GrappleMode");
+                Label grapple = ui.GetNode<Label>("ControlsView/Panel/Scroll/Rows/GrappleMode");
                 string keyboardText = grapple.Text;
                 AssertKeyboardClawReference(keyboardText, language);
                 AssertControlsLayout(ui, $"{language} keyboard controls");
@@ -227,7 +263,7 @@ public static class PrologueUiRuntimeTests
 
         ui.ShowControls();
         ui.SetLastInputDevice(InputDeviceKind.Gamepad);
-        Label jump = ui.GetNode<Label>("ControlsView/Panel/Rows/Jump");
+        Label jump = ui.GetNode<Label>("ControlsView/Panel/Scroll/Rows/Jump");
         TestAssert.True(jump.Text.Contains("[A]"), "controls view switches to gamepad glyphs");
         ui.SetLastInputDevice(InputDeviceKind.KeyboardMouse);
         TestAssert.True(jump.Text.Contains("[SPACE]"), "controls view switches back to keyboard glyphs");
@@ -254,7 +290,7 @@ public static class PrologueUiRuntimeTests
     private static void AssertControlsLayout(PrologueUiRoot ui, string context)
     {
         Control panel = ui.GetNode<Control>("ControlsView/Panel");
-        VBoxContainer rows = ui.GetNode<VBoxContainer>("ControlsView/Panel/Rows");
+        VBoxContainer rows = ui.GetNode<VBoxContainer>("ControlsView/Panel/Scroll/Rows");
         Button back = ui.GetNode<Button>("ControlsView/Panel/Back");
         Rect2 panelRect = panel.GetGlobalRect();
         Rect2 rowsRect = rows.GetGlobalRect();

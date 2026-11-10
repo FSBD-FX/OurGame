@@ -1,0 +1,109 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/moth/GraveLampMoth.cs" id="1_86kpg"]
+[ext_resource type="Script" path="res://scripts/config/EnemyArchetypeTuning.cs" id="2_3mnqv"]
+[ext_resource type="Script" path="res://scripts/combat/HealthComponent.cs" id="3_gx6rb"]
+[ext_resource type="Script" path="res://scripts/combat/Hurtbox.cs" id="4_iv3rg"]
+[ext_resource type="Script" path="res://scripts/combat/Hitbox.cs" id="5_jrdev"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="6_u7qt0"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="7_oyh1n"]
+[ext_resource type="Script" path="res://scripts/enemies/moth/GraveLampMothPresentationCoordinator.cs" id="8_ueby8"]
+[ext_resource type="Script" path="res://scripts/config/PresentationProfile.cs" id="9_vy5lb"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/GraveLampMothFormalVisual.tscn" id="10_s4tyt"]
+[ext_resource type="Script" path="res://scripts/presentation/GraveLampMothFormalVisual.cs" id="11_h0dsb"]
+[ext_resource type="Script" path="res://scripts/presentation/AttackTelegraphVisual.cs" id="12_yjljo"]
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSceneBinding.cs" id="13_ioakd"]
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSubtypeProfile.cs" id="14_1ujxa"]
+
+[sub_resource type="Resource" id="Resource_0ci4r"]
+script = ExtResource("2_3mnqv")
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_k7yj1"]
+radius = 18.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_y4tfj"]
+radius = 22.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_task6_target"]
+radius = 24.0
+
+[sub_resource type="Resource" id="Resource_r14kb"]
+script = ExtResource("9_vy5lb")
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_heeay"]
+radius = 16.0
+
+[sub_resource type="Resource" id="Resource_xxfbm"]
+script = ExtResource("14_1ujxa")
+SubtypeId = "bone-diver"
+Family = 3
+Archetype = 3
+Carrier = 3
+BoneWeakness = 2
+
+[node name="GraveLampMoth" type="CharacterBody2D" unique_id=2016497533]
+collision_layer = 4
+script = ExtResource("1_86kpg")
+Tuning = SubResource("Resource_0ci4r")
+
+[node name="Health" type="Node" parent="." unique_id=1827947080]
+script = ExtResource("3_gx6rb")
+MaxHealth = 2
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=1968006012]
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("4_iv3rg")
+
+[node name="HurtboxCollider" type="CollisionShape2D" parent="Hurtbox" unique_id=1930754036]
+shape = SubResource("CircleShape2D_k7yj1")
+
+[node name="AttackHitbox" type="Area2D" parent="." unique_id=944409947]
+collision_layer = 16
+collision_mask = 2
+monitoring = false
+monitorable = false
+script = ExtResource("5_jrdev")
+Knockback = 180.0
+
+[node name="AttackCollider" type="CollisionShape2D" parent="AttackHitbox" unique_id=1706456687]
+shape = SubResource("CircleShape2D_y4tfj")
+
+[node name="ThreadTarget" type="Node2D" parent="." unique_id=954301812]
+script = ExtResource("6_u7qt0")
+Kind = 1
+Material = 1
+
+[node name="TargetCollision" type="Area2D" parent="ThreadTarget" unique_id=739444337]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="ThreadTarget/TargetCollision" unique_id=1103524253]
+shape = SubResource("CircleShape2D_task6_target")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="ThreadTarget" unique_id=1801255611]
+script = ExtResource("7_oyh1n")
+
+[node name="Presentation" type="Node" parent="." unique_id=458975762]
+script = ExtResource("8_ueby8")
+Profile = SubResource("Resource_r14kb")
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=600510460]
+
+[node name="Formal" type="Node2D" parent="VisualRoot" unique_id=2032676640 instance=ExtResource("10_s4tyt")]
+script = ExtResource("11_h0dsb")
+metadata/profile_bounds = Rect2(-58, -40, 116, 78)
+
+[node name="AttackTelegraph" type="Node2D" parent="VisualRoot" unique_id=1767111608]
+z_index = 6
+script = ExtResource("12_yjljo")
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=1145682655]
+z_index = 10
+
+[node name="BodyCollider" type="CollisionShape2D" parent="." unique_id=261873055]
+shape = SubResource("CircleShape2D_heeay")
+
+[node name="ResidentBinding" type="Node" parent="." unique_id=1929149798]
+script = ExtResource("13_ioakd")
+Profile = SubResource("Resource_xxfbm")

@@ -1,0 +1,23 @@
+# v259 · Descent挂载字段身份与pre日志完整性
+
+事实：v258普通17门全PASS，但唯一REF pre在Descent.AddChild有7个Handle ERROR，无法绑定对象；Supply35对象配对不能代替Descent现场。旧pre成功出口未检查PROFILE_LIFETIME的fault/active scopes，8192上限后记录可能不完整。不能靠最近日志、增cap、保活或改缓存猜修复。
+
+有界假设：比较Descent自己的挂载前与启动绑定后的固定字段，可判断错误是否伴随已有资源读取/原AddChild以及字段身份变化。只读当前world.Definitions、Player Presentation.Profile、Motor/Combat.Tuning，复用已有scalar registry；不是资源所有权证明。REF-only、不新增原pre Load/GetState/Instantiate/GC/cache/KeepAlive/帧，不持有借用Resource跨await。
+
+挂载前AddChild位于原try外，须复用ObserveWithOwnedRoot保护本次尚未交付根；该helper只从private改internal，不改成功/异常语义。挂载后的观察放入原主try起点，使用原finally/音频drain，不以该helper直接Free已挂树根。两阶段都在原位置同步，不移动输入/等待/配置。
+
+pre保留原drain及两个allocation检查，在phase成功前新增REF-only实际guard：Active.AssertComplete成功后才写固定完整性marker；不提高8192、不Reset默认journal、不替换真实pre journal。Host还要求该marker并拒fault/cap/loss，不能凭exit0/phase行认完整。
+
+独立sector-assignment-identity-contract保原v258控制，额外自有saved fixture验证两阶段真实字段/根身份、真实写入故障释放offtree自有根并保留primary/不伤无关节点；mounted清理使用原音频drain。guard用临时自有journal测正常/越cap/active-scope，恢复原Active并证明未污染。不执行旧全census，不把控制资源加原pre前缀。
+
+新增一个专职native合同CS，预计完整源1898，实数以枚举核验；不制作美术/场景/能力，不改普通玩法。原pre180/post300/双线600/其他55秒保持。仅headless隔离存储；无GUI/OS/付费/新媒体/dump/真实存档/自动化/Git/删除发布。旧失败/所有原件保留，完整十一项ACTIVE。
+
+## 继续执行时的最小生命周期修订（覆盖原“仅诊断/清理实现不变”边界）
+
+221653-e286fc原始日志在新合同成功后出现独立的AudioStreamPlayer ObjectDisposedException：延迟BeginPlayingAfterResidents→AbortResidentPreparation→ReturnToTitle→SetPaused访问已释放播放器。TestSceneTeardown目前只CancelResidentPreparation，无法封闭AddChild后尚未执行的InitializeAfterLevelReady；后者可再次StartNew。这是有源码和原始栈支持的自有场景退休竞态，不等于CanyonSkitterSettings原生FATAL根因。
+
+最小修复：从GameFlow现有PrepareApplicationQuitAsync提取同步internal BeginSceneRetirement()->void，立即封闭该根的后续启动/输入权限、调用既有Level.BeginApplicationQuit与Audio.BeginApplicationQuit；原应用退出继续调用同一方法。测试自有根在原音频QueueFree之前复用这条同步退休入口。没有新全局退出、GC/cache/保活策略、异步drain或时限；原音频QueueFree顺序与60帧/2000ms混音检测不变。无Flow的音频fixture仍只退休自身音频。
+
+独立合同首fixture即时快照后直接调用实际DrainAudioOwner，捕获首await前的flow/audio退休状态；即便随后drain失败也应先给出这个确定断言。旧首fixturePlaying等待不再是正确解决方案：退休前不应允许它重新启动。正常Quit的现有模型/原生控制及普通全回归仍需同版重验；不能用新同步 latch 的单独通过冲销原生FATAL。
+
+应用退出反例的严格宿主修订：只有guard-fault模式允许精确一条controlled retired quit callback警告，stderr和external必须各一条且紧邻正确原生source/function头，stdout不得伪造警告；fault-owner/prepared/native回执两流唯一有序，external警告须先于owner回执。其余六模式保持零warning，所有ERROR/FATAL/断言/未处理异常和原native exit/收据预算不变。实际原生3895ms场景仍保留原FAIL，使用新增纯77反控和一次新的原生案验证修订。不改C#或原24案文件/结论，不声称整个旧批次已使用最终helper。

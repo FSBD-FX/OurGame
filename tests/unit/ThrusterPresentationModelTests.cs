@@ -3,11 +3,163 @@ using System.Collections;
 using System.Linq;
 using Godot;
 using Knight.Player;
+using Knight.Presentation;
 
 namespace Knight.Tests.Unit;
 
 public static class ThrusterPresentationModelTests
 {
+    private readonly record struct AirPoseProbe(bool Active,bool Force,Vector2 Acceleration,
+        float Lean,float Lag,float Near,float Far,float Trail);
+
+    public static void RunDirectionalAirPose()
+    {
+        var assembly=typeof(PlayerMotor).Assembly;
+        Type type=assembly.GetType("Knight.Presentation.PlayerAirJetPoseModel");
+        Type inputType=assembly.GetType("Knight.Presentation.PlayerAirJetInput");
+        TestAssert.True(type!=null && inputType!=null,
+            "AIR_JET_MODEL_RED: actual air-direction/physics-stamped articulated model is missing");
+        var step=type.GetMethod("Step");
+        object New()=>Activator.CreateInstance(type);
+        ThrusterPresentationFrame Source(Vector2 direction,ulong burn=1,ulong life=1,ulong epoch=1,
+            bool coast=false,bool brake=false,float remaining=.45f,ulong owner=71) =>
+            new(new(owner,life,epoch,burn),direction,!coast,coast,brake,coast?remaining:0);
+        AirPoseProbe Sample(object model,ThrusterPresentationFrame source,Vector2 velocity,ulong tick,
+            float delta=1f/60,int facing=1,bool grounded=false,bool suppressed=false,ulong owner=71,
+            Vector2 root=default,float physicsStep=1f/60)
+        {
+            var motion=new PlayerGroundSample(true,root,0,Transform2D.Identity,Vector2.Zero,Vector2.Up)
+                { PhysicsTick=tick,PhysicsStepSeconds=physicsStep };
+            object input=Activator.CreateInstance(inputType,new object[]{owner,velocity,motion,facing,grounded,suppressed,source});
+            object result=step.Invoke(model,new[]{input,(object)delta});
+            T Get<T>(string name)=>(T)result.GetType().GetProperty(name).GetValue(result);
+            return new(Get<bool>("Active"),Get<bool>("ForceObserved"),Get<Vector2>("NormalizedAccelerationWorld"),
+                Get<float>("TorsoLeanRadians"),Get<float>("PelvisLag"),Get<float>("NearFold"),Get<float>("FarFold"),Get<float>("FootTrail"));
+        }
+        int checks=0;
+        void Check(bool condition,string label){checks++;TestAssert.True(condition,"AIR_JET_MODEL_RED: "+label);}
+        var probes=new System.Collections.Generic.List<AirPoseProbe>();
+        foreach(Vector2 direction in new[]{Vector2.Up,Vector2.Down,Vector2.Left,Vector2.Right,
+            new Vector2(-1,-1).Normalized(),new Vector2(1,-1).Normalized(),
+            new Vector2(-1,1).Normalized(),new Vector2(1,1).Normalized()})
+        {
+            var model=New(); var source=Source(direction);int face=direction.X<0?-1:1;
+            Check(!Sample(model,source,Vector2.Zero,1,delta:0,facing:face).Active,"zero-time first snapshot only primes, never poses");
+            var pose=Sample(model,source,direction*75,2,facing:face);
+            Check(pose.Active && pose.Force && pose.Acceleration.DistanceTo(direction)<.001f,
+                "real stamped velocity difference supplies normalized world force");
+            Check(float.IsFinite(pose.Lean) && Mathf.Abs(pose.Lean)<=.16f && Mathf.Abs(pose.Lag)<=.8f &&
+                pose.Near is >=0 and <=11 && pose.Far is >=0 and <=10 && Mathf.Abs(pose.Trail)<=4,
+                "all eight directions produce bounded finite rigid-joint targets");
+            probes.Add(pose);
+        }
+        Check(probes[0].Near>probes[1].Near+1 && probes[0].Lag>0 && probes[1].Lag<0,
+            "upward tuck/load is distinct from downward extension/opposite load");
+        Check(Mathf.Abs(probes[0].Lean)<.001f && probes[3].Lean>.005f && probes[5].Lean>.005f,
+            "vertical, horizontal and diagonal thrust do not share a fixed Dash lean");
+        Check(Mathf.Abs(probes[2].Lean-probes[3].Lean)<.001f && Mathf.Abs(probes[2].Trail-probes[3].Trail)<.001f,
+            "mirrored world thrust produces equivalent facing-local pose");
+        var measured=New();var right=Source(Vector2.Right);
+        Sample(measured,right,Vector2.Zero,1,delta:0);
+        var forward=Sample(measured,right,new(75,0),2);
+        var duplicate=Sample(measured,right,new(-99999,0),2);
+        Check(duplicate.Acceleration==forward.Acceleration,"same physical tick cannot manufacture another force");
+        Check(Sample(measured,right,new(-99999,0),3,delta:0)==duplicate,"zero elapsed cannot consume next physics sample or advance pose");
+        var next=Sample(measured,right,new(150,0),3);
+        Check(next.Acceleration.DistanceTo(Vector2.Right)<.001f,"positive next tick measures from last real sample, not zero-time payload");
+        var flipped=Sample(measured,right,new(150,0),3,delta:0,facing:-1);
+        Check(Mathf.Abs(next.Lean+flipped.Lean)<.001f && Mathf.Abs(next.Trail+flipped.Trail)<.001f &&
+            next.Acceleration==flipped.Acceleration,"zero-time facing remaps local axes without reversing world load");
+        var constant=New();Sample(constant,right,new(75,0),1,delta:0);
+        var constantPose=Sample(constant,right,new(75,0),2);
+        Check(constantPose.Force && constantPose.Acceleration==Vector2.Zero && forward.Lean>constantPose.Lean+.003f,
+            "accepted direction alone is not a substitute for actual acceleration");
+        foreach(var bad in new[]{default(ThrusterPresentationFrame),Source(Vector2.Zero),Source(new(2,0)),
+            Source(new(float.NaN,0)),Source(Vector2.Right,owner:72),Source(Vector2.Right,burn:0),
+            Source(Vector2.Right,life:0),Source(Vector2.Right) with { Coasting=true }})
+        {
+            var model=New();Sample(model,right,Vector2.Zero,1,delta:0);Sample(model,right,new(75,0),2);
+            Check(!Sample(model,bad,new(100,0),3).Active,"invalid/default/foreign/contradictory source cannot advertise a real jet pose");
+        }
+        var retired=New();Sample(retired,right,Vector2.Zero,1,delta:0);Sample(retired,right,new(75,0),2);
+        Check(!Sample(retired,default,new(100,0),3).Active && !Sample(retired,right,new(125,0),4).Active,
+            "expired identity cannot replay merely because an old frame reappears");
+        Check(Sample(retired,Source(Vector2.Up,burn:2),new(125,-75),5).Active,"a genuinely newer burn may be observed");
+        var epoch=New();Sample(epoch,right,Vector2.Zero,1,delta:0);Sample(epoch,right,new(75,0),2);
+        var fresh=Sample(epoch,Source(Vector2.Up,life:2,epoch:2),new(75,-75),3);
+        Check(fresh.Active && !fresh.Force,"new lifecycle/epoch re-primes instead of creating fake velocity impulse");
+        Check(Sample(epoch,Source(Vector2.Left,burn:99),new(-999,0),4)==fresh,
+            "stale lifecycle cannot mutate newer pose/history");
+        foreach(var invalidMotion in new[]{(Tick:0UL,Step:1f/60,Root:Vector2.Zero,Velocity:Vector2.Zero),
+            (Tick:3UL,Step:0f,Root:Vector2.Zero,Velocity:Vector2.Zero),
+            (Tick:3UL,Step:1f/60,Root:new Vector2(float.NaN,0),Velocity:Vector2.Zero),
+            (Tick:3UL,Step:1f/60,Root:Vector2.Zero,Velocity:new Vector2(float.PositiveInfinity,0))})
+        {
+            var model=New();Sample(model,right,Vector2.Zero,1,delta:0);Sample(model,right,new(75,0),2);
+            Check(!Sample(model,right,invalidMotion.Velocity,invalidMotion.Tick,root:invalidMotion.Root,physicsStep:invalidMotion.Step).Active,
+                "unobserved/invalid physical sample cannot supply an air-force pose");
+        }
+        foreach(var gap in new[]{(Tick:1UL,Root:Vector2.Zero),(Tick:100UL,Root:Vector2.Zero),(Tick:3UL,Root:new Vector2(1000,0))})
+        {
+            var model=New();Sample(model,right,Vector2.Zero,1,delta:0);Sample(model,right,new(75,0),2);
+            var reprime=Sample(model,right,new(999,999),gap.Tick,root:gap.Root);
+            Check(reprime.Active && !reprime.Force && reprime.Acceleration==Vector2.Zero,"rollback/gap/teleport re-primes force rather than inventing it");
+        }
+        foreach(bool ground in new[]{false,true})
+        {
+            var model=New();Sample(model,right,Vector2.Zero,1,delta:0);Sample(model,right,new(75,0),2);
+            Check(!Sample(model,right,new(75,0),3,grounded:ground,suppressed:!ground).Active,
+                "ground/death/recovery clears flight posture immediately");
+        }
+        var brake=New();Sample(brake,right,new(150,0),1,delta:0);
+        AirPoseProbe braking=default;
+        for(ulong tick=2;tick<=5;tick++)braking=Sample(brake,Source(Vector2.Right,coast:true,brake:true),new(150-(tick-1)*20,0),tick);
+        Check(braking.Active && braking.Lean<0,"actual reverse brake catches back while still moving forward");
+        var duplicateBrake=Sample(brake,Source(Vector2.Right,coast:true,brake:true),new(-99999,0),5);
+        Check(duplicateBrake.Lean<=braking.Lean && duplicateBrake.Acceleration==braking.Acceleration,
+            "same-tick unmeasured velocity cannot reverse the cached braking target");
+        var locked=New();Sample(locked,right,Vector2.Zero,1,delta:0);Sample(locked,right,new(75,0),2);
+        Check(!Sample(locked,Source(Vector2.Up),new(75,-75),3).Active,
+            "one accepted identity cannot silently change its locked thrust direction");
+        foreach(bool suppress in new[]{false,true})
+        {
+            var ownerGap=New();Sample(ownerGap,right,Vector2.Zero,1,delta:0);Sample(ownerGap,right,new(75,0),2);
+            Sample(ownerGap,suppress?right:default,new(75,0),3,suppressed:suppress);
+            Sample(ownerGap,default,new(75,0),4,owner:0);
+            Check(!Sample(ownerGap,right,new(100,0),5).Active,
+                "invalid owner gap cannot erase expired/suppressed identity retirement");
+        }
+        foreach(var replay in new[]{(Burn:true,SameTick:true),(Burn:false,SameTick:true),
+            (Burn:true,SameTick:false),(Burn:false,SameTick:false)})
+        {
+            var phase=New();var up=Source(Vector2.Up);
+            Sample(phase,up,Vector2.Zero,1,delta:0);
+            for(ulong tick=2;tick<=5;tick++)Sample(phase,up,new(0,-75),tick);
+            AirPoseProbe settled=default;
+            for(ulong tick=6;tick<=20;tick++)settled=Sample(phase,Source(Vector2.Up,coast:true,remaining:.045f),new(0,-75),tick);
+            var stale=replay.Burn?up:Source(Vector2.Up,coast:true,remaining:.4f);
+            var after=Sample(phase,stale,new(0,-75),replay.SameTick?20UL:21UL);
+            Check(after.Active && after.Near<=settled.Near+.00001f && after.Far<=settled.Far+.00001f,
+                "same/later physical tick cannot restore old burn or earlier coast energy within one identity");
+        }
+        var extreme=New();Sample(extreme,right,new(float.MaxValue,0),1,delta:0);
+        var bounded=Sample(extreme,right,new(-float.MaxValue,float.MaxValue),2,delta:float.MaxValue,physicsStep:float.Epsilon);
+        Check(bounded.Active && bounded.Acceleration.IsFinite() && float.IsFinite(bounded.Lean) &&
+            Mathf.Abs(bounded.Lean)<=.16f && bounded.Near<=11 && bounded.Far<=10,"extreme finite arithmetic remains bounded before float publication");
+        AirPoseProbe? reference=null;
+        foreach(int hz in new[]{30,60,120})
+        {
+            var model=New();Sample(model,right,Vector2.Zero,1,delta:0,physicsStep:1f/hz);
+            AirPoseProbe result=default;
+            for(int i=1;i<=hz/5;i++)result=Sample(model,right,new(4500f*i/hz,0),(ulong)(i+1),delta:1f/hz,physicsStep:1f/hz);
+            Check(result.Active && result.Lean>.05f && result.Near>1,"nonvacuous equal elapsed directional pose");
+            if(reference is {} expected)Check(Mathf.Abs(result.Lean-expected.Lean)<.001f && Mathf.Abs(result.Near-expected.Near)<.002f,
+                "equal elapsed30/60/120 samples agree, not hardware FPS qualification");
+            reference ??=result;
+        }
+        GD.Print($"AIR_JET_MODEL_OK checks={checks} directions=8 real_force=true physics_dedup=true source_history=true elapsed_rates=true no_native_ownership=true human=false");
+    }
+
     public static void RunBrakeCrossing()
     {
         var property = typeof(ThrusterDynamicsResult).GetProperty("BrakeReachedZero");
@@ -36,6 +188,7 @@ public static class ThrusterPresentationModelTests
 
     public static void Run()
     {
+        RunDirectionalAirPose();
         Type type = typeof(PlayerMotor).Assembly.GetType("Knight.Presentation.ThrusterPresentationModel");
         TestAssert.True(type != null, "typed thruster presentation observation is unavailable");
         StartAndEndSurviveOneRenderInterval(type);

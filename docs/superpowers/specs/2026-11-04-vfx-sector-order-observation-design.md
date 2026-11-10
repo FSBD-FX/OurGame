@@ -1,0 +1,9 @@
+# 跨区特效：物理与idle清理顺序观察
+
+v246 recoverycompat11539ms在PrologueAudioDirectorTests:652因Task10登记1失败。world在Physics换区、audio在Process轮询clear；audio count不包含mode，VFX key也不等于活节点。只有候选解释，不能称已知可见残影或Body导致。
+
+本步仅tests/integration/PrologueAudioDirectorTests.cs原Task10ProductionPublishersReachDirectors；原模式输入、teleport、WaitFor、帧数/断言完全不变。观测在645前后、647后、648返回、652前，并监听audio.Task10CueEmitted/Task10TransitionsCleared、claw.ClawFrameChanged及本vfx下实际PrologueVfxBurst NodeAdded。标签是事件观察，不谎称内部Present已经完成（NodeAdded早于字典写入）。
+
+每条有递增序号/stage/source、physics/process、sector/mode、现有vfx.ThrusterClearGeneration及本地audioClearSeq、Task10 count。只在测试内反射既有Dictionary<(PrologueAudioCue Cue,ulong TransitionId,int EventKind),PrologueVfxBurst>，每次同步取最多8项，立即转为key/node标量字符串；先InstanceValid再读id/name/inside/queued，不持有native引用、Dispose、await或新增production测试getter。32条字符串尾部队列、overflow/faults明确，finally解绑所有监听后输出；异常记diagnostic-read-error而不盖原assert。
+
+root在原recoverycompat/1888/原预算执行一次普通严格案例，不以诊断后的偶然通过宣称修复。若数据证明clear先后，再为具体契约写真实RED→最小修正；未证实前不延长等待、删断言、设置无效计数或改生产清理。遵守唯一G根、串行native/运行时CS冻结、原用户保护，无窗口/付费/新媒体/额外采集/自动化/发布/删除，原十一项及用户体验返工仍OPEN。

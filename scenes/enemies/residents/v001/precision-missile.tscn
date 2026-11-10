@@ -1,0 +1,105 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/ranged/FurnaceMissileGunner.cs" id="1_yddwn"]
+[ext_resource type="Script" path="res://scripts/enemies/ranged/RangedWeaponSettings.cs" id="2_f856e"]
+[ext_resource type="Script" path="res://scripts/combat/HealthComponent.cs" id="3_ccvvp"]
+[ext_resource type="Script" path="res://scripts/combat/Hurtbox.cs" id="4_16ef1"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="5_qecu0"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="6_rtg35"]
+[ext_resource type="Script" path="res://scripts/enemies/ranged/RangedWeaponPresentation.cs" id="7_0ucbl"]
+[ext_resource type="Script" path="res://scripts/enemies/ranged/RangedWeaponVisual.cs" id="8_6xvav"]
+[ext_resource type="Script" path="res://scripts/presentation/AttackTelegraphVisual.cs" id="9_0fwu6"]
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSceneBinding.cs" id="10_gu557"]
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSubtypeProfile.cs" id="11_84ur6"]
+
+[sub_resource type="Resource" id="Resource_6qyt0"]
+script = ExtResource("2_f856e")
+Role = 2
+DetectionRange = 520.0
+MaximumTravel = 560.0
+TelegraphSeconds = 1.3
+DirectionLockSeconds = 0.7
+ProjectileSpeed = 260.0
+ProjectileRadius = 8.0
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_pxr7h"]
+radius = 25.0
+height = 68.0
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_35lr8"]
+radius = 25.0
+height = 68.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_4517g"]
+radius = 31.0
+
+[sub_resource type="Resource" id="Resource_qv7df"]
+script = ExtResource("11_84ur6")
+SubtypeId = "precision-missile"
+Family = 2
+Archetype = 4
+Carrier = 8
+
+[node name="FurnaceMissileGunner" type="CharacterBody2D" unique_id=800709312]
+collision_layer = 4
+script = ExtResource("1_yddwn")
+Settings = SubResource("Resource_6qyt0")
+
+[node name="BodyCollider" type="CollisionShape2D" parent="." unique_id=1280681538]
+position = Vector2(0, -5)
+shape = SubResource("CapsuleShape2D_pxr7h")
+
+[node name="Health" type="Node" parent="." unique_id=570263290]
+script = ExtResource("3_ccvvp")
+MaxHealth = 2
+InvulnerabilitySeconds = 0.0
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=1706796036]
+collision_layer = 4
+collision_mask = 8
+script = ExtResource("4_16ef1")
+
+[node name="HurtboxCollider" type="CollisionShape2D" parent="Hurtbox" unique_id=1027899168]
+position = Vector2(0, -5)
+shape = SubResource("CapsuleShape2D_35lr8")
+
+[node name="ThreadTarget" type="Node2D" parent="." unique_id=2080054207]
+script = ExtResource("5_qecu0")
+Kind = 1
+Material = 1
+AssistRadius = 34.0
+
+[node name="TargetCollision" type="Area2D" parent="ThreadTarget" unique_id=753284307]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="ThreadTarget/TargetCollision" unique_id=1470561750]
+position = Vector2(0, -5)
+shape = SubResource("CircleShape2D_4517g")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="ThreadTarget" unique_id=1801040577]
+script = ExtResource("6_rtg35")
+
+[node name="Muzzle" type="Marker2D" parent="." unique_id=2137776528]
+position = Vector2(0, -8)
+
+[node name="Presentation" type="Node" parent="." unique_id=1778405526]
+script = ExtResource("7_0ucbl")
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=98091479]
+position = Vector2(0, -5)
+
+[node name="WeaponVisual" type="Node2D" parent="VisualRoot" unique_id=196926382]
+script = ExtResource("8_6xvav")
+Role = 2
+
+[node name="AttackTelegraph" type="Node2D" parent="VisualRoot" unique_id=693513801]
+z_index = 6
+script = ExtResource("9_0fwu6")
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=221901062]
+z_index = 10
+
+[node name="ResidentBinding" type="Node" parent="." unique_id=738375405]
+script = ExtResource("10_gu557")
+Profile = SubResource("Resource_qv7df")

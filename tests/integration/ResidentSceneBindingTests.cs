@@ -6,6 +6,7 @@ using Godot;
 using Knight.Build.Prologue;
 using Knight.Combat;
 using Knight.Enemies.Moth;
+using Knight.Enemies.Ranged;
 using Knight.Enemies.Residents;
 using Knight.Prologue.Residents;
 using Knight.Tools;
@@ -45,6 +46,9 @@ public static class ResidentSceneBindingTests
                 GhostHiddenSeconds = type.Family == ResidentFamily.Ghost ? 1.2f : 0,
                 GhostManifestSeconds = type.Family == ResidentFamily.Ghost ? 4f : 0
             };
+#if REFCOUNTED_FATAL_IDENTITY
+            Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveCensusResource(profile,Path.Combine(profiles,type.Id+".tres"),"census-fixture-new");
+#endif
             TestAssert.Equal(Error.Ok, ResourceSaver.Save(profile, Path.Combine(profiles, type.Id + ".tres")), "save explicit builder input");
         }
         BuildResidentSubtypeScenes.BuildInto(leaves, profiles);
@@ -66,12 +70,17 @@ public static class ResidentSceneBindingTests
                 TestAssert.Equal(type.Id, binding.Profile.SubtypeId, "leaf binds intended real subtype");
                 TestAssert.Equal(ResidentSceneState.ExplicitPlaceholder, binding.PresentationState, "old artwork never becomes formal through identity metadata");
                 Node original = GD.Load<PackedScene>(type.ProbeScenePath).Instantiate();
-                try { TestAssert.Equal(original.GetNode("VisualRoot").GetChildCount(), copy.GetNode("VisualRoot").GetChildCount(), "leaf does not add a second renderer"); }
+                try
+                {
+                    TestAssert.Equal(original.GetNode("VisualRoot").GetChildCount(), copy.GetNode("VisualRoot").GetChildCount(), "leaf does not add a second renderer");
+                    CheckCarrierPreserved(original, copy);
+                }
                 finally { original.Free(); }
             }
             finally { copy.Free(); }
         }
         GD.Print("RESIDENT_LEAF_ROUNDTRIP_OK scenes=24 exported_profiles=24 added_renderers=0 publication=false");
+        GD.Print("RESIDENT_CARRIER_PRESERVED_OK scenes=24 nested_scene_links=true bodies=true ranged_export_values=true before_ready=true publication=false");
 
         foreach (ResidentSubtypeDefinition type in CanyonResidentCatalog.Subtypes)
         {
@@ -93,6 +102,51 @@ public static class ResidentSceneBindingTests
         GD.Print("RESIDENT_LEAF_MOUNT_OK scenes=24 carriers=9 actual_ready=true stable_ids=fixture_only full_motion=false");
         RunNegatives(leaves);
         GD.Print("RESIDENT_SCENE_BINDING_OK scenes=24 mounted=24 map_spawned=0 formal_visuals=0 full_population=false");
+    }
+
+    // The private authoring load may change identity/sharing, never authored
+    // geometry, nested scene links or weapon balance. No borrowed Dispose here.
+    private static void CheckCarrierPreserved(Node original, Node saved, bool root = true)
+    {
+        TestAssert.True(saved.GetType() == original.GetType(), "saved carrier retains root and descendant types");
+        if (original is Node2D sourceRoot && saved is Node2D savedRoot)
+            TestAssert.Equal(sourceRoot.Transform, savedRoot.Transform, "saved carrier retains root and descendant transforms");
+        if (!root) TestAssert.Equal(original.SceneFilePath, saved.SceneFilePath, "saved carrier retains nested scene links");
+        int originalCount = original.GetChildCount();
+        TestAssert.Equal(originalCount + (root ? 1 : 0), saved.GetChildCount(), "only one root binding may be added");
+        if (root) TestAssert.True(saved.GetNodeOrNull<Node>("ResidentBinding") is ResidentSceneBinding,
+            "only the intended root binding is added");
+        for (int i = 0; i < originalCount; i++)
+        {
+            Node child = original.GetChild(i);
+            using var childPath = new NodePath(child.Name.ToString());
+            Node copy = saved.GetNodeOrNull<Node>(childPath);
+            TestAssert.True(copy != null && copy.GetType() == child.GetType(), "saved carrier retains node type " + child.Name);
+            TestAssert.Equal(child.SceneFilePath, copy.SceneFilePath, "saved carrier retains nested scene link " + child.Name);
+            if (child is Node2D source2d && copy is Node2D saved2d)
+                TestAssert.Equal(source2d.Transform, saved2d.Transform, "saved carrier retains local geometry " + child.Name);
+            if (child is CollisionShape2D sourceShape && copy is CollisionShape2D savedShape)
+            {
+                TestAssert.True(sourceShape.Shape != null && savedShape.Shape != null &&
+                    sourceShape.Shape.GetType() == savedShape.Shape.GetType(), "saved carrier retains collision shape kind");
+                TestAssert.Equal(sourceShape.Shape.GetRect(), savedShape.Shape.GetRect(), "saved carrier retains complete shape bounds");
+                TestAssert.Equal(sourceShape.Disabled, savedShape.Disabled, "saved carrier retains collider enable state");
+            }
+            CheckCarrierPreserved(child, copy, false);
+        }
+        if (original is CollisionObject2D sourceBody && saved is CollisionObject2D savedBody)
+        {
+            TestAssert.Equal(sourceBody.CollisionLayer, savedBody.CollisionLayer, "saved carrier retains collision layer");
+            TestAssert.Equal(sourceBody.CollisionMask, savedBody.CollisionMask, "saved carrier retains collision mask");
+        }
+        if (original is RangedWeaponEnemy sourceRanged && saved is RangedWeaponEnemy savedRanged)
+        {
+            TestAssert.True(sourceRanged.Settings != null && savedRanged.Settings != null, "saved ranged carrier retains settings");
+            foreach (var property in typeof(RangedWeaponSettings).GetProperties().Where(p =>
+                Attribute.IsDefined(p, typeof(ExportAttribute))))
+                TestAssert.Equal(property.GetValue(sourceRanged.Settings), property.GetValue(savedRanged.Settings),
+                    "saved ranged carrier retains exported " + property.Name);
+        }
     }
 
     // The caller releases only its OWN circle and node graph. A private packed
@@ -229,7 +283,8 @@ public static class ResidentSceneBindingTests
         string path = Path.Combine(leaves, "lost-echo.tscn"); PackedScene saved = GD.Load<PackedScene>(path);
         ResidentSubtypeDefinition expected = type with { ScenePath = path, SceneState = ResidentSceneState.ExplicitPlaceholder };
         int count = 0;
-        Reject(() => ResidentSceneBinding.Instantiate(saved, expected, Slot(type.Id)), "placeholder needs explicit development admission"); count++;
+        ArgumentException unauthorized = Reject(() => ResidentSceneBinding.Instantiate(saved, expected, Slot(type.Id)), "placeholder needs explicit development admission"); count++;
+        AssertBindingDiagnostic(unauthorized, "root_is_body=True named_binding=True binding_count=1 profile_missing=False actual_state=1 expected_state=1 allow_placeholder=False");
         Reject(() => ResidentSceneBinding.Instantiate(saved, expected with { SceneState = ResidentSceneState.Unimplemented }, Slot(type.Id), true), "unimplemented flag cannot be mounted"); count++;
         Reject(() => ResidentSceneBinding.Instantiate(saved, expected with { ScenePath = type.ProbeScenePath }, Slot(type.Id), true), "probe alias cannot impersonate distinct saved leaf"); count++;
         Reject(() => ResidentSceneBinding.Instantiate(saved, expected with { Family = ResidentFamily.Bone }, Slot(type.Id), true), "saved profile cannot silently change family"); count++;
@@ -246,17 +301,28 @@ public static class ResidentSceneBindingTests
             }
             finally { modified.Free(); }
             PackedScene bad = GD.Load<PackedScene>(badPath);
-            Reject(() => ResidentSceneBinding.Instantiate(bad, expected with { ScenePath = badPath }, Slot(type.Id), true), "same loader rejects actual " + (duplicate ? "duplicate" : "missing") + " saved binding"); count++;
+            ArgumentException malformed = Reject(() => ResidentSceneBinding.Instantiate(bad, expected with { ScenePath = badPath }, Slot(type.Id), true), "same loader rejects actual " + (duplicate ? "duplicate" : "missing") + " saved binding"); count++;
+            AssertBindingDiagnostic(malformed, duplicate
+                ? "root_is_body=True named_binding=True binding_count=2 profile_missing=not_evaluated actual_state=not_evaluated expected_state=1 allow_placeholder=True"
+                : "root_is_body=True named_binding=False binding_count=0 profile_missing=not_evaluated actual_state=not_evaluated expected_state=1 allow_placeholder=True");
         }
         GD.Print($"RESIDENT_LEAF_NEGATIVES_OK cases={count} same_loader=true");
     }
 
-    private static void Reject(Func<CharacterBody2D> create, string label)
+    private static ArgumentException Reject(Func<CharacterBody2D> create, string label)
     {
-        CharacterBody2D actor = null; bool rejected = false;
-        try { actor = create(); } catch (ArgumentException) { rejected = true; }
+        CharacterBody2D actor = null; ArgumentException rejected = null;
+        try { actor = create(); } catch (ArgumentException error) { rejected = error; }
         finally { if (GodotObject.IsInstanceValid(actor)) actor.Free(); }
-        TestAssert.True(rejected, label);
+        TestAssert.True(rejected != null, label);
+        return rejected;
+    }
+
+    private static void AssertBindingDiagnostic(ArgumentException rejected, string expectedDetails)
+    {
+        TestAssert.True(rejected.Message.Contains(expectedDetails, StringComparison.Ordinal),
+            $"RESIDENT_BINDING_DIAGNOSTIC_RED: original loader rejection reports actual evaluated conditions, not generic permission advice; expected={expectedDetails}; actual={rejected.Message}");
+        GD.Print($"RESIDENT_LEAF_REJECTION_DIAGNOSTIC_OK {expectedDetails}");
     }
 
     private static ResidentPopulationDefinition Slot(string id)

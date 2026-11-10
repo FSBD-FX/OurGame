@@ -52,7 +52,7 @@ public static class ReducedFogMenuRuntimeTests
             Press(level, "MainMenu/Panel/Buttons/Settings");
             await Frames(tree, 2);
             AssertValues(level, false, GameLanguage.English);
-            level.GetNode<OptionButton>("ProductUi/SettingsMenu/Panel/Rows/Language/Value").Selected =
+            level.GetNode<OptionButton>("ProductUi/SettingsMenu/Panel/Scroll/Rows/Language/Value").Selected =
                 (int)GameLanguage.ChineseSimplified;
             Reduced(level).ButtonPressed = true;
             Press(level, "SettingsMenu/Panel/Back");
@@ -107,21 +107,21 @@ public static class ReducedFogMenuRuntimeTests
         level.GetNode<Button>("ProductUi/" + path).EmitSignal(Button.SignalName.Pressed);
 
     private static CheckButton Reduced(PrologueLevelController level) =>
-        level.GetNode<CheckButton>("ProductUi/SettingsMenu/Panel/Rows/ReducedFog/Value");
+        level.GetNode<CheckButton>("ProductUi/SettingsMenu/Panel/Scroll/Rows/ReducedFog/Value");
 
     private static void AssertValues(PrologueLevelController level, bool reduced, GameLanguage language)
     {
         var ui = level.GetNode<PrologueUiRoot>("ProductUi");
         TestAssert.True(ui.GetNode<Control>("SettingsMenu").Visible, "real title button opened Settings");
-        TestAssert.True(Math.Abs(ui.GetNode<HSlider>("SettingsMenu/Panel/Rows/Master/Value").Value - .42) < .001,
+        TestAssert.True(Math.Abs(ui.GetNode<HSlider>("SettingsMenu/Panel/Scroll/Rows/Master/Value").Value - .42) < .001,
             "real Title Settings button must preserve loaded nondefault master volume");
-        TestAssert.True(ui.GetNodeOrNull<CheckButton>("SettingsMenu/Panel/Rows/ReducedFog/Value") != null,
+        TestAssert.True(ui.GetNodeOrNull<CheckButton>("SettingsMenu/Panel/Scroll/Rows/ReducedFog/Value") != null,
             "saved menu has the actual ReducedFog checkbox before reading it");
         TestAssert.Equal(reduced, Reduced(level).ButtonPressed, "loaded/reopened ReducedFog matches saved value");
-        TestAssert.True(ui.GetNode<CheckButton>("SettingsMenu/Panel/Rows/ReduceFlashes/Value").ButtonPressed,
+        TestAssert.True(ui.GetNode<CheckButton>("SettingsMenu/Panel/Scroll/Rows/ReduceFlashes/Value").ButtonPressed,
             "ReducedFog cannot reset the independent ReduceFlashes choice");
         TestAssert.Equal(language == GameLanguage.English ? "Reduce fog" : "降低迷雾",
-            ui.GetNode<Label>("SettingsMenu/Panel/Rows/ReducedFog/Label").Text,
+            ui.GetNode<Label>("SettingsMenu/Panel/Scroll/Rows/ReducedFog/Label").Text,
             "real settings label is localized, not a missing key");
         TestAssert.Equal(language, ui.Language, "current menu language follows the complete cached settings");
     }
@@ -137,9 +137,9 @@ public static class ReducedFogMenuRuntimeTests
     private static void AssertLayout(PrologueLevelController level, string phase)
     {
         Control panel = level.GetNode<Control>("ProductUi/SettingsMenu/Panel");
-        Control rows = panel.GetNode<Control>("Rows");
+        Control rows = panel.GetNode<Control>("Scroll/Rows");
         Rect2 safePanel = panel.GetGlobalRect().Grow(-12f);
-        TestAssert.Equal(13, rows.GetChildCount(), "the saved settings scene contains exactly thirteen rows");
+        TestAssert.Equal(14, rows.GetChildCount(), "the saved settings scene contains exactly fourteen rows");
         float previousBottom = float.NegativeInfinity;
         foreach (Node child in rows.GetChildren())
         {

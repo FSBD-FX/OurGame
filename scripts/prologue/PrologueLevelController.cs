@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime;
+using System.Threading.Tasks;
 using Godot;
 using Knight.Abilities;
 using Knight.Combat;
@@ -17,6 +19,7 @@ using Knight.Prologue.Seamless;
 using Knight.Prologue.Collections;
 using Knight.Settings;
 using Knight.Interactions;
+using Knight.Prologue.Residents;
 
 namespace Knight.Prologue;
 
@@ -35,6 +38,7 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
     [Export] public Godot.Collections.Array<RoomDefinition> RoomDefinitions { get; set; } = new();
     [Export] public Godot.Collections.Array<PrologueRoomId> RequiredRooms { get; set; } = new();
     [Export] public bool FreezeWorldWhenGameplayInactive { get; set; }
+    [Export] public ResidentContentMode ResidentContent { get; set; } = ResidentContentMode.FinalOnly;
 
     public CharacterBody2D Player { get; private set; }
     public PrologueRoom CurrentRoom { get; private set; }
@@ -44,6 +48,17 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
         _seamlessWorld.TryGetMountedSector(_seamlessWorld.CurrentSector, out PrologueSector sector)
             ? sector : null;
     public PrologueProgress Progress { get; } = new();
+    internal PrologueWorldProfile WorldProfile=>(IsInstanceValid(_seamlessWorld)?_seamlessWorld:
+        SeamlessWorldPath!=null && !SeamlessWorldPath.IsEmpty?GetNodeOrNull<SeamlessPrologueWorld>(SeamlessWorldPath):null)?.ProfileContract;
+    public CanyonResidentManager Residents { get; private set; }
+    public IReadOnlyList<ResidentAuthoredSite> ResidentLayout { get; private set; } = Array.Empty<ResidentAuthoredSite>();
+    public bool ResidentPreparationPending { get; private set; }
+    public bool NeedsResidentPreparation => ResidentContent == ResidentContentMode.DevelopmentV001 && Residents != null;
+    public string ResidentPreparationFailure => _residentCoordinator?.Failure ?? "";
+    internal bool RecoveryInProgress => _busy || _recoveryQueued;
+    private CanyonResidentCoordinator _residentCoordinator;
+    private long _residentPreparationVersion;
+    private bool _applicationQuitCommitted;
 
     private Node2D _roomRoot;
     private SeamlessPrologueWorld _seamlessWorld;
@@ -100,6 +115,7 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
         }
         else
         {
+            Progress.ConfigureProfile(WorldProfile);
             Progress.SetStartPosition(_seamlessWorld.InitialPlayerPosition);
             _seamlessWorld.CheckpointActivated += OnSeamlessCheckpointActivated;
             _seamlessWorld.SectorMounted += BindContinuousSector;
@@ -107,6 +123,18 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
             foreach (PrologueSectorId sectorId in _seamlessWorld.MountedSectorIds)
                 if (_seamlessWorld.TryGetMountedSector(sectorId, out PrologueSector sector))
                     BindContinuousSector(sector);
+            if(WorldProfile==null)
+            {
+                ResidentLayout = ResidentAuthoredLayout.Load();
+                Residents = new CanyonResidentManager(_seamlessWorld, ResidentLayout.Select(x => x.Definition),
+                    ResidentSceneRegistry.Select(ResidentContent));
+            }
+            if (NeedsResidentPreparation)
+            {
+                _residentCoordinator = new CanyonResidentCoordinator { Name = "ResidentCoordinator" };
+                _residentCoordinator.Initialize(this, _seamlessWorld, Residents, ResidentLayout.Select(x => x.Definition));
+                AddChild(_residentCoordinator);
+            }
         }
 
         HealthComponent health = Player.GetNodeOrNull<HealthComponent>("Health");
@@ -126,6 +154,8 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
 
     public override void _ExitTree()
     {
+        CancelResidentPreparation();
+        Residents?.Dispose();
         if (IsInstanceValid(_seamlessWorld))
         {
             _seamlessWorld.CheckpointActivated -= OnSeamlessCheckpointActivated;
@@ -151,10 +181,11 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
 
     public async void TransitionTo(PrologueRoomLink link)
     {
-        if (_seamlessWorld != null || _busy || _recoveryQueued || link.SourceRoom != CurrentRoomId) return;
+        if (_applicationQuitCommitted || _seamlessWorld != null || _busy || _recoveryQueued || link.SourceRoom != CurrentRoomId) return;
         _busy = true;
         SetPlayerGameplayProcessing(false);
         await ToSignal(GetTree(), SceneTree.SignalName.PhysicsFrame);
+        if (_applicationQuitCommitted) return;
         PrologueRoomId destinationRoom = link.DestinationRoom;
         StringName destinationEntrance = link.EntranceId;
         PrologueRoom next = InstantiateValidatedRoom(ref destinationRoom, ref destinationEntrance);
@@ -162,25 +193,29 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
         // setup. Keep them on adjacent physics frames so a room boundary cannot combine both
         // costs into one user-visible presentation spike.
         await ToSignal(GetTree(), SceneTree.SignalName.PhysicsFrame);
+        if (_applicationQuitCommitted) { if (IsInstanceValid(next)) next.Free(); return; }
         MountPreparedRoom(next, destinationRoom, destinationEntrance);
         await ToSignal(GetTree(), SceneTree.SignalName.PhysicsFrame);
+        if (_applicationQuitCommitted) return;
         SetPlayerGameplayProcessing(true);
         _busy = false;
     }
 
     public void RequestRespawn(string reason)
     {
-        if (_busy || _recoveryQueued) return;
+        if (_applicationQuitCommitted || _busy || _recoveryQueued) return;
         // Reject terminal sessions before HUD, pose and telemetry consumers see a request.
         if (GetNodeOrNull<PrologueGameFlowController>("GameFlow")?.AllowsRecoveryRequest() == false)
             return;
         _recoveryQueued = true;
+        if (NeedsResidentPreparation) BeginResidentPreparation();
         string resolvedReason = reason ?? "CHECKPOINT RESTORED";
         _hud?.ShowRecovery(resolvedReason);
         PrologueVfxDirector.PlayFromTree(this, PresentationCue.RecoveryStarted,
             Player?.GlobalPosition ?? Vector2.Zero, Vector2.Up);
+        if (_applicationQuitCommitted || !_recoveryQueued) return;
         EmitSignal(SignalName.RecoveryRequested, resolvedReason);
-        if (!_recoveryQueued) return;
+        if (_applicationQuitCommitted || !_recoveryQueued) return;
         SetPlayerGameplayProcessing(false);
         // Lethal hits arrive inside AreaEntered while the physics server is flushing
         // contacts. Mounting checkpoint collisions must wait until that callback ends.
@@ -195,6 +230,15 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
     }
 
     public void CancelQueuedRecovery() => _recoveryQueued = false;
+
+    internal void BeginApplicationQuit()
+    {
+        if (_applicationQuitCommitted) return;
+        _applicationQuitCommitted = true;
+        CancelQueuedRecovery();
+        CancelResidentPreparation();
+        _busy = false;
+    }
 
     public void RecordShortcutOpened()
     {
@@ -213,10 +257,11 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
         EmitSignal(SignalName.ProgressPersistRequested, "boss-defeated");
     }
 
-    public void StartNewGame()
+    public void StartNewGame(bool activateGameplay = true)
     {
         FreeRetiredRooms();
         Progress.Reset();
+        Residents?.BeginRunAndResetMountedResidents();
         _legacyCheckpoint.Reset();
         _milestoneComplete = false;
         ResetPlayerTransientStateForRelocation();
@@ -224,26 +269,27 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
         {
             _seamlessWorld.ResetForNewRun();
             Progress.SetStartPosition(_seamlessWorld.InitialPlayerPosition);
-            if (_seamlessWorld.InitialSector is
+            if (WorldProfile==null && _seamlessWorld.InitialSector is
                 (PrologueSectorId.CanyonBasin or PrologueSectorId.LostTemple))
                 Progress.ActivateCheckpoint(
                     _seamlessWorld.InitialSector, _seamlessWorld.InitialPlayerPosition);
         }
         else MountRoom(PrologueRoomId.AwakeningCourtyard, "start");
         Player.GetNodeOrNull<HealthComponent>("Health")?.ResetFull();
-        SetGameplayActive(true);
+        if (activateGameplay) SetGameplayActive(true);
     }
 
-    public void RestoreFromSave(PrologueSaveData data)
+    public void RestoreFromSave(PrologueSaveData data, bool activateGameplay = true)
     {
         FreeRetiredRooms();
         Progress.Restore(data);
+        Residents?.BeginRunAndResetMountedResidents();
         if (_seamlessWorld == null) _legacyCheckpoint.Reset();
         ResetPlayerTransientStateForRelocation();
         if (_seamlessWorld != null)
         {
             PrologueCheckpointSnapshot checkpoint = Progress.RestoreCheckpoint();
-            if (_seamlessWorld.LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion)
+            if (WorldProfile!=null || _seamlessWorld.LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion)
                 _seamlessWorld.RestoreCheckpoint(checkpoint.CheckpointId);
             else _seamlessWorld.RestoreCheckpoint(checkpoint.SectorId, checkpoint.WorldPosition);
             foreach (PrologueSectorId id in _seamlessWorld.MountedSectorIds)
@@ -256,7 +302,7 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
             MountRoom(snapshot.Room, snapshot.Entrance);
         }
         Player.GetNodeOrNull<HealthComponent>("Health")?.ResetFull();
-        SetGameplayActive(true);
+        if (activateGameplay) SetGameplayActive(true);
     }
 
     internal LegacyPrologueCheckpointSnapshot LegacyCheckpointForFixture =>
@@ -290,6 +336,8 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
 
     public void SetGameplayActive(bool enabled)
     {
+        if (enabled && _applicationQuitCommitted) return;
+        if (enabled && ResidentPreparationPending) return;
         SetPlayerGameplayProcessing(enabled);
         Node2D playerRoot = GetNodeOrNull<Node2D>(PlayerRootPath);
         playerRoot?.SetVisible(enabled);
@@ -309,6 +357,30 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
         if (_hud != null) _hud.Visible = enabled;
     }
 
+    internal long BeginResidentPreparation()
+    {
+        CancelResidentPreparation();
+        ResidentPreparationPending = NeedsResidentPreparation;
+        if (ResidentPreparationPending) SetGameplayActive(false);
+        return _residentPreparationVersion;
+    }
+
+    internal Task<bool> PrepareResidents(long version) => version == _residentPreparationVersion &&
+        ResidentPreparationPending ? _residentCoordinator.Prepare() : Task.FromResult(!ResidentPreparationPending);
+
+    internal bool CommitResidentPreparation(long version)
+    {
+        if (version != _residentPreparationVersion || !ResidentPreparationPending || !_residentCoordinator.IsPrepared) return false;
+        ResidentPreparationPending = false; _residentCoordinator.Activate(); return true;
+    }
+
+    internal bool HasResidentPreparationVersion(long version) => version == _residentPreparationVersion;
+    internal bool OwnsResidentPreparation(long version) => HasResidentPreparationVersion(version) && ResidentPreparationPending;
+    internal void CancelResidentPreparation()
+    {
+        _residentPreparationVersion++; ResidentPreparationPending = false; _residentCoordinator?.Cancel();
+    }
+
     public bool IsInsideAuthoredSectorBounds(PrologueSectorId sectorId, Vector2 worldPosition)
     {
         SeamlessPrologueWorld world = _seamlessWorld ??
@@ -325,7 +397,7 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
 
     private void BeginRecovery(string reason)
     {
-        if (!_recoveryQueued || !IsInsideTree() || !IsInstanceValid(Player)) return;
+        if (_applicationQuitCommitted || !_recoveryQueued || !IsInsideTree() || !IsInstanceValid(Player)) return;
         _recoveryQueued = false;
         if (_busy) return;
         _busy = true;
@@ -334,6 +406,7 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
 
     private void RecoverInCurrentPhysicsFrame(string reason)
     {
+        if (_applicationQuitCommitted) return;
         SetPlayerGameplayProcessing(false);
         Player.GetNodeOrNull<PlayerInputReader>("Input")?.ResetForGameplayBoundary();
         Player.GetNodeOrNull<HealthComponent>("Health")?.ResetFull();
@@ -343,6 +416,7 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
         Player.GetNodeOrNull<PlayerEnergyController>("Energy")?.ResetFull();
         Player.GetNodeOrNull<PlayerMotor>("Motor")?.ResetTransientState();
         Player.Velocity = Vector2.Zero;
+        if (_applicationQuitCommitted) return;
         if (_seamlessWorld != null)
         {
             SeamlessPrologueWorld world = _seamlessWorld;
@@ -351,11 +425,11 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
                 out PrologueSector departing) ? departing.GetInstanceId() : 0UL;
             Callable.From(() =>
             {
-                if (IsInstanceValid(world) && world.IsInsideTree())
+                if (!_applicationQuitCommitted && IsInstanceValid(world) && world.IsInsideTree())
                     world.ResetRecoverySectorsForCheckpoint(departingId, departingInstanceId);
             }).CallDeferred();
             PrologueCheckpointSnapshot snapshot = Progress.RestoreCheckpoint();
-            if (_seamlessWorld.LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion)
+            if (WorldProfile!=null || _seamlessWorld.LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion)
                 _seamlessWorld.RestoreCheckpoint(snapshot.CheckpointId);
             else _seamlessWorld.RestoreCheckpoint(snapshot.SectorId, snapshot.WorldPosition);
         }
@@ -367,44 +441,88 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
             else PlacePlayer(snapshot.Entrance);
         }
 
+        if (_applicationQuitCommitted) return;
         HealthComponent restoredHealth = Player.GetNodeOrNull<HealthComponent>("Health");
         if (restoredHealth != null) _hud?.SetHealth(restoredHealth.CurrentHealth, restoredHealth.MaxHealth);
         CurrentRoom?.ResetRoomState();
         _hud?.SetObjective(reason ?? "CHECKPOINT RESTORED");
+        if (_applicationQuitCommitted) return;
+
+        if (NeedsResidentPreparation && ResidentPreparationPending)
+        {
+            CompleteResidentRecovery(reason, _residentPreparationVersion);
+            return;
+        }
 
         _hud?.HideRecovery();
         PrologueVfxDirector.PlayFromTree(this, PresentationCue.RecoveryCompleted,
             Player?.GlobalPosition ?? Vector2.Zero, Vector2.Up);
+        if (_applicationQuitCommitted) return;
         EmitSignal(SignalName.RecoveryCompleted, reason);
         ResumeGameplayAtNextPhysicsBoundary();
     }
+
+    private async void CompleteResidentRecovery(string reason, long version)
+    {
+        // Prepare crosses a process boundary and native physics boundaries,
+        // so the deferred World reset completes before any missing birth.
+        bool ready;
+        try { ready = await PrepareResidents(version); }
+        catch (Exception error)
+        {
+            if (!ResidentRecoveryOwned(version)) return;
+            _busy = false;
+            GetNodeOrNull<PrologueGameFlowController>("GameFlow")?.AbortResidentPreparation(error.Message);
+            return;
+        }
+        if (!ResidentRecoveryOwned(version)) return;
+        if (!ready || !CommitResidentPreparation(version))
+        {
+            _busy = false;
+            GetNodeOrNull<PrologueGameFlowController>("GameFlow")?.AbortResidentPreparation(ResidentPreparationFailure);
+            return;
+        }
+        _busy = false;
+        SetGameplayActive(true);
+        _hud?.HideRecovery();
+        PrologueVfxDirector.PlayFromTree(this, PresentationCue.RecoveryCompleted,
+            Player.GlobalPosition, Vector2.Up);
+        // Publish LAST: an observer may return to Title, start another run,
+        // or free the Level. Nothing from this recovery may reactivate it.
+        EmitSignal(SignalName.RecoveryCompleted, reason);
+    }
+
+    private bool ResidentRecoveryOwned(long version) => !_applicationQuitCommitted && IsInstanceValid(this) && IsInsideTree() &&
+        !IsQueuedForDeletion() && IsInstanceValid(Player) && Player.IsInsideTree() &&
+        OwnsResidentPreparation(version) && _busy &&
+        GetNodeOrNull<PrologueGameFlowController>("GameFlow")?.State == PrologueGameFlowState.Recovering;
 
     private async void ResumeGameplayAtNextPhysicsBoundary()
     {
         // Completion observers may leave the level before this method starts, or
         // while it is waiting for the next frame. Never ask a detached owner for a tree.
-        if (!IsInstanceValid(this) || !IsInsideTree() || !IsInstanceValid(Player)) return;
+        if (_applicationQuitCommitted || !IsInstanceValid(this) || !IsInsideTree() || !IsInstanceValid(Player)) return;
         // A recovery may be requested from within a physics callback. Crossing the process
         // boundary first keeps every gameplay owner disabled through the rest of that frame;
         // the following physics signal is then the first clean boundary at which to resume.
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        if (!IsInstanceValid(this) || !IsInsideTree() || !IsInstanceValid(Player)) return;
+        if (_applicationQuitCommitted || !IsInstanceValid(this) || !IsInsideTree() || !IsInstanceValid(Player)) return;
         await ToSignal(GetTree(), SceneTree.SignalName.PhysicsFrame);
-        if (!IsInstanceValid(this) || !IsInsideTree() || !IsInstanceValid(Player)) return;
+        if (_applicationQuitCommitted || !IsInstanceValid(this) || !IsInsideTree() || !IsInstanceValid(Player)) return;
         SetPlayerGameplayProcessing(true);
         _busy = false;
     }
 
     private void OnSeamlessCheckpointActivated(PrologueSectorId sectorId, Vector2 worldPosition)
     {
-        if (_seamlessWorld.LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion &&
+        if ((WorldProfile!=null || _seamlessWorld.LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion) &&
             GetNodeOrNull<PrologueGameFlowController>("GameFlow") != null)
         {
             // Flow has durably committed progress before the world emits success.
             _hud?.SetObjective("CHECKPOINT LIT");
             return;
         }
-        bool activated = _seamlessWorld.LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion
+        bool activated = WorldProfile!=null || _seamlessWorld.LayoutVersion == CanyonWorldLayout.CurrentLayoutVersion
             ? Progress.ActivateCheckpoint(_seamlessWorld.CheckpointId)
             : Progress.ActivateCheckpoint(sectorId, worldPosition);
         if (!activated) return;
@@ -453,6 +571,7 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
         if (child is HiddenAlcoveTrigger hidden) hidden.Discovered += OnHiddenAlcoveDiscovered;
         if (child is PrologueSupplyCache supply) supply.BindRuntime(this);
         if (child is QuestFragment fragment) fragment.BindRuntime(this);
+        if (child is PrologueResourceCache resourceCache) resourceCache.BindRuntime(this);
         if (child is CanyonPressurePlateGate pressureGate) pressureGate.PlayerBody = Player;
         if (child is BellChainMechanism mechanism)
         {
@@ -733,6 +852,7 @@ public partial class PrologueLevelController : Node2D, ILevelRecovery
 
     private void SetPlayerGameplayProcessing(bool enabled)
     {
+        if (enabled && _applicationQuitCommitted) return;
         if (!IsInstanceValid(Player)) return;
         Player.SetPhysicsProcess(enabled);
         Player.GetNodeOrNull<PlayerInputReader>("Input")?.SetPhysicsProcess(enabled);

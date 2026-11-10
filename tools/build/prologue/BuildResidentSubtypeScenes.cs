@@ -36,6 +36,9 @@ public partial class BuildResidentSubtypeScenes : SceneTree
             if (input == null || input.SubtypeId != type.Id || input.Family != type.Family ||
                 input.Archetype != type.Archetype || input.Carrier != type.Carrier)
                 throw new ArgumentException("Missing or mismatched explicit profile for " + type.Id);
+#if REFCOUNTED_FATAL_IDENTITY
+            Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveCensusResource(input,inputPath,"census-ignore-load");
+#endif
             // Preserve author-supplied balance bytes, never overwrite an output.
             // These are authoring inputs: changing one requires a checked rebuild.
             string profilePath = Path.Combine(outputRoot, type.Id + ".tres");
@@ -43,9 +46,25 @@ public partial class BuildResidentSubtypeScenes : SceneTree
             // A build-owned pathless snapshot embeds in the leaf. Moving the
             // package then cannot retain an absolute previous-case profile path.
             using var profile = (ResidentSubtypeProfile)input.Duplicate();
-            Node actor = GD.Load<PackedScene>(type.ProbeScenePath).Instantiate();
+#if REFCOUNTED_FATAL_IDENTITY
+            Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveCensusResource(profile,inputPath+"::duplicate","census-duplicate");
+#endif
+#if REFCOUNTED_FATAL_IDENTITY
+            bool cacheBefore=ResourceLoader.HasCached(type.ProbeScenePath);
+#endif
+            // Authoring imports need their own graph, not cached scripted
+            // subresources whose managed wrapper may be awaiting finalization.
+            // Free the actor before releasing this private scene lease; children
+            // remain borrowed. This does not evict or repair existing cache keys.
+            using var carrier = ResourceLoader.Load<PackedScene>(type.ProbeScenePath,
+                cacheMode: ResourceLoader.CacheMode.IgnoreDeep);
+            Node actor = carrier.Instantiate();
             try
             {
+#if REFCOUNTED_FATAL_IDENTITY
+                Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CheckCensusCarrierImport(type.Id,type.ProbeScenePath,cacheBefore,carrier);
+                Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveCensusRangedSettings(actor,type.ProbeScenePath,"census-carrier-settings");
+#endif
                 // Existing distinct-leaf pattern. Nested visual scene references
                 // stay intact; this does not preserve outer scene inheritance.
                 actor.SceneFilePath = string.Empty;
@@ -57,15 +76,37 @@ public partial class BuildResidentSubtypeScenes : SceneTree
                 Node copy = saved.Instantiate();
                 try
                 {
+#if REFCOUNTED_FATAL_IDENTITY
+                    Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveCensusRangedSettings(copy,path,"census-leaf-readback-settings");
+#endif
                     ResidentSceneBinding binding = copy.GetNodeOrNull<ResidentSceneBinding>("ResidentBinding");
                     if (binding?.Profile == null || binding.Profile.SubtypeId != type.Id ||
                         binding.Profile.Family != type.Family || binding.Profile.Archetype != type.Archetype ||
                         binding.Profile.Carrier != type.Carrier || binding.PresentationState != ResidentSceneState.ExplicitPlaceholder)
                         throw new InvalidOperationException("Saved leaf identity/profile round-trip failed: " + type.Id);
+#if REFCOUNTED_FATAL_IDENTITY
+                    Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveCensusResource(binding.Profile,path,"census-borrowed-saved-profile");
+#endif
                 }
-                finally { copy.Free(); }
+                finally {
+#if REFCOUNTED_FATAL_IDENTITY
+                    Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("leaf-copy-free-enter:"+type.Id);
+#endif
+                    copy.Free();
+#if REFCOUNTED_FATAL_IDENTITY
+                    Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("leaf-copy-free-return:"+type.Id);
+#endif
+                }
             }
-            finally { actor.Free(); }
+            finally {
+#if REFCOUNTED_FATAL_IDENTITY
+                Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("carrier-free-enter:"+type.Id);
+#endif
+                actor.Free();
+#if REFCOUNTED_FATAL_IDENTITY
+                Knight.Tests.Diagnostics.Task14NativeResourceIdentity.CensusBoundary("carrier-free-return:"+type.Id);
+#endif
+            }
         }
     }
 

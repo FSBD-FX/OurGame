@@ -14,6 +14,11 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
     private const PlayerPoseOwnership UpperBodyOwnership =
         PlayerPoseOwnership.Body | PlayerPoseOwnership.NearArm |
         PlayerPoseOwnership.FarArm | PlayerPoseOwnership.Weapon;
+    private const float ActionReleaseStep = .1f;
+    private const float ThreadEntryLimit = .25f;
+    private const float TimedEntrySeconds = 2f / 15f;
+    private const float TimedReleaseSeconds = 1f / 6f;
+    private double? _lastPresentationTime;
 
     [Export(PropertyHint.File, "*.json")]
     public string AnimationMapPath { get; set; } = "res://assets/player/formal/player-animation-map.json";
@@ -29,6 +34,7 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
     private float _overrideSeconds;
     private bool _hasTypedFrame;
     private PlayerLocomotionState _lastLocomotionState;
+    private bool _lastOrdinaryAirTemplate;
     private PlayerActionState _lastActionState;
     private PlayerActionPhase _lastActionPhase;
     private float _lastActionNormalizedTime;
@@ -36,6 +42,7 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
     private PlayerPose _lastActionTarget = PlayerPose.Identity;
     private Vector2 _lastActionAim;
     private int _lastActionFacing = 1;
+    private bool _airAimRetargeting;
     private PlayerPose _locomotionPose = PlayerPose.Identity.WithOwnership(PlayerPoseOwnership.All);
     private PlayerPose _locomotionFrom = PlayerPose.Identity.WithOwnership(PlayerPoseOwnership.All);
     private float _locomotionEntryBlend = 1f;
@@ -44,12 +51,29 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
     private PlayerPose _actionReleaseFrom = PlayerPose.Identity;
     private float _actionReleaseWeight;
     private float _lastActionOverlayWeight;
+    private bool _hasSecondaryGrip;
+    private bool _secondaryGripWanted;
+    private float _secondaryGripWeight = 1f;
+    private float _secondaryGripFrom = 1f;
+    private float _secondaryGripProgress;
+    private float _secondaryGripReleaseStart;
+    private Vector2 _attackWristOffset;
+    private bool _airWristOwnsReach;
+    private Vector2 _groundAttackWeightOffset;
+    private int _groundAttackWeightFacing = 1;
+    private bool _ordinaryAirEntered;
+    private readonly Dictionary<string,(Vector2 Ankle,Vector2 Up)> _ordinaryDeparture=new();
+    // Pure displayed load, never a retained thruster lease or final mixed pose.
+    private bool _lastAirLoadWasJet, _airLoadHandoff, _freezeAirFeet, _airGapRecovery, _recoverAirFeet;
+    private float _airLoadWorldAngle, _airLoadShift, _airLoadFromAngle, _airLoadFromShift;
+    private float _airLoadProgress=1f, _airFootEntryLimit=1f;
 
     public PlayerAnimationClip CurrentClip { get; private set; } = PlayerAnimationClip.Idle;
     public PlayerPresentationFrame CurrentPlayerFrame { get; private set; }
     /// <summary>
     /// Logical compatibility aggregate, including the mantle secondary channel. The actual
     /// mantle node uses the pre-secondary base/action attachment; its Draw consumer owns hem lag.
+    /// Arm Draw consumers own fixed-length elbow/wrist articulation after the ten typed slots.
     /// </summary>
     public PlayerPose CurrentPose { get; private set; } =
         PlayerPose.Identity.WithOwnership(PlayerPoseOwnership.All);
@@ -147,6 +171,7 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
         bool preserveCueOverride,
         bool resetTransitions)
     {
+        float? elapsed = ConsumePresentationTime(frame.PresentationTimeSeconds);
         CurrentPlayerFrame = frame;
         _legacyFrame = frame.Base;
         Scale = new Vector2(frame.Base.Facing < 0 ? -1f : 1f, 1f);
@@ -160,21 +185,28 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
         PlayerAnimationClip locomotionClip = _map.ResolveLocomotion(frame.Locomotion);
         _baseClip = locomotionClip;
 
-        PlayerPose locomotionTarget = LocomotionTarget(frame.Locomotion);
+        bool ordinaryAirTemplate = HasOrdinaryAir(frame) && frame.Locomotion.State is
+            (PlayerLocomotionState.JumpStart or PlayerLocomotionState.Rise or PlayerLocomotionState.Apex or PlayerLocomotionState.Fall);
+        PlayerPose locomotionTarget = LocomotionTarget(frame.Locomotion, HasMeasuredLandingSupport(frame), HasAirJet(frame), ordinaryAirTemplate, HasGroundBrake(frame));
         if (!_hasTypedFrame || resetTransitions)
         {
             _locomotionPose = locomotionTarget;
             _locomotionFrom = locomotionTarget;
             _lastLocomotionState = frame.Locomotion.State;
+            _lastOrdinaryAirTemplate = ordinaryAirTemplate;
             _locomotionEntryBlend = 1f;
             _lastLocomotionPhase = frame.Locomotion.NormalizedTime;
         }
         else
         {
-            if (frame.Locomotion.State != _lastLocomotionState)
+            if (frame.Locomotion.State != _lastLocomotionState || ordinaryAirTemplate != _lastOrdinaryAirTemplate)
             {
                 _locomotionFrom = _locomotionPose;
                 _lastLocomotionState = frame.Locomotion.State;
+                _lastOrdinaryAirTemplate = ordinaryAirTemplate;
+                // The measured-air carrier can replace a legacy leg/body template
+                // without changing Fall/Rise. Bridge that boundary as well, using
+                // only locomotion history, never re-baking action or common loads.
                 // A freshly entered locomotion state can be published at its terminal phase
                 // (for example an immediate landing). Starting from that phase would skip the
                 // visual blend and pop the NearArm; presentation must always bridge from the
@@ -187,13 +219,14 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
                 float phaseDelta = frame.Locomotion.NormalizedTime - _lastLocomotionPhase;
                 if (IsLooping(frame.Locomotion.State) && phaseDelta < 0f) phaseDelta += 1f;
                 _locomotionEntryBlend = Mathf.Clamp(
-                    _locomotionEntryBlend + Mathf.Max(.125f, phaseDelta), 0f, 1f);
+                    _locomotionEntryBlend + (elapsed.HasValue ? elapsed.Value / TimedEntrySeconds : Mathf.Max(.125f, phaseDelta)), 0f, 1f);
                 _lastLocomotionPhase = frame.Locomotion.NormalizedTime;
             }
             _locomotionPose = PlayerPoseMixer.Mix(_locomotionFrom, locomotionTarget,
                 Smooth(_locomotionEntryBlend));
         }
 
+        PlayerPose locomotion = _locomotionPose;
         if (frame.Action.State == PlayerActionState.None)
         {
             bool suppressRelease = frame.Locomotion.State is PlayerLocomotionState.Dead or
@@ -208,9 +241,11 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
                 _actionReleaseFrom = CurrentActionPose;
                 _actionReleaseWeight = _lastActionOverlayWeight;
             }
-            else _actionReleaseWeight = Mathf.Max(0f, _actionReleaseWeight - .1f);
+            else _actionReleaseWeight = Mathf.Max(0f, _actionReleaseWeight -
+                (elapsed.HasValue ? elapsed.Value / TimedReleaseSeconds : ActionReleaseStep));
             CurrentActionPose = PlayerPose.Identity;
             _actionFrom = PlayerPose.Identity;
+            _airAimRetargeting = false;
             _lastActionState = PlayerActionState.None;
             _lastActionPhase = PlayerActionPhase.None;
             _lastActionNormalizedTime = 0f;
@@ -223,18 +258,26 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
         {
             _actionReleaseWeight = 0f;
             PlayerPose actionTarget = ActionTarget(frame.Action, frame.Base.Facing);
+            bool airAimRetarget = !resetTransitions && frame.Action.State == PlayerActionState.AirAttack &&
+                _lastActionState == PlayerActionState.AirAttack && frame.Action.Phase == _lastActionPhase &&
+                frame.Action.Aim != _lastActionAim && actionTarget != _lastActionTarget;
+            if (airAimRetarget) _airAimRetargeting = true;
             if (resetTransitions || frame.Action.State != _lastActionState ||
                 frame.Action.Phase != _lastActionPhase)
             {
+                _airAimRetargeting = false;
                 _actionFrom = resetTransitions
                     ? PlayerPose.Identity
                     : CaptureVisibleActionPose(
-                        _locomotionPose, CurrentActionPose, _lastActionOverlayWeight);
+                        locomotion,
+                        // None clears the public action pose but may still draw a fading overlay.
+                        _lastActionState == PlayerActionState.None ? _actionReleaseFrom : CurrentActionPose,
+                        _lastActionOverlayWeight);
                 _lastActionState = frame.Action.State;
                 _lastActionPhase = frame.Action.Phase;
                 _lastActionNormalizedTime = frame.Action.NormalizedTime;
                 _threadEntryBlend = IsThreadAction(frame.Action.State)
-                    ? Mathf.Min(frame.Action.NormalizedTime, .25f)
+                    ? elapsed.HasValue ? 0f : Mathf.Min(frame.Action.NormalizedTime, ThreadEntryLimit)
                     : frame.Action.NormalizedTime;
             }
             else if (IsThreadAction(frame.Action.State))
@@ -246,14 +289,21 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
                     actionTarget == _lastActionTarget;
                 if (!equivalentFacingRetarget)
                     _threadEntryBlend = Mathf.Clamp(
-                        _threadEntryBlend + Mathf.Max(.125f, phaseDelta), 0f, 1f);
+                        _threadEntryBlend + (elapsed.HasValue ? elapsed.Value / TimedEntrySeconds : Mathf.Max(.125f, phaseDelta)), 0f, 1f);
                 _lastActionNormalizedTime = frame.Action.NormalizedTime;
             }
             float actionProgress = IsThreadAction(frame.Action.State)
                 ? _threadEntryBlend
                 : frame.Action.NormalizedTime;
-            CurrentActionPose = MixActionTransition(
-                _actionFrom, actionTarget, _locomotionPose, Smooth(actionProgress));
+            PlayerPose candidate = MixActionTransition(
+                _actionFrom, actionTarget, locomotion, Smooth(actionProgress));
+            // Same-phase directional retargeting must carry the whole visible
+            // pose, not instantly switch shoulders/blade and discard a live
+            // reach correction. Reuse the existing presentation elapsed time.
+            CurrentActionPose = _airAimRetargeting && elapsed.HasValue
+                ? MixActionTransition(CurrentActionPose, candidate, locomotion,
+                    1f - Mathf.Exp(-elapsed.Value / TimedEntrySeconds))
+                : candidate;
             _lastActionTarget = actionTarget;
             _lastActionAim = frame.Action.Aim;
             _lastActionFacing = frame.Base.Facing;
@@ -266,11 +316,22 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
         PlayerPose visibleActionPose = frame.Action.State == PlayerActionState.None
             ? _actionReleaseFrom
             : CurrentActionPose;
-        PlayerPose mixed = PlayerPoseMixer.Mix(_locomotionPose, visibleActionPose, actionWeight);
+        PlayerPose mixed = PlayerPoseMixer.Mix(locomotion, visibleActionPose, actionWeight);
+        // Common parent-space load must survive action ownership coherently:
+        // replacing Body/arms cannot leave only the attached core/cloth loaded.
+        mixed = ApplyBodyLoad(mixed, frame);
+        mixed = ApplyGroundAttackWeight(mixed, frame, elapsed, resetTransitions);
+        mixed = ApplyLandingLoad(mixed, frame);
+        mixed = ApplyAirLoad(mixed, frame, elapsed, resetTransitions);
         CurrentPose = ApplySecondary(mixed, frame.Secondary);
+        PrepareOrdinaryAirEntry(HasOrdinaryAir(frame));
         ApplyPose(CurrentPose, mixed.Mantle);
+        ApplySecondaryGrip(frame, elapsed, resetTransitions);
+        ApplyGroundGait(frame.Locomotion.State is PlayerLocomotionState.Dead or PlayerLocomotionState.Recovery
+            ? default : frame.Gait, HasAirJet(frame) ? frame.AirJet : default,
+            HasOrdinaryAir(frame) ? frame.OrdinaryAir : default, _airFootEntryLimit, _freezeAirFeet, _recoverAirFeet);
         if (_layers.TryGetValue("Mantle", out Node2D mantle) && mantle is PlayerFormalLayer cloth)
-            cloth.SetMantleSecondaryMotion(frame.Secondary.Mantle);
+            cloth.SetMantleSecondaryMotion(frame.Secondary.Mantle, frame.MantleMotionInParentSpace);
         if (!preserveCueOverride)
             CurrentClip = frame.Action.State == PlayerActionState.None
                 ? locomotionClip
@@ -278,12 +339,229 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
         _hasTypedFrame = true;
     }
 
-    private static PlayerPose LocomotionTarget(PlayerLocomotionFrame frame)
+    private float? ConsumePresentationTime(double? time)
+    {
+        if(!time.HasValue) { _lastPresentationTime=null; return null; }
+        double current=time.Value;
+        if(!double.IsFinite(current) || current<0) return 0f;
+        double elapsed=_lastPresentationTime.HasValue && current>=_lastPresentationTime.Value
+            ? System.Math.Min(1d,current-_lastPresentationTime.Value) : 0d;
+        _lastPresentationTime=current;
+        return (float)elapsed;
+    }
+
+    private PlayerPose ApplyBodyLoad(PlayerPose pose, PlayerPresentationFrame frame)
+    {
+        var load=frame.BodyLoad;
+        bool measuredBrake=HasGroundBrake(frame);
+        if(measuredBrake) load=new(true,frame.GroundBrake.PelvisDrop,
+            frame.GroundBrake.TorsoLeanWorld*(frame.Base.Facing<0?-1:1));
+        if(!load.Observed || !frame.Base.Grounded ||
+            frame.Locomotion.State is PlayerLocomotionState.Dash or PlayerLocomotionState.Dead or PlayerLocomotionState.Recovery ||
+            !float.IsFinite(load.PelvisDrop) || !float.IsFinite(load.TorsoLeanRadians)) return pose;
+        Vector2 shift=new(0,Mathf.Clamp(load.PelvisDrop,0,measuredBrake?2.2f:1.5f));
+        float limit=measuredBrake ? .13f : .1f;
+        float angle=Mathf.Clamp(load.TorsoLeanRadians,-limit,limit);
+        Vector2 pivot=(_restPositions["NearLeg"]+_restPositions["FarLeg"])*.5f;
+        for(int i=0;i<RequiredLayers.Length;i++)
+        {
+            var slot=(PlayerPoseSlot)i;
+            var original=pose.Get(slot);
+            bool leg=slot is PlayerPoseSlot.NearLeg or PlayerPoseSlot.FarLeg;
+            Vector2 position=original.Position+shift;
+            if(!leg)
+            {
+                Vector2 rest=_restPositions[RequiredLayers[i]];
+                position=pivot+(rest+original.Position-pivot).Rotated(angle)+shift-rest;
+            }
+            pose=pose.With(slot,original with { Position=position,RotationRadians=original.RotationRadians+(leg?0:angle) });
+        }
+        return pose;
+    }
+
+    private PlayerPose ApplyGroundAttackWeight(PlayerPose pose, PlayerPresentationFrame frame,
+        float? elapsed, bool resetTransitions)
+    {
+        int facing = frame.Base.Facing < 0 ? -1 : 1;
+        bool supported = frame.Base.Grounded && frame.Gait.Observed &&
+            float.IsFinite(frame.Gait.Weight) && frame.Gait.Weight >= .999f &&
+            frame.Gait.NearSoleWorld.IsFinite() && frame.Gait.FarSoleWorld.IsFinite() &&
+            frame.Locomotion.State is not (PlayerLocomotionState.Dash or
+                PlayerLocomotionState.Dead or PlayerLocomotionState.Recovery);
+        if (resetTransitions || !supported)
+            _groundAttackWeightOffset = Vector2.Zero;
+        else
+        {
+            // This cache is facing-local. Re-express it before tracking so a
+            // mirrored rig cannot reverse an already visible world load.
+            if (facing != _groundAttackWeightFacing)
+                _groundAttackWeightOffset.X = -_groundAttackWeightOffset.X;
+            Vector2 target = GroundAttackWeightTarget(frame.Action, facing);
+            float weight = 1f - Mathf.Exp(-30f * (elapsed ?? 1f / 60f));
+            _groundAttackWeightOffset = _groundAttackWeightOffset.Lerp(target, weight);
+        }
+        _groundAttackWeightFacing = facing;
+        // Translate after measured body lean, then let the existing rigid
+        // leg/hand solvers keep soles planted and the original weapon held.
+        for (int i = 0; i < RequiredLayers.Length; i++)
+        {
+            var slot = (PlayerPoseSlot)i;
+            var transform = pose.Get(slot);
+            pose = pose.With(slot, transform with { Position = transform.Position + _groundAttackWeightOffset });
+        }
+        return pose;
+    }
+
+    private static Vector2 GroundAttackWeightTarget(PlayerActionFrame action, int facing)
+    {
+        if (action.State != PlayerActionState.GroundAttack) return Vector2.Zero;
+        Vector2 windup = new(-1.4f, 1.4f), strike = new(1.8f, 2f), follow = new(.6f, .8f);
+        float progress = Smooth(action.NormalizedTime);
+        Vector2 offset = action.Phase switch
+        {
+            PlayerActionPhase.Anticipation => Vector2.Zero.Lerp(windup, progress),
+            PlayerActionPhase.Burst => windup.Lerp(strike, progress),
+            PlayerActionPhase.Contact => strike.Lerp(follow, progress),
+            PlayerActionPhase.Recovery => follow.Lerp(Vector2.Zero, progress),
+            _ => Vector2.Zero
+        };
+        offset.X *= action.Aim.X * facing;
+        return offset;
+    }
+
+    private static bool HasMeasuredLandingSupport(PlayerPresentationFrame frame) =>
+        frame.LandingLoad.Active && float.IsFinite(frame.LandingLoad.Compression) &&
+        frame.LandingLoad.Compression > 0f && frame.Base.Grounded && frame.Gait.Observed &&
+        float.IsFinite(frame.Gait.Weight) && frame.Gait.Weight >= .999f &&
+        frame.Gait.NearSoleWorld.IsFinite() && frame.Gait.FarSoleWorld.IsFinite() &&
+        frame.Locomotion.State is not (PlayerLocomotionState.Dead or PlayerLocomotionState.Recovery);
+
+    private static PlayerPose ApplyLandingLoad(PlayerPose pose, PlayerPresentationFrame frame)
+    {
+        if (!HasMeasuredLandingSupport(frame)) return pose;
+        Vector2 shift = new(0f, Mathf.Clamp(frame.LandingLoad.Compression, 0f, 4f));
+        // Common load follows action mixing. Hips move, but subsequent rigid leg
+        // solving holds the observed world soles; the root/collider never moves.
+        for (int i = 0; i < RequiredLayers.Length; i++)
+        {
+            var slot = (PlayerPoseSlot)i;
+            var transform = pose.Get(slot);
+            pose = pose.With(slot, transform with { Position = transform.Position + shift });
+        }
+        return pose;
+    }
+
+    private static bool HasAirJet(PlayerPresentationFrame frame) =>
+        frame.AirJet.Active && !frame.Base.Grounded &&
+        frame.Locomotion.State is not (PlayerLocomotionState.Dead or PlayerLocomotionState.Recovery) &&
+        float.IsFinite(frame.AirJet.TorsoLeanRadians) && float.IsFinite(frame.AirJet.PelvisLag) &&
+        float.IsFinite(frame.AirJet.NearFold) && float.IsFinite(frame.AirJet.FarFold) && float.IsFinite(frame.AirJet.FootTrail);
+
+    private static bool HasOrdinaryAir(PlayerPresentationFrame frame) =>
+        frame.OrdinaryAir.Active && !frame.Base.Grounded && !HasAirJet(frame) &&
+        frame.Locomotion.State is not (PlayerLocomotionState.Dash or PlayerLocomotionState.Dead or PlayerLocomotionState.Recovery) &&
+        frame.Action.State is not (PlayerActionState.ThreadLatch or PlayerActionState.ThreadApply) &&
+        float.IsFinite(frame.OrdinaryAir.EntryWeight) && float.IsFinite(frame.OrdinaryAir.TorsoLeanRadians) &&
+        float.IsFinite(frame.OrdinaryAir.PelvisOffset) && float.IsFinite(frame.OrdinaryAir.NearLift) &&
+        float.IsFinite(frame.OrdinaryAir.FarLift) && float.IsFinite(frame.OrdinaryAir.FootTrail);
+
+    private PlayerPose ApplyAirLoad(PlayerPose pose,PlayerPresentationFrame frame,float? elapsed,bool resetTransitions)
+    {
+        bool jet=HasAirJet(frame), ordinary=HasOrdinaryAir(frame);
+        int facing=frame.Base.Facing<0?-1:1;
+        bool invalid=frame.AirJet.Active && !jet || !jet && frame.OrdinaryAir.Active && !ordinary;
+        _freezeAirFeet=_recoverAirFeet=false;
+        if(resetTransitions || invalid)ClearAirLoad();
+        if(!jet && !ordinary)
+        {
+            // A positive render can still repeat the zero-time primed physical
+            // sample, leaving ordinary inactive. Release only a finite visual
+            // residual; never require or resurrect a thruster lease.
+            bool freeAir=!frame.Base.Grounded && frame.Locomotion.State is
+                (PlayerLocomotionState.JumpStart or PlayerLocomotionState.Rise or PlayerLocomotionState.Apex or PlayerLocomotionState.Fall) &&
+                frame.Action.State is not (PlayerActionState.ThreadLatch or PlayerActionState.ThreadApply);
+            if(resetTransitions || invalid || !_lastAirLoadWasJet || !freeAir){ClearAirLoad();return pose;}
+            if(!_airGapRecovery)
+            {
+                _airLoadFromAngle=_airLoadWorldAngle;_airLoadFromShift=_airLoadShift;
+                _airLoadProgress=0;_airLoadHandoff=false;_airGapRecovery=true;
+                CaptureAirFootDeparture();
+            }
+            else _airLoadProgress=Mathf.Clamp(_airLoadProgress+(elapsed??1f/60f)/TimedEntrySeconds,0,1);
+            if(_airLoadProgress>=1){ClearAirLoad();return pose;}
+            float weight=Smooth(_airLoadProgress);
+            _airLoadWorldAngle=Mathf.Lerp(_airLoadFromAngle,0,weight);
+            _airLoadShift=Mathf.Lerp(_airLoadFromShift,0,weight);
+            _airFootEntryLimit=weight;_recoverAirFeet=true;_freezeAirFeet=weight==0;
+        }
+        else
+        {
+            _airGapRecovery=false;
+            float targetAngle=(jet?Mathf.Clamp(frame.AirJet.TorsoLeanRadians,-.16f,.16f):
+                Mathf.Clamp(frame.OrdinaryAir.TorsoLeanRadians,-.05f,.05f))*facing;
+            float targetShift=jet?Mathf.Clamp(frame.AirJet.PelvisLag,-.8f,.8f):Mathf.Clamp(frame.OrdinaryAir.PelvisOffset,-.3f,.6f);
+            if(ordinary && _lastAirLoadWasJet)
+            {
+                _airLoadFromAngle=_airLoadWorldAngle;_airLoadFromShift=_airLoadShift;
+                _airLoadProgress=0;_airLoadHandoff=true;
+            }
+            else if(ordinary && _airLoadHandoff)
+                _airLoadProgress=Mathf.Clamp(_airLoadProgress+(elapsed??1f/60f)/TimedEntrySeconds,0,1);
+            else {_airLoadHandoff=false;_airLoadProgress=1;}
+            float weight=_airLoadHandoff?Smooth(_airLoadProgress):1;
+            _airLoadWorldAngle=Mathf.Lerp(_airLoadFromAngle,targetAngle,weight);
+            _airLoadShift=Mathf.Lerp(_airLoadFromShift,targetShift,weight);
+            _airFootEntryLimit=weight;
+            _lastAirLoadWasJet=jet;
+            if(_airLoadProgress>=1)_airLoadHandoff=false;
+        }
+        float angle=_airLoadWorldAngle*facing;
+        Vector2 shift=new(0,_airLoadShift);
+        Vector2 pivot=(_restPositions["NearLeg"]+_restPositions["FarLeg"])*.5f;
+        for(int i=0;i<RequiredLayers.Length;i++)
+        {
+            var slot=(PlayerPoseSlot)i;var original=pose.Get(slot);Vector2 rest=_restPositions[RequiredLayers[i]];
+            pose=pose.With(slot,original with
+            {
+                Position=pivot+(rest+original.Position-pivot).Rotated(angle)+shift-rest,
+                RotationRadians=original.RotationRadians+angle
+            });
+        }
+        return pose;
+    }
+
+    private void ClearAirLoad()
+    {
+        _lastAirLoadWasJet=_airLoadHandoff=_freezeAirFeet=_airGapRecovery=_recoverAirFeet=false;
+        _airLoadWorldAngle=_airLoadShift=_airLoadFromAngle=_airLoadFromShift=0;
+        _airLoadProgress=_airFootEntryLimit=1;
+    }
+
+    private void PrepareOrdinaryAirEntry(bool active)
+    {
+        if(active && !_ordinaryAirEntered)CaptureAirFootDeparture();
+        _ordinaryAirEntered=active;
+    }
+
+    private void CaptureAirFootDeparture()
+    {
+        foreach(string name in new[]{"NearLeg","FarLeg"})
+            if(_layers[name] is PlayerFormalLayer leg)
+                _ordinaryDeparture[name]=(leg.LegAnkleLocal,(leg.LegAnkleLocal-leg.LegSoleLocal).Normalized());
+    }
+
+    private static bool HasGroundBrake(PlayerPresentationFrame frame) => frame.Base.Grounded &&
+        frame.Gait.Observed && frame.Gait.Weight>=.999f && frame.GroundBrake.Observed &&
+        float.IsFinite(frame.GroundBrake.Strength) && frame.GroundBrake.Strength>.0001f &&
+        float.IsFinite(frame.GroundBrake.PelvisDrop) && float.IsFinite(frame.GroundBrake.TorsoLeanWorld);
+
+    private static PlayerPose LocomotionTarget(PlayerLocomotionFrame frame, bool measuredLanding = false, bool measuredAir = false,
+        bool measuredOrdinary=false,bool measuredBrake=false)
     {
         float p = frame.NormalizedTime;
         float wave = Mathf.Sin(p * Mathf.Tau);
         PlayerPose pose = PlayerPose.Identity.WithOwnership(PlayerPoseOwnership.All);
-        return frame.State switch
+        PlayerPose target=frame.State switch
         {
             PlayerLocomotionState.Idle => pose
                 .With(PlayerPoseSlot.Body, Offset(0f, wave * .65f))
@@ -328,15 +606,16 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
                 .With(PlayerPoseSlot.FarArm, Rotation(-.24f))
                 .With(PlayerPoseSlot.Mantle, Rotation(-.2f)),
             PlayerLocomotionState.SoftLand => pose
-                .With(PlayerPoseSlot.Body, Offset(0f, 3f * Mathf.Sin(p * Mathf.Pi)))
+                .With(PlayerPoseSlot.Body, Offset(0f, measuredLanding ? 0f : 3f * Mathf.Sin(p * Mathf.Pi)))
                 .With(PlayerPoseSlot.NearLeg, Rotation(.18f * (1f - p)))
                 .With(PlayerPoseSlot.FarLeg, Rotation(-.18f * (1f - p)))
                 .With(PlayerPoseSlot.Mantle, Rotation(.08f * (1f - p))),
             PlayerLocomotionState.HardLand => pose
-                .With(PlayerPoseSlot.Body, OffsetRotate(0f, 5f * Mathf.Sin(p * Mathf.Pi), -.06f))
+                .With(PlayerPoseSlot.Body, OffsetRotate(0f, measuredLanding ? 0f : 5f * Mathf.Sin(p * Mathf.Pi), -.06f))
                 .With(PlayerPoseSlot.NearLeg, Rotation(.30f * (1f - p)))
                 .With(PlayerPoseSlot.FarLeg, Rotation(-.30f * (1f - p)))
                 .With(PlayerPoseSlot.Mantle, Rotation(.15f * (1f - p))),
+            PlayerLocomotionState.Dash when measuredAir => pose,
             PlayerLocomotionState.Dash => pose
                 .With(PlayerPoseSlot.Body, Rotation(.12f))
                 .With(PlayerPoseSlot.Mantle, Rotation(-.28f))
@@ -352,6 +631,14 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
                 .With(PlayerPoseSlot.Lantern, Offset(0f, -5f)),
             _ => pose
         };
+        // Real ordinary-air joints carry the arc; old whole-leg/body templates
+        // remain only for legacy callers without the measured channel.
+        if(measuredBrake && frame.State==PlayerLocomotionState.Brake)
+            target=target.With(PlayerPoseSlot.Body,pose.Body).With(PlayerPoseSlot.NearLeg,pose.NearLeg).With(PlayerPoseSlot.FarLeg,pose.FarLeg);
+        return measuredOrdinary && frame.State is (PlayerLocomotionState.JumpStart or PlayerLocomotionState.Rise or
+            PlayerLocomotionState.Apex or PlayerLocomotionState.Fall)
+            ? target.With(PlayerPoseSlot.Body,pose.Body).With(PlayerPoseSlot.NearLeg,pose.NearLeg).With(PlayerPoseSlot.FarLeg,pose.FarLeg)
+            : target;
     }
 
     private static bool IsLooping(PlayerLocomotionState state) =>
@@ -391,6 +678,29 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
 
         return frame.State switch
         {
+            // Ground Up-J owns an ascending cut, not a horizontal hitbox with
+            // the same forward wrist/blade pose. Keep the planted lower body
+            // and the existing phase clock; both hands still solve the rigid
+            // bitmap handle after these shoulder/weapon targets are mixed.
+            PlayerActionState.GroundAttack when frame.Aim == Vector2.Up => frame.Phase switch
+            {
+                PlayerActionPhase.Anticipation => pose
+                    .With(PlayerPoseSlot.Body, Rotate(.10f))
+                    .With(PlayerPoseSlot.NearArm, OffsetRotate(-2f, 1f, -.18f))
+                    .With(PlayerPoseSlot.FarArm, Rotate(-.16f))
+                    .With(PlayerPoseSlot.Weapon, Rotate(-.12f)),
+                PlayerActionPhase.Burst => pose
+                    .With(PlayerPoseSlot.Body, Rotate(-.14f))
+                    .With(PlayerPoseSlot.NearArm, OffsetRotate(-4f, -2f, -2.05f))
+                    .With(PlayerPoseSlot.FarArm, OffsetRotate(4f, -1f, .34f))
+                    .With(PlayerPoseSlot.Weapon, Rotate(-1.80f)),
+                PlayerActionPhase.Contact => pose
+                    .With(PlayerPoseSlot.Body, Rotate(-.10f))
+                    .With(PlayerPoseSlot.NearArm, OffsetRotate(-3f, -1f, -1.80f))
+                    .With(PlayerPoseSlot.FarArm, OffsetRotate(3f, -1f, .26f))
+                    .With(PlayerPoseSlot.Weapon, Rotate(-1.50f)),
+                _ => pose
+            },
             PlayerActionState.GroundAttack => frame.Phase switch
             {
                 PlayerActionPhase.Anticipation => pose
@@ -409,6 +719,29 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
                     .With(PlayerPoseSlot.FarArm, Rotate(.26f))
                     .With(PlayerPoseSlot.Weapon, Rotate(-.62f)),
                 _ => pose
+            },
+            PlayerActionState.AirAttack when frame.Aim == Vector2.Up => frame.Phase switch
+            {
+                PlayerActionPhase.Anticipation => pose
+                    .With(PlayerPoseSlot.Body, Rotate(.05f))
+                    .With(PlayerPoseSlot.NearArm, OffsetRotate(-2f, 1f, -.34f))
+                    .With(PlayerPoseSlot.FarArm, Rotate(.16f))
+                    .With(PlayerPoseSlot.Weapon, Rotate(-.12f)),
+                PlayerActionPhase.Burst => pose
+                    .With(PlayerPoseSlot.Body, Rotate(-.11f))
+                    .With(PlayerPoseSlot.NearArm, OffsetRotate(-4f, -2f, -2.05f))
+                    .With(PlayerPoseSlot.FarArm, OffsetRotate(4f, -1f, .34f))
+                    .With(PlayerPoseSlot.Weapon, Rotate(-1.80f)),
+                PlayerActionPhase.Contact => pose
+                    .With(PlayerPoseSlot.Body, Rotate(-.08f))
+                    .With(PlayerPoseSlot.NearArm, OffsetRotate(-3f, -1f, -1.80f))
+                    .With(PlayerPoseSlot.FarArm, OffsetRotate(3f, -1f, .26f))
+                    .With(PlayerPoseSlot.Weapon, Rotate(-1.50f)),
+                _ => pose
+                    .With(PlayerPoseSlot.Body, Rotate(-.02f))
+                    .With(PlayerPoseSlot.NearArm, Rotate(-.18f))
+                    .With(PlayerPoseSlot.FarArm, Rotate(.08f))
+                    .With(PlayerPoseSlot.Weapon, Rotate(-.08f))
             },
             PlayerActionState.AirAttack => frame.Phase switch
             {
@@ -614,6 +947,183 @@ public partial class PlayerFormalVisual : Node2D, IEntityVisual2D
         Apply("ShoulderCore", pose.ShoulderCore);
         Apply("Lantern", pose.Lantern);
         Apply("Tether", pose.Tether);
+    }
+
+    private void ApplySecondaryGrip(PlayerPresentationFrame frame, float? elapsed, bool resetTransitions)
+    {
+        if (!_layers.TryGetValue("Weapon", out Node2D weaponLayer) || weaponLayer is not PlayerFormalLayer weapon ||
+            !_layers.TryGetValue("NearArm", out Node2D nearLayer) || nearLayer is not PlayerFormalLayer near ||
+            !_layers.TryGetValue("FarArm", out Node2D farLayer) || farLayer is not PlayerFormalLayer far) return;
+        bool wanted = frame.Locomotion.State is not (PlayerLocomotionState.Dead or PlayerLocomotionState.Recovery) &&
+            frame.Action.State is PlayerActionState.None or PlayerActionState.GroundAttack or
+                PlayerActionState.AirAttack or PlayerActionState.DownAttack;
+        if (!_hasSecondaryGrip)
+        {
+            _secondaryGripWanted = wanted;
+            _secondaryGripWeight = _secondaryGripFrom = wanted ? 1f : 0f;
+            _hasSecondaryGrip = true;
+        }
+        else
+        {
+            bool changed = wanted != _secondaryGripWanted;
+            if (changed)
+            {
+                _secondaryGripWanted = wanted;
+                _secondaryGripFrom = _secondaryGripWeight;
+                _secondaryGripProgress = 0f;
+                _secondaryGripReleaseStart = _actionReleaseWeight;
+            }
+            float progress;
+            if (frame.Action.State == PlayerActionState.None)
+                progress = changed ? 0f : _secondaryGripReleaseStart > .0001f
+                    ? 1f - _actionReleaseWeight / _secondaryGripReleaseStart
+                    : 1f;
+            else progress = IsThreadAction(frame.Action.State) ? _threadEntryBlend : frame.Action.NormalizedTime;
+            // Consume the bounded visible-entry/release cadence even when the
+            // ordinary producer enters at terminal progress or zero overlay.
+            // No additional Process/timer; the ten authored slots stay intact.
+            float step = frame.Action.State == PlayerActionState.None ? ActionReleaseStep : ThreadEntryLimit;
+            if(elapsed.HasValue) step=elapsed.Value/(frame.Action.State==PlayerActionState.None ? TimedReleaseSeconds : 1f/15f);
+            progress = Mathf.Min(progress, _secondaryGripProgress + step);
+            _secondaryGripProgress = Mathf.Max(_secondaryGripProgress, Mathf.Clamp(progress, 0f, 1f));
+            _secondaryGripWeight = Mathf.Lerp(_secondaryGripFrom, wanted ? 1f : 0f,
+                Smooth(_secondaryGripProgress));
+        }
+        // Author the internal bend as well as the shoulder layer. It consumes
+        // the same presentation elapsed time; repeated/paused frames do not
+        // advance another clock, and no force or attack timing is changed.
+        bool articulatedAirAttack = IsHorizontalAirAttack(frame.Action) || IsUpAirAttack(frame.Action);
+        if (resetTransitions || frame.Locomotion.State is PlayerLocomotionState.Dead or PlayerLocomotionState.Recovery)
+        {
+            _attackWristOffset = Vector2.Zero;
+            _airWristOwnsReach = false;
+        }
+        else
+        {
+            Vector2 target = AttackWristOffset(frame.Action);
+            float weight = 1f - Mathf.Exp(-30f * (elapsed ?? 1f / 60f));
+            _attackWristOffset = _attackWristOffset.Lerp(target, weight);
+            _airWristOwnsReach |= articulatedAirAttack;
+        }
+        Vector2 guardImpact = StepGuardImpactWorld(frame, elapsed, resetTransitions);
+        float freeHandWeight = 1f - _secondaryGripWeight;
+        Vector2 nearWrist = new Vector2(0f, 21f) + _attackWristOffset +
+            GuardImpactInLocal(near, guardImpact) * freeHandWeight;
+        if (_airWristOwnsReach)
+        {
+            Vector2 reachable = KeepAirWristInOffhandReach(near, far, weapon, nearWrist);
+            // A same-clock pose handoff must not remove a live correction.
+            // During release it fades with the same continuous grip weight as
+            // the offhand. Retire it when the next pose no longer needs it.
+            if (!articulatedAirAttack && (reachable == nearWrist || _secondaryGripWeight <= 0f))
+                _airWristOwnsReach = false;
+            nearWrist = nearWrist.Lerp(reachable, _secondaryGripWeight);
+        }
+        near.SetArmWristLocal(nearWrist);
+        // Solve the near wrist first, bind the original bitmap to that actual
+        // hand, then solve its offhand. This order prevents one-frame grip lag.
+        weapon.SetWeaponGripLocal(weapon.ToLocal(near.ToGlobal(near.ArmWristLocal)));
+        Vector2 secondary = weapon.ToGlobal(weapon.WeaponSecondaryGripLocal);
+        far.SetArmWristLocal(new Vector2(0f, 19f).Lerp(far.ToLocal(secondary), _secondaryGripWeight) +
+            GuardImpactInLocal(far, guardImpact) * (.55f * freeHandWeight));
+        weapon.SetWeaponSecondaryGripContact(_secondaryGripWeight >= .99999f &&
+            far.ToGlobal(far.ArmWristLocal).DistanceTo(secondary) < .001f);
+    }
+
+    private static Vector2 KeepAirWristInOffhandReach(PlayerFormalLayer near, PlayerFormalLayer far,
+        PlayerFormalLayer weapon, Vector2 nearWrist)
+    {
+        // Correct the visible wrist before either grip is solved. Moving the
+        // primary moves the whole rigid weapon; clamping only the far arm
+        // afterwards would leave it visibly detached from the bitmap handle.
+        Vector2 delta = weapon.ToGlobal(PlayerFormalLayer.WeaponSecondaryGripOffsetLocal) - weapon.GlobalPosition;
+        Vector2 requested = far.ToLocal(near.ToGlobal(nearWrist) + delta);
+        const float reach = PlayerFormalLayer.MaxArmReach - .25f;
+        float length = requested.Length();
+        if (!float.IsFinite(length) || length <= reach) return nearWrist;
+        Vector2 corrected = near.ToLocal(far.ToGlobal(requested * (reach / length)) - delta);
+        // Do not ask the near IK to clamp the correction and invalidate the
+        // offhand solution. Impossible poses retain honest grip reporting.
+        return corrected.IsFinite() && corrected.LengthSquared() < PlayerFormalLayer.MaxArmReach * PlayerFormalLayer.MaxArmReach
+            ? corrected : nearWrist;
+    }
+
+    private static bool IsHorizontalAirAttack(PlayerActionFrame action) =>
+        action.State == PlayerActionState.AirAttack && (action.Aim == Vector2.Left || action.Aim == Vector2.Right);
+
+    private static bool IsUpAirAttack(PlayerActionFrame action) =>
+        action.State == PlayerActionState.AirAttack && action.Aim == Vector2.Up;
+
+    private static Vector2 AttackWristOffset(PlayerActionFrame action)
+    {
+        Vector2 windup, strike, followThrough;
+        if (action.State == PlayerActionState.GroundAttack)
+        {
+            bool upward = action.Aim == Vector2.Up;
+            windup = upward ? new(-2f, -3.5f) : new(-2f, -3f);
+            strike = upward ? new(.5f, 4.5f) : new(2f, 4.5f);
+            followThrough = upward ? new(.25f, 2f) : new(1f, 2f);
+        }
+        else if (IsUpAirAttack(action))
+        {
+            windup = new(-2f, -4.5f);
+            strike = new(.25f, 5.5f);
+            followThrough = new(.25f, 2.5f);
+        }
+        else if (IsHorizontalAirAttack(action))
+        {
+            // Local pose; the authored rig mirrors it once. Tuck before
+            // reaching through the swing, then share the contact/recovery
+            // endpoint so the short aerial cut can recoil without a snap.
+            windup = new(-1.5f, -5f);
+            strike = new(2f, 6.5f);
+            followThrough = new(1.5f, 3f);
+        }
+        else return Vector2.Zero;
+        float progress = Smooth(action.NormalizedTime);
+        return action.Phase switch
+        {
+            PlayerActionPhase.Anticipation => Vector2.Zero.Lerp(windup, progress),
+            PlayerActionPhase.Burst => windup.Lerp(strike, progress),
+            PlayerActionPhase.Contact => strike.Lerp(followThrough, progress),
+            PlayerActionPhase.Recovery => followThrough.Lerp(Vector2.Zero, progress),
+            _ => Vector2.Zero
+        };
+    }
+
+    private void ApplyGroundGait(PlayerGroundGaitFrame gait, PlayerAirJetFrame air=default,PlayerOrdinaryAirFrame ordinary=default,
+        float ordinaryEntryLimit=1f,bool freezeAirFeet=false,bool recoverAirFeet=false)
+    {
+        if(freezeAirFeet)return;
+        bool valid=gait.Observed && float.IsFinite(gait.Weight) && gait.Weight>0 &&
+            gait.NearSoleWorld.IsFinite() && gait.FarSoleWorld.IsFinite();
+        foreach(string name in new[]{"NearLeg","FarLeg"})
+        {
+            if(!_layers.TryGetValue(name,out var node) || node is not PlayerFormalLayer leg) continue;
+            Vector2 sole=leg.FreeLegSoleLocal, up=Vector2.Up;
+            if(air.Active)
+                sole+=new Vector2(Mathf.Clamp(air.FootTrail,-4f,4f),
+                    -Mathf.Clamp(name=="NearLeg"?air.NearFold:air.FarFold,0f,name=="NearLeg"?11f:10f));
+            else if(ordinary.Active || recoverAirFeet)
+            {
+                float lift=recoverAirFeet?0:Mathf.Clamp(name=="NearLeg"?ordinary.NearLift:ordinary.FarLift,
+                    name=="NearLeg"?-2f:-1f,name=="NearLeg"?12f:10f);
+                float trail=recoverAirFeet?0:Mathf.Clamp(ordinary.FootTrail,-3f,3f);
+                Vector2 targetAnkle=sole+new Vector2(trail,-lift)+Vector2.Up*4f;
+                var departure=_ordinaryDeparture[name];
+                float entry=Mathf.Min(recoverAirFeet?1:Mathf.Clamp(ordinary.EntryWeight,0f,1f),ordinaryEntryLimit);
+                up=departure.Up.Rotated(Mathf.AngleDifference(departure.Up.Angle(),Vector2.Up.Angle())*entry).Normalized();
+                sole=departure.Ankle.Lerp(targetAnkle,entry)-up*4f;
+            }
+            else if(valid)
+            {
+                Vector2 target=name=="NearLeg"?gait.NearSoleWorld:gait.FarSoleWorld;
+                sole=leg.ToLocal(leg.ToGlobal(sole).Lerp(target,Mathf.Clamp(gait.Weight,0,1)));
+                Vector2 worldUp=gait.GroundUp.IsFinite() && gait.GroundUp.LengthSquared()>.001f ? gait.GroundUp.Normalized() : Vector2.Up;
+                up=(leg.ToLocal(leg.GlobalPosition+worldUp)-leg.ToLocal(leg.GlobalPosition)).Normalized();
+            }
+            leg.SetLegSoleLocal(sole,up);
+        }
     }
 
     private void Apply(string name, PoseTransform2D transform)

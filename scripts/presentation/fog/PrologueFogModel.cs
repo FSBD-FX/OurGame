@@ -25,12 +25,14 @@ public static class PrologueFogModel
     /// Resolve/blend density at the world point being shaded, never at the actor's
     /// region. Authored local checkpoint rest bounds also belong in this lookup.
     /// </summary>
-    public static PrologueFogProfile ResolveProfile(Vector2 worldPoint)
+    public static PrologueFogProfile ResolveProfile(Vector2 worldPoint)=>ResolveProfile(worldPoint,Fields);
+    public static PrologueFogProfile ResolveProfile(Vector2 worldPoint,IReadOnlyList<PrologueFogField> fields)
     {
+        ArgumentNullException.ThrowIfNull(fields);
         PrologueFogProfile profile = PrologueFogProfile.Exploration;
         if (!IsFinite(worldPoint)) return profile;
 
-        foreach (PrologueFogField field in Fields)
+        foreach (PrologueFogField field in fields)
             profile = Blend(profile, field.Profile,
                 InwardWeight(field.Bounds, worldPoint, field.BlendWidth));
         return profile;

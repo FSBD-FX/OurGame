@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Godot;
 using Knight.Combat;
+using Knight.Prologue;
 
 namespace Knight.Player;
 
@@ -21,6 +22,8 @@ public partial class PlayerGuardedDamageReceiver : Node, IDamageReceiver
 
     public bool ReceiveDamage(DamageRequest request)
     {
+        for (Node node = GetParent(); node != null; node = node.GetParent())
+            if (node is PrologueLevelController { ResidentPreparationPending: true }) return false;
         ResolveDependencies();
         if (_processedAttackIds.Contains(request.AttackIdentity)) return false;
 

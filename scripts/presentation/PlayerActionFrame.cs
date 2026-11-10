@@ -130,6 +130,8 @@ public readonly record struct PlayerActionFrame
     }
 }
 
+public readonly record struct PlayerBodyLoadFrame(bool Observed, float PelvisDrop, float TorsoLeanRadians);
+
 public readonly record struct PlayerPresentationFrame(
     EntityPresentationFrame Base,
     PlayerLocomotionFrame Locomotion,
@@ -140,6 +142,16 @@ public readonly record struct PlayerPresentationFrame(
     // coarse and four-argument callers intentionally default to no mobility.
     public ThrusterPresentationFrame Mobility { get; init; }
     public float MobilityLeanRadians { get; init; }
+    public PlayerGroundGaitFrame Gait { get; init; }
+    public double? PresentationTimeSeconds { get; init; }
+    public PlayerBodyLoadFrame BodyLoad { get; init; }
+    public PlayerLandingLoadFrame LandingLoad { get; init; }
+    public PlayerAirJetFrame AirJet { get; init; }
+    public PlayerOrdinaryAirFrame OrdinaryAir { get; init; }
+    // The real Timeline produces facing-parent-space inertia. Legacy hand-made
+    // frames retain their established cloth-local Draw contract by default.
+    public bool MantleMotionInParentSpace { get; init; }
+    public PlayerGroundBrakeFrame GroundBrake { get; init; }
 
     public PlayerPresentationFrame(
         EntityPresentationFrame Base,

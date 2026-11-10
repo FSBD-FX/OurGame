@@ -49,9 +49,18 @@ public readonly record struct LandingImpactSample(float Speed, LandingImpactFall
 
 internal readonly record struct LandingImpactPreparation(Vector2 Origin, Vector2 Velocity,
     Vector2 Motion, Vector2 Travel, Vector2 Remainder, Vector2 Normal, Rid Collider,
-    Vector2 ColliderVelocity, float ContactDepth, LandingImpactFallbackReason Reason);
+    Vector2 ColliderVelocity, float ContactDepth, LandingImpactFallbackReason Reason)
+{
+    public int ShapeIndex { get; init; }
+    public bool FloorStopOnSlope { get; init; }
+    public Vector2 UpDirection { get; init; }
+    public float SafeMargin { get; init; }
+}
 
-internal readonly record struct LandingFloorSupport(bool AllSoft, bool Unique, bool Complete);
+internal readonly record struct LandingFloorSupport(bool AllSoft, bool Unique, bool Complete)
+{
+    public bool SingleContactShape { get; init; }
+}
 
 // Queries only: the Motor still makes exactly one native MoveAndSlide per tick.
 internal sealed class LandingImpactSampler : IDisposable
@@ -68,7 +77,8 @@ internal sealed class LandingImpactSampler : IDisposable
         bool wasOnFloor, double delta)
     {
         LandingImpactPreparation unavailable = new(body.GlobalPosition, velocity, default,
-            default, default, default, default, default, 0f, LandingImpactFallbackReason.InvalidMotion);
+            default, default, default, default, default, 0f, LandingImpactFallbackReason.InvalidMotion)
+            {FloorStopOnSlope=body.FloorStopOnSlope,UpDirection=body.UpDirection,SafeMargin=body.SafeMargin};
         if (wasOnFloor) return unavailable with { Reason = LandingImpactFallbackReason.NotAirborne };
         if (body.IsOnWall()) return unavailable with { Reason = LandingImpactFallbackReason.WallContact };
         Vector2 platformVelocity = body.GetPlatformVelocity();
@@ -94,6 +104,7 @@ internal sealed class LandingImpactSampler : IDisposable
         // Demand no zero-motion recovery AND identical motion-only/recovery queries.
         if (!body.TestMove(body.GlobalTransform, motion, _motionOnly, body.SafeMargin, false) ||
             _motionOnly.GetColliderRid() != _predicted.GetColliderRid() ||
+            _motionOnly.GetColliderShapeIndex() != _predicted.GetColliderShapeIndex() ||
             !Near(_motionOnly.GetTravel(), _predicted.GetTravel()) ||
             !Near(_motionOnly.GetRemainder(), _predicted.GetRemainder()) ||
             !Near(_motionOnly.GetNormal(), normal) ||
@@ -114,7 +125,9 @@ internal sealed class LandingImpactSampler : IDisposable
             return unavailable with { Reason = LandingImpactFallbackReason.UnknownColliderVelocity };
         return new(body.GlobalPosition, velocity, motion, _predicted.GetTravel(),
             _predicted.GetRemainder(), normal, _predicted.GetColliderRid(), colliderVelocity,
-            _predicted.GetDepth(), LandingImpactFallbackReason.Reliable);
+            _predicted.GetDepth(), LandingImpactFallbackReason.Reliable)
+            { ShapeIndex = _predicted.GetColliderShapeIndex(),FloorStopOnSlope=unavailable.FloorStopOnSlope,
+              UpDirection=unavailable.UpDirection,SafeMargin=unavailable.SafeMargin };
     }
 
     internal LandingImpactSample Complete(CharacterBody2D body, LandingImpactPreparation before,
@@ -135,6 +148,15 @@ internal sealed class LandingImpactSampler : IDisposable
         if (contact.GetColliderRid() != before.Collider)
             return LandingImpactSample.Unavailable(LandingImpactFallbackReason.ColliderChanged);
         Vector2 expectedTravel = contact.GetTravel() + contact.GetRemainder().Slide(contact.GetNormal());
+        if(before.FloorStopOnSlope!=body.FloorStopOnSlope || before.UpDirection!=body.UpDirection || before.SafeMargin!=body.SafeMargin)
+            return LandingImpactSample.Unavailable(LandingImpactFallbackReason.MotionMismatch);
+        // Match the installed a13da4feb CharacterBody2D grounded stop branch
+        // (character_body_2d.cpp169–179, CMP_EPSILON from math_defs.h).
+        // Native stop cancels the remainder; a sub-margin travel is undone too.
+        // This changes no physics, impact formula, or .002 measurement tolerance.
+        if(before.FloorStopOnSlope && body.IsOnFloor() && body.Velocity==Vector2.Zero &&
+            NativeSlopeStopDirection((before.Velocity.Normalized()+before.UpDirection).Length()))
+            expectedTravel=contact.GetTravel().Length()<=(double)before.SafeMargin+.00001d?Vector2.Zero:contact.GetTravel();
         if (!Near(contact.GetNormal(), before.Normal) || !Near(contact.GetTravel(), before.Travel) ||
             !Near(contact.GetRemainder(), before.Remainder) ||
             !Near(contact.GetTravel() + contact.GetRemainder(), before.Motion) ||
@@ -155,6 +177,9 @@ internal sealed class LandingImpactSampler : IDisposable
         _excluded.Clear();
         int floors = 0;
         bool allSoft = true;
+        bool uniqueShape = true;
+        Rid firstRid = default;
+        int firstShape = -1;
         for (int index = 0; index < body.GetSlideCollisionCount(); index++)
         {
             KinematicCollision2D contact = body.GetSlideCollision(index);
@@ -162,6 +187,14 @@ internal sealed class LandingImpactSampler : IDisposable
             if (!FloorNormal(body, contact.GetNormal())) continue;
             floors++;
             allSoft &= ExplicitSoft(contact.GetCollider());
+            if (floors == 1)
+            {
+                uniqueShape = HasUniqueContactShape(body, contact);
+                firstRid = contact.GetColliderRid();
+                firstShape = contact.GetColliderShapeIndex();
+            }
+            else
+                uniqueShape &= contact.GetColliderRid() == firstRid && contact.GetColliderShapeIndex() == firstShape;
         }
         // Slide count is not a complete support inventory. Find additional touching
         // bodies without disabling collision or modifying the body's exceptions.
@@ -173,7 +206,8 @@ internal sealed class LandingImpactSampler : IDisposable
         {
             _supportParameters.ExcludeBodies = _excluded;
             if (!PhysicsServer2D.BodyTestMotion(body.GetRid(), _supportParameters, _supportResult))
-                return new(floors > 0 && allSoft, floors == 1, true);
+                return new(floors > 0 && allSoft, floors == 1 && uniqueShape, true)
+                    { SingleContactShape = floors > 0 && uniqueShape && firstShape >= 0 };
             Rid collider = _supportResult.GetColliderRid();
             if (!collider.IsValid || _excluded.Contains(collider) ||
                 !Finite(_supportResult.GetCollisionNormal()))
@@ -181,9 +215,87 @@ internal sealed class LandingImpactSampler : IDisposable
             _excluded.Add(collider);
             if (!FloorNormal(body, _supportResult.GetCollisionNormal())) continue;
             floors++;
+            uniqueShape = false;
             allSoft &= ExplicitSoft(_supportResult.GetCollider());
         }
         return new(false, false, false);
+    }
+
+    // Additional evidence for animation only. Do not feed this into fall damage.
+    internal LandingImpactSample MeasureStaticSlideForPresentation(CharacterBody2D body,
+        LandingImpactPreparation before, LandingFloorSupport support)
+    {
+        var unavailable = LandingImpactSample.Unavailable(LandingImpactFallbackReason.MultipleContacts);
+        if (!support.Complete || !support.SingleContactShape || body.GetSlideCollisionCount() != 3 ||
+            before.Reason != LandingImpactFallbackReason.Reliable || before.ColliderVelocity != Vector2.Zero)
+            return unavailable;
+        var first = body.GetSlideCollision(0);
+        if (first.GetCollider() is not StaticBody2D || first.GetColliderRid() != before.Collider ||
+            first.GetColliderShapeIndex() != before.ShapeIndex || !Near(first.GetNormal(), before.Normal) ||
+            !Near(first.GetTravel(), before.Travel) || !Near(first.GetRemainder(), before.Remainder) ||
+            !float.IsFinite(first.GetDepth()) || Math.Abs(first.GetDepth() - before.ContactDepth) > MotionTolerance)
+            return unavailable;
+        var from = body.GlobalTransform;
+        from.Origin = before.Origin + first.GetTravel();
+        Vector2 remaining = first.GetRemainder();
+        for (int i = 1; i < 3; i++)
+        {
+            var contact = body.GetSlideCollision(i);
+            if (contact.GetColliderRid() != before.Collider || contact.GetColliderShapeIndex() != before.ShapeIndex ||
+                !FloorNormal(body, contact.GetNormal()) || !Near(contact.GetNormal(), before.Normal) ||
+                !Near(contact.GetColliderVelocity(), Vector2.Zero) || !float.IsFinite(contact.GetDepth()) ||
+                !body.TestMove(from, remaining, _motionOnly, body.SafeMargin, true) ||
+                _motionOnly.GetColliderRid() != before.Collider || _motionOnly.GetColliderShapeIndex() != before.ShapeIndex ||
+                !Near(_motionOnly.GetNormal(), contact.GetNormal()) || !Near(_motionOnly.GetTravel(), contact.GetTravel()) ||
+                !Near(_motionOnly.GetRemainder(), contact.GetRemainder()) || !float.IsFinite(_motionOnly.GetDepth()) ||
+                Math.Abs(_motionOnly.GetDepth() - contact.GetDepth()) > MotionTolerance)
+                return unavailable;
+            from.Origin += contact.GetTravel();
+            remaining = contact.GetRemainder().Slide(contact.GetNormal());
+        }
+        return Near(from.Origin, body.GlobalPosition) && Near(remaining, Vector2.Zero)
+            ? LandingImpactSample.MeasureRelativeNormal(before.Velocity, Vector2.Zero, before.Normal)
+            : unavailable;
+    }
+
+    private static bool HasUniqueContactShape(CharacterBody2D body, KinematicCollision2D contact)
+    {
+        if (contact.GetCollider() is not CollisionObject2D floor) return false;
+        int enabled = 0;
+        foreach (int rawOwner in floor.GetShapeOwners())
+        {
+            uint owner = (uint)rawOwner;
+            if (!floor.IsShapeOwnerDisabled(owner)) enabled += floor.ShapeOwnerGetShapeCount(owner);
+            if (enabled > 1) break;
+        }
+        if (enabled == 1) return true;
+        if (enabled == 0 || body.GetNodeOrNull<CollisionShape2D>("BodyCollider") is not { Disabled: false, Shape: { } shape } local)
+            return false;
+
+        // BodyTestMotion exclusions are per RID. Check touching shapes before
+        // accepting the single RID as a unique support. Unknown/saturated
+        // results deny measurement without changing body-level soft metadata.
+        const int limit = 32;
+        var transform = local.GlobalTransform;
+        transform.Origin -= body.UpDirection.Normalized() * .001f;
+        using var query = new PhysicsShapeQueryParameters2D
+        {
+            Shape = shape, Transform = transform, Margin = body.SafeMargin,
+            CollisionMask = body.CollisionMask, CollideWithBodies = true, CollideWithAreas = false
+        };
+        using Godot.Collections.Array hits = (Godot.Collections.Array)body.GetWorld2D().DirectSpaceState.IntersectShape(query, limit);
+        if (hits.Count >= limit) return false;
+        bool foundPrimary = false;
+        Rid floorRid = contact.GetColliderRid();
+        int primary = contact.GetColliderShapeIndex();
+        for (int i = 0; i < hits.Count; i++)
+        {
+            using var hit = hits[i].AsGodotDictionary();
+            if (hit["rid"].AsRid() != floorRid) continue;
+            if (hit["shape"].AsInt32() != primary) return false;
+            foundPrimary = true;
+        }
+        return foundPrimary;
     }
 
     private static LandingImpactFallbackReason ContactVelocity(Rid collider, Vector2 point,
@@ -213,6 +325,9 @@ internal sealed class LandingImpactSampler : IDisposable
         normal.Dot(body.UpDirection.Normalized()) >= Mathf.Cos(body.FloorMaxAngle);
 
     private static bool Finite(Vector2 value) => float.IsFinite(value.X) && float.IsFinite(value.Y);
+    // The native real_t distance is float, promoted against C++'s double literal.
+    internal static bool NativeSlopeStopDirection(float distance) =>
+        float.IsFinite(distance) && distance >= 0f && (double)distance < .01d;
     private static bool Near(Vector2 a, Vector2 b) => Finite(a) && Finite(b) &&
         (a - b).LengthSquared() <= MotionTolerance * MotionTolerance;
 

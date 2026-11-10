@@ -22,8 +22,8 @@ if (Test-Path -LiteralPath $EvidenceRoot) {
 }
 New-Item -ItemType Directory -Path $EvidenceRoot -Force | Out-Null
 
-$godot = 'G:\godot\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
-$dotnet = 'G:\godot\dotnet-sdk\dotnet.exe'
+$godot = 'G:\knight\Tools\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
+$dotnet = 'G:\knight\Tools\dotnet-sdk\dotnet.exe'
 
 function Assert-Task6UiCapture([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "Task 6 external UI-capture assertion failed: $Message" }

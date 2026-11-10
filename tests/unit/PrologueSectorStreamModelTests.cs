@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Godot;
 using Knight.Prologue.Sample;
 using Knight.Prologue.Seamless;
@@ -12,6 +13,7 @@ public static class PrologueSectorStreamModelTests
 
     public static void Run()
     {
+        SectorOperationDiagnosticsPreservePayloadAndIsolateSinkFailure();
         SectorIdsAreTheFiveApprovedLocationsInRouteOrder();
         RequiredSetsAreUniqueOrderedAndBounded();
         PinnedSectorsJoinOnlyExplicitPhysicalNeighbors();
@@ -22,6 +24,50 @@ public static class PrologueSectorStreamModelTests
         SectorSceneRootsMustBeTranslationOnly();
         NonAdjacentWorldBoundsCannotOverlap();
         InteractionBoundsCannotEnterAnUnloadSeamMargin();
+    }
+
+    // A broken diagnostic sink must not replace a scene operation's own result
+    // or exception; the production observer receives scalar payloads only.
+    private static void SectorOperationDiagnosticsPreservePayloadAndIsolateSinkFailure()
+    {
+        const BindingFlags flags = BindingFlags.Static | BindingFlags.NonPublic;
+        Type type = typeof(PrologueSectorDefinition);
+        FieldInfo observer = type.GetField("OperationObserver", flags);
+        FieldInfo faults = type.GetField("OperationObserverFaults", flags);
+        MethodInfo report = type.GetMethod("ObserveOperation", flags);
+        TestAssert.True(observer != null && faults != null && report != null,
+            "SECTOR_OPERATION_DIAGNOSTIC_RED: scalar observation must isolate a failing sink");
+        object previousObserver = observer.GetValue(null);
+        object previousFaults = faults.GetValue(null);
+        try
+        {
+            faults.SetValue(null, 0);
+            observer.SetValue(null, null);
+            report.Invoke(null, ["validation-instantiate", 2, true]);
+            TestAssert.Equal(0, (int)faults.GetValue(null), "disabled observer has no diagnostic failure");
+
+            var rows = new List<string>();
+            Action<string, int, bool> sink = (kind, sector, enter) =>
+                rows.Add($"{kind}|{sector}|{enter}");
+            observer.SetValue(null, sink);
+            report.Invoke(null, ["validation-instantiate", 2, true]);
+            report.Invoke(null, ["validation-instantiate", 2, false]);
+            TestAssert.Equal("validation-instantiate|2|True,validation-instantiate|2|False",
+                string.Join(",", rows), "observer keeps the operation, sector and entry/return order");
+
+            Action<string, int, bool> brokenSink = (_, _, _) =>
+                throw new InvalidOperationException("deliberate diagnostic sink failure");
+            observer.SetValue(null, brokenSink);
+            report.Invoke(null, ["validation-free", 2, true]);
+            report.Invoke(null, ["validation-free", 2, false]);
+            TestAssert.Equal(2, (int)faults.GetValue(null),
+                "both sink exceptions are counted without escaping into scene lifetime logic");
+        }
+        finally
+        {
+            observer.SetValue(null, previousObserver);
+            faults.SetValue(null, previousFaults);
+        }
     }
 
     private static void GeneratedLayoutOneSceneKeepsGeometryAndAddsExplicitNeighbors()

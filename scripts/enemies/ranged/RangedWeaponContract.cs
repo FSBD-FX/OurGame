@@ -1,7 +1,17 @@
 using Godot;
 using Knight.Combat;
+using Knight.Presentation;
 
 namespace Knight.Enemies.Ranged;
+
+// Replacement visuals own their art, never combat. Reset is a checkpoint
+// generation boundary; Clear only revokes the current attack presentation.
+public interface IRangedWeaponVisual2D : IEntityVisual2D
+{
+    void PresentWeaponFrame(RangedWeaponRole role, RangedWeaponFrame frame);
+    void ClearAttackPresentation();
+    void ResetWeaponPresentation(RangedWeaponRole role);
+}
 
 public enum RangedWeaponRole
 {

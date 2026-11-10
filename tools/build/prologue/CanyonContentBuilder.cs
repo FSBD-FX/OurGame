@@ -21,7 +21,7 @@ namespace Knight.Build.Prologue;
 /// streaming seams, recovery volumes, packing, and validation remain in
 /// <see cref="PrologueCanyonBuildParts"/>.
 /// </summary>
-public static class CanyonContentBuilder
+public static partial class CanyonContentBuilder
 {
     public static void Build(PrologueSector root)
     {
@@ -261,10 +261,10 @@ public static class CanyonContentBuilder
     // Background pixels remain independent; Solid owns the actual body and matching skin.
     private static StaticBody2D Solid(PrologueSector root, string name, Rect2 world,
         GrappleSurfaceMaterial material = GrappleSurfaceMaterial.GripStone, bool catchShelf = false,
-        bool oneWay = false)
+        bool oneWay = false, CanyonRockSkinRole rockRole = CanyonRockSkinRole.Legacy)
     {
         Vector2 offset = CanyonWorldLayout.SectorBounds[root.SectorId].Position;
-        StaticBody2D body = Platform(root, name, world.GetCenter() - offset, world.Size, material, catchShelf, oneWay);
+        StaticBody2D body = Platform(root, name, world.GetCenter() - offset, world.Size, material, catchShelf, oneWay, rockRole);
         body.SetMeta(MinimapTerrainCatalogBuilder.StructuralMarker, MinimapTerrainCatalogBuilder.Provenance);
         return body;
     }
@@ -272,17 +272,44 @@ public static class CanyonContentBuilder
     private static void BuildEntrance(PrologueSector root)
     {
         // A visible permanent canyon edge, not an off-screen recovery substitute.
-        Solid(root, "EntranceOuterWall", new(0,0,48,720));
-        Solid(root, "StartFloor", new(0,636,320,84));
-        Solid(root, "BridgeFarBank", new(400,636,880,84));
+        Solid(root, "EntranceOuterWall", new(0,0,48,720), rockRole: CanyonRockSkinRole.Wall);
+        Solid(root, "StartFloor", new(0,636,320,84), rockRole: CanyonRockSkinRole.Ground);
+        Solid(root, "BridgeFarBank", new(400,636,880,84), rockRole: CanyonRockSkinRole.Ground);
         Solid(root, "LowBridgeCeiling", new(250,484,150,24));
         // Exterior ledge under an overhang, then a236px-clear rock mouth. The
         // former536px upward staircase contradicted entering a descending canyon.
-        Solid(root, "EntranceSkyOverhang", new(48,0,552,80));
-        Solid(root, "RiftEntryCeiling", new(600,0,680,400));
+        Solid(root, "EntranceSkyOverhang", new(48,0,552,80), rockRole: CanyonRockSkinRole.Roof);
+        Solid(root, "RiftEntryCeiling", new(600,0,680,400), rockRole: CanyonRockSkinRole.Roof);
         Marker(root, "Spawn", CanyonWorldLayout.CheckpointWorldPositions["canyon.v2.start"]);
         RouteMarker(root, "NextSeam", new(1278,600));
         GroundEdge(root, "bridge-to-rift", new(1190,564,70,72), new(1300,564,120,72));
+        // First the combination; later, independent examples. These are Areas,
+        // not additional terrain or a second movement simulation.
+        Springboard(root, "CombinationSpringboard", new(228,636), new(-620,-480), "StartFloor");
+        FixedGear(root, "CombinationFixedGear", new(116,506));
+        Springboard(root, "PracticeSpringboard", new(780,636), new(0,-420), "BridgeFarBank");
+        FixedGear(root, "PracticeFixedGear", new(900,430));
+    }
+
+    private static void Springboard(PrologueSector root, string name, Vector2 world,
+        Vector2 launch, string support)
+    {
+        var pad = new CanyonSpringboard { Name = name,
+            Position = world - CanyonWorldLayout.SectorBounds[root.SectorId].Position,
+            Width = 48f, LaunchVelocity = launch,
+            SupportBodyPath = new NodePath("../../Collision/" + support) };
+        pad.AddChild(new CollisionShape2D { Name = "Collision", Position = new(0,-6),
+            Shape = new RectangleShape2D { Size = new(48,12) } });
+        root.GetNode("Gameplay/Mechanisms").AddChild(pad);
+    }
+
+    private static void FixedGear(PrologueSector root, string name, Vector2 world)
+    {
+        var gear = new CanyonFixedGear { Name = name,
+            Position = world - CanyonWorldLayout.SectorBounds[root.SectorId].Position,
+            Radius = 30f, Damage = 5 };
+        gear.AddChild(new CollisionShape2D { Name = "Collision", Shape = new CircleShape2D { Radius = 30f } });
+        root.GetNode("Gameplay/Mechanisms").AddChild(gear);
     }
 
     private static void BuildDescent(PrologueSector root)
@@ -354,6 +381,13 @@ public static class CanyonContentBuilder
         Solid(root, "ArchiveFloor", new(1400,1640,480,40));
         Solid(root, "ArchiveSupplyRoof", new(1720,1400,160,24));
         Solid(root, "ArchiveSupplyRightWall", new(1880,1400,40,280));
+        // Finite resident side layers. The original x1328..1400 descent stays
+        // open; the40px gap beneath the lower slab is not a player passage.
+        Solid(root, "ArchiveResidentLowerFloor", new(1424,1776,496,24));
+        // Eight pixels of real body-to-territory headroom also covers native
+        // safe-margin separation; do not loosen the resident's Contains gate.
+        Solid(root, "ArchiveResidentUpperFloor", new(1736,1248,232,24));
+        Solid(root, "ArchiveResidentUpperBackWall", new(1944,1100,24,172));
         AddArchivePressureGateAndSupply(root);
         // Match the descending opening. The old1320 edge required a zero-margin
         // ice-top detour outside the sector for the40px body; retain the right end.
@@ -398,17 +432,33 @@ public static class CanyonContentBuilder
         // unchanged40px capsule can fall into the original return channel.
         Solid(root, "GearPistonOne", new(2440,3916,212,80), GrappleSurfaceMaterial.TempleMetal);
         Solid(root, "GearPistonTwo", new(2844,3836,196,120), GrappleSurfaceMaterial.TempleMetal);
+        // Separate full-height resident patrol layers without filling the lift's
+        // timed fall channel or the original Heavy's84px under-shelf corridor.
+        Solid(root, "GearResidentLeftShelf", new(2304,3792,152,24), GrappleSurfaceMaterial.TempleMetal);
+        // Independent west-face grip: the horizontal keyboard ray no longer
+        // competes with the Abyss roof. Existing attached Space supplies the climb.
+        Solid(root, "GearWestClimbWall", new(2280,3700,24,116), GrappleSurfaceMaterial.TempleMetal);
+        // Catch the west Abyss approach, but leave the original FrozenExit
+        // neutral drop west of this lip open all the way to the camp floor.
+        Solid(root, "GearWestLaunchShelf", new(1932,3746,168,40), GrappleSurfaceMaterial.TempleMetal);
+        Solid(root, "GearResidentRightShelf", new(2856,3720,136,24), GrappleSurfaceMaterial.TempleMetal);
         Solid(root, "UpperGearGalleryOne", new(3040,3756,240,40));
         Solid(root, "UpperGearGalleryTwo", new(3280,3676,240,40));
         Solid(root, "UpperGearGalleryThree", new(3520,3600,320,40));
+        AddUpperGalleryMovingGear(root);
+        AddUpperGalleryUnderArcGear(root);
         AddGearPiston(root);
         Solid(root, "SteamTrenchFloor", new(3040,4236,1160,40), GrappleSurfaceMaterial.TempleMetal);
+        // A separate full-height wanderer bay above the potential jets. Keep
+        // the original trench/controls; do not squeeze patrols onto a thin lip.
+        Solid(root, "SteamResidentBay", new(3680,3912,200,24), GrappleSurfaceMaterial.TempleMetal);
         AddSteamValveAndJet(root);
         AddSteamDiverter(root, "SteamDiverterTrench", "canyon.v2.steam-diverter.trench",
             new(3990, 4070), new(3890, 4110), new(4110, 4110), new(64, 150), "SteamTrenchFloor");
         for (int i = 0; i < CanyonWorldLayout.SteamRejoinSteps.Count; i++)
             Solid(root, $"SteamRejoinStep{i + 1}", CanyonWorldLayout.SteamRejoinSteps[i], GrappleSurfaceMaterial.TempleMetal);
         Solid(root, "SteamRejoinTop", CanyonWorldLayout.SteamRejoinTop, GrappleSurfaceMaterial.TempleMetal);
+        AddIncineratorAnnex(root);
         // Lower return bypass is below the piston tops and above the recovery envelope.
         // Preserve its authored walking top at4116. The lower SteamValves lane
         // needs92px native clearance for the unchanged84px Laborer capsule.
@@ -437,6 +487,34 @@ public static class CanyonContentBuilder
         shieldLane.SetScript(GD.Load<Script>("res://scripts/prologue/traversal/CanyonShieldLaneHazard.cs"));
     }
 
+    public static void AddUpperGalleryMovingGear(PrologueSector root)
+    {
+        if(root.SectorId!=PrologueSectorId.CanyonBasin || root.HasNode("Gameplay/Mechanisms/UpperGalleryMovingGear"))
+            throw new System.InvalidOperationException("Upper gallery gear authoring requires an unchanged Basin without that gear.");
+        var gear=new CanyonMovingGear
+        {
+            Name="UpperGalleryMovingGear",Position=new(2120,-50),
+            Radius=24,Damage=2,TravelOffset=new(0,80),PeriodSeconds=3.2f,
+            ContactIntervalSeconds=.5f
+        };
+        gear.AddChild(new CollisionShape2D {Name="Collision",Shape=new CircleShape2D {Radius=24}});
+        root.GetNode("Gameplay/Mechanisms").AddChild(gear);
+    }
+
+    public static void AddUpperGalleryUnderArcGear(PrologueSector root)
+    {
+        if(root.SectorId!=PrologueSectorId.CanyonBasin || root.HasNode("Gameplay/Mechanisms/UpperGalleryUnderArcGear"))
+            throw new System.InvalidOperationException("Under gallery arc authoring requires a Basin without that gear.");
+        var gear=new CanyonArcGear
+        {
+            Name="UpperGalleryUnderArcGear",Position=new(2040,356),
+            PivotOffset=new(80,-240),SwingRadians=-.6435011f,PeriodSeconds=3.2f,
+            Radius=24,Damage=2,ContactIntervalSeconds=.5f
+        };
+        gear.AddChild(new CollisionShape2D {Name="Collision",Shape=new CircleShape2D {Radius=24}});
+        root.GetNode("Gameplay/Mechanisms").AddChild(gear);
+    }
+
     private static void BuildAscent(PrologueSector root)
     {
         // Public junction: main-route access must remain open before shortcut unlock.
@@ -452,14 +530,31 @@ public static class CanyonContentBuilder
         {
             float x = i % 2 == 0 ? 4260 : 4660;
             float y = 3320-i*240;
-            Solid(root, $"AscentGrip{i + 1}", new(x,3320-i*240,i == 1 ? 140 : 240,40),
+            var shelf = Solid(root, $"AscentGrip{i + 1}", new(x,3320-i*240,i == 1 ? 140 : 240,40),
                 GrappleSurfaceMaterial.TempleMetal, catchShelf:true);
+            if (i == 7)
+            {
+                // Keep the original shelf and the clear corridor to the upper grip.
+                Vector2 baffleOffset = new(-118, -29.5f);
+                shelf.AddChild(new CollisionShape2D { Name = "RaisedBaffle", Position = baffleOffset,
+                    Shape = new RectangleShape2D { Size = new(4, 21) } });
+                root.GetNode<Node2D>("VisualRoot/GameplayReadable/AscentGrip8").AddChild(new Polygon2D
+                {
+                    Name = "RaisedBaffle", Position = baffleOffset, Color = new Color("b9a77b"),
+                    Polygon = [new(-2, -10.5f), new(2, -10.5f), new(2, 10.5f), new(-2, 10.5f)]
+                });
+            }
             // Raise Grip2's post for upper-stop walk-off headroom while keeping lateral docking.
             Solid(root, $"AscentGrip{i + 1}Grip",
                 new(i % 2 == 0 ? x + 116 : x + 88,y - (i == 1 ? 240 : 160),36,60),
                 GrappleSurfaceMaterial.TempleMetal);
         }
         Solid(root, "PendulumCeiling", new(4900,2070,220,40), GrappleSurfaceMaterial.TempleMetal);
+        // Finite eastern machine alcove: its physical floor, roof and back wall
+        // remain separate from replaceable skins and from the original climb.
+        Solid(root, "PendulumResidentFloor", new(4936,2520,184,40), GrappleSurfaceMaterial.TempleMetal);
+        Solid(root, "PendulumResidentRoof", new(4992,2344,128,40), GrappleSurfaceMaterial.TempleMetal);
+        Solid(root, "PendulumResidentBackWall", new(5096,2384,24,176), GrappleSurfaceMaterial.TempleMetal);
         Solid(root, "SplitUpperGallery", new(4080,1480,280,40), catchShelf:true);
         Solid(root, "AscentFinalCatch", new(4660,1320,240,40), GrappleSurfaceMaterial.TempleMetal, catchShelf:true);
         Solid(root, "AscentFinalCatchGrip", new(4748,1160,36,60), GrappleSurfaceMaterial.TempleMetal);
@@ -472,7 +567,9 @@ public static class CanyonContentBuilder
         RouteMarker(root, "PreviousSeam", new(70,2878));
         RouteMarker(root, "PublicJunctionWestSeam", new(220,2878));
         RouteMarker(root, "PublicJunctionEastSeam", new(400,2878));
-        RouteMarker(root, "SteamRejoinSeam", new(1152,2878));
+        // The actual basin Top ends at world5120. Keep the complete player's
+        // standing corridor clear of the old32px east recovery remnant.
+        RouteMarker(root, "SteamRejoinSeam", new(1184,2878));
         RouteMarker(root, "SteamRejoinJumpSeam", new(1056,2878));
         RouteMarker(root, "NextSeam", new(1278,484));
         Edge(root, "lift-to-pendulums", new(4660,3008,160,72), new(4400,2288,80,72), "AscentGrip3");
@@ -489,9 +586,16 @@ public static class CanyonContentBuilder
             Solid(root, $"ShortcutStep{y}", y==3636 ? new(4100,y,200,32) : new(x,y,150,y==3476 ? 16 : 32), catchShelf:true)
                 .SetMeta("public_main_junction", y==3636);
             if(y != 4116)
+            {
                 // The low grip docks above its own shelf without pulling the capsule
                 // through the next shelf. Its underside retains an 80px passage.
-                Solid(root, $"ShortcutStep{y}Grip", new(i%2==0 ? x : x+114,y-140,36,60));
+                // The first NE transfer must meet a usable face on the axis,
+                // rather than lose angle-first aim to the far upper platform.
+                // Keep its bottom/80px underside path; the 56px top slit is not a route.
+                Solid(root, $"ShortcutStep{y}Grip", y == 3956
+                    ? new(x + 114, y - 232, 36, 152)
+                    : new(i%2==0 ? x : x+114,y-140,36,60));
+            }
         }
     }
 
@@ -1123,7 +1227,7 @@ public static class CanyonContentBuilder
 
     private static StaticBody2D Platform(PrologueSector root, string name, Vector2 center,
         Vector2 size, GrappleSurfaceMaterial material, bool catchShelf = false,
-        bool oneWay = false)
+        bool oneWay = false, CanyonRockSkinRole rockRole = CanyonRockSkinRole.Legacy)
     {
         if (material == GrappleSurfaceMaterial.DedicatedAnchor)
             throw new ArgumentOutOfRangeException(nameof(material),
@@ -1154,7 +1258,7 @@ public static class CanyonContentBuilder
         var visual = new CanyonPlatformVisual
         {
             Name = name, Position = center, SkinSize = size,
-            SurfaceMaterial = material, CatchShelf = catchShelf, SectorId = root.SectorId,
+            SurfaceMaterial = material, CatchShelf = catchShelf, SectorId = root.SectorId, RockSkinRole = rockRole,
             UseCanyonDepthStaging = material == GrappleSurfaceMaterial.GripStone &&
                 (root.SectorId is PrologueSectorId.CanyonEntrance or PrologueSectorId.CanyonDescent)
         };

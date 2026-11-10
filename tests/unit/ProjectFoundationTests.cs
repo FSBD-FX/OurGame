@@ -65,7 +65,7 @@ public static class ProjectFoundationTests
     private static void VerifyScriptUsesPortableDotnetHosting()
     {
         string verifyScript = FileAccess.GetFileAsString(ProjectSettings.GlobalizePath("res://tools/verify.ps1"));
-        TestAssert.True(verifyScript.Contains("'G:\\godot\\dotnet-sdk'"),
+        TestAssert.True(verifyScript.Contains("'G:\\knight\\Tools\\dotnet-sdk'"),
             "verifier prefers stable English .NET root");
         TestAssert.True(verifyScript.Contains("$env:DOTNET_ROOT = $dotnetRoot"),
             "verifier sets DOTNET_ROOT");

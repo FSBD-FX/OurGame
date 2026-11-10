@@ -53,9 +53,10 @@ public sealed class ExplorationMapModel
             HeadlampOccluder shape = observation.Occlusion.Shapes[i];
             if (!MinimapTerrainCatalog.Valid(shape.LocalBounds) || !MinimapTerrainCatalog.Valid(shape.WorldToLocal)) return;
         }
-        double gridX = Math.Floor(((double)observation.ActorWorld.X - _catalog.WorldBounds.Position.X) / 8);
-        double gridY = Math.Floor(((double)observation.ActorWorld.Y - _catalog.WorldBounds.Position.Y) / 8);
-        if (gridX < -21 || gridY < -21 || gridX > _catalog.Columns + 20 || gridY > _catalog.Rows + 20) return;
+        double gridX = Math.Floor(((double)observation.ActorWorld.X - _catalog.WorldBounds.Position.X) / _catalog.CellSize);
+        double gridY = Math.Floor(((double)observation.ActorWorld.Y - _catalog.WorldBounds.Position.Y) / _catalog.CellSize);
+        int halo = (int)Math.Ceiling(160d / _catalog.CellSize) + 1;
+        if (gridX < -halo || gridY < -halo || gridX > _catalog.Columns + halo - 1 || gridY > _catalog.Rows + halo - 1) return;
         _scheduler.BeginStamp(observation.ActorWorld);
         for (int work = 0; work < MaximumCandidatesPerStamp; work++)
         {
@@ -102,11 +103,12 @@ public sealed class ExplorationMapModel
         LastSchedulerNodeExpansions = LastSchedulerQueryRebuilds = 0;
     }
     public ExplorationMapSaveData CaptureSave() => new()
-    { TerrainRevision = _catalog.Revision, FreeCellsBase64 = Convert.ToBase64String(_cells), BoundarySegmentsBase64 = Convert.ToBase64String(_boundaries) };
+    { FormatVersion = _catalog.CellSize == 8 ? 1 : 2, TerrainRevision = _catalog.Revision,
+        FreeCellsBase64 = Convert.ToBase64String(_cells), BoundarySegmentsBase64 = Convert.ToBase64String(_boundaries) };
     public void Restore(ExplorationMapSaveData data)
     {
         Clear();
-        if (data == null || data.FormatVersion != 1 || data.TerrainRevision != _catalog.Revision ||
+        if (data == null || data.FormatVersion != (_catalog.CellSize == 8 ? 1 : 2) || data.TerrainRevision != _catalog.Revision ||
             !Decode(data.FreeCellsBase64, _cells, _catalog.CellCount) ||
             !Decode(data.BoundarySegmentsBase64, _boundaries, _catalog.BoundaryCount))
         { Array.Clear(_cells); Array.Clear(_boundaries); }

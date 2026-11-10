@@ -1053,9 +1053,9 @@ public partial class ArchivePressureGateProbe : SceneTree
         string storage = Absolute(args.Single(arg => arg.StartsWith("--case-storage-root=", StringComparison.Ordinal))["--case-storage-root=".Length..]);
         _proofDirectory = Absolute(args.Single(arg => arg.StartsWith("--proof-output-directory=", StringComparison.Ordinal))["--proof-output-directory=".Length..]);
         string caseDirectory = Path.GetDirectoryName(storage) ?? "";
-        string evidence = Absolute("E:/OurGame/Knight/.evidence/september09-continuous-canyon/task16b");
+        string evidence = Absolute("G:/knight/验证证据/september09-continuous-canyon/task16b");
         string project = Absolute(ProjectSettings.GlobalizePath("res://"));
-        string expectedProject = Absolute("E:/OurGame/Knight/.worktrees/task6-certified-final-20260902T0555");
+        string expectedProject = Absolute("G:/knight/Knight");
         string temp = Path.Combine(caseDirectory, "unit-temp");
         Require(Directory.Exists(storage) && Directory.Exists(temp) && Path.GetFileName(storage) == "storage" &&
             SamePath(Path.GetDirectoryName(caseDirectory) ?? "", evidence) &&

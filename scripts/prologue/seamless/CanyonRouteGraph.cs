@@ -322,7 +322,8 @@ public static class CanyonRouteGraph
         if (persistentShortcuts.Length != 1 || !IsUpperBasinShortcut(persistentShortcuts[0]))
             errors.Add("upper/basin route must retain its exact persistent bidirectional shortcut");
         foreach (CanyonRouteEdge edge in bidirectionalEdges)
-            if (!IsUpperBasinShortcut(edge) && !IsAbyssCollectionReturn(edge))
+            if (!IsUpperBasinShortcut(edge) && !IsAbyssCollectionReturn(edge) &&
+                !IsIncineratorCollectionReturn(edge))
                 errors.Add($"unapproved bidirectional return route {edge.From}<->{edge.To}");
 
         var bossEntries = LogicalEntriesTo(edges, CanyonRouteNodeId.BossHall);
@@ -377,6 +378,14 @@ public static class CanyonRouteGraph
         edge.To == CanyonRouteNodeId.BasinCamp && edge.Gate == CanyonRouteGate.None &&
         edge.TraversalSegmentId == "canyon.v2.route.abyss-to-basin-camp" &&
         edge.ReverseTraversalSegmentId == "canyon.v2.route.basin-camp-to-abyss";
+
+    // The full saved-room service return has its own physical single-jump
+    // witness; this exact pair is not a waiver for arbitrary reverse routes.
+    private static bool IsIncineratorCollectionReturn(CanyonRouteEdge edge) =>
+        edge.From == CanyonRouteNodeId.CounterweightLift &&
+        edge.To == CanyonRouteNodeId.IncineratorAnnex && edge.Gate == CanyonRouteGate.None &&
+        edge.TraversalSegmentId == "canyon.v2.route.lift-to-incinerator" &&
+        edge.ReverseTraversalSegmentId == "canyon.v2.route.incinerator-to-lift";
 
     private static (CanyonRouteNodeId From, CanyonRouteEdge Edge)[] LogicalEntriesTo(
         IReadOnlyList<CanyonRouteEdge> edges, CanyonRouteNodeId target)

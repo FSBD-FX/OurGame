@@ -35,8 +35,8 @@ if ($PSVersionTable.PSVersion.Major -lt 7 -and -not $env:KNIGHT_PRODUCTION_AUDIT
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'EvidenceChecks.ps1')
-$dotnetRoot = 'G:\godot\dotnet-sdk'
-$godot = 'G:\godot\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
+$dotnetRoot = 'G:\knight\Tools\dotnet-sdk'
+$godot = 'G:\knight\Tools\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
 $env:DOTNET_ROOT = $dotnetRoot
 $env:DOTNET_ROOT_X64 = $dotnetRoot
 $env:DOTNET_ROLL_FORWARD = 'LatestMajor'

@@ -1,6 +1,7 @@
 using Godot;
 using Knight.Combat;
 using Knight.Prologue;
+using Knight.Prologue.Residents;
 using Knight.Prologue.Guidance;
 using Knight.Presentation;
 using Knight.Presentation.Fog;
@@ -20,6 +21,11 @@ namespace Knight.Build.Prologue;
 
 public partial class BuildPrologueLevel : SceneTree
 {
+    public static PrologueLevelController BuildCandidate(PrologueWorldProfile profile,IReadOnlyList<PrologueSectorDefinition> definitions)
+    {
+        ArgumentNullException.ThrowIfNull(profile);profile.ValidateDefinitions(definitions);
+        return BuildGraph(null,profile,definitions);
+    }
     public override void _Initialize()
     {
         try
@@ -56,7 +62,9 @@ public partial class BuildPrologueLevel : SceneTree
     }
 
     // Same production graph, with explicit saved paths for staged authoring rather than publication.
-    public static PrologueLevelController Build(IReadOnlyDictionary<PrologueSectorId, string> scenePaths = null)
+    public static PrologueLevelController Build(IReadOnlyDictionary<PrologueSectorId, string> scenePaths = null)=>BuildGraph(scenePaths,null,null);
+    private static PrologueLevelController BuildGraph(IReadOnlyDictionary<PrologueSectorId,string> scenePaths,
+        PrologueWorldProfile profile,IReadOnlyList<PrologueSectorDefinition> candidateDefinitions)
     {
         if (scenePaths != null && (scenePaths.Count != Enum.GetValues<PrologueSectorId>().Length ||
             Enum.GetValues<PrologueSectorId>().Any(id => !scenePaths.TryGetValue(id, out string path) ||
@@ -66,15 +74,17 @@ public partial class BuildPrologueLevel : SceneTree
         var level = new PrologueLevelController
         {
             Name = "PrologueLevel",
-            MilestoneCompletionExitId = "p0_complete",
-            MilestoneCompletionObjective = "P0 CORE SLICE COMPLETE"
+            ResidentContent = profile==null?ResidentContentMode.DevelopmentV001:ResidentContentMode.FinalOnly,
+            FreezeWorldWhenGameplayInactive=profile!=null,
+            MilestoneCompletionExitId = profile==null?"p0_complete":"",
+            MilestoneCompletionObjective = profile==null?"P0 CORE SLICE COMPLETE":"FIRST GATE DEVELOPMENT 01–04 + A"
         };
         try
         {
         var playerRoot = new Node2D { Name = "PlayerRoot" };
         CharacterBody2D player = playerScene.Instantiate<CharacterBody2D>();
         player.Name = "Player";
-        player.Position = CanyonWorldLayout.CheckpointWorldPositions["canyon.v2.start"];
+        player.Position = profile?.Start.WorldPosition ?? CanyonWorldLayout.CheckpointWorldPositions["canyon.v2.start"];
         player.CollisionLayer = CombatCollisionLayers.Player;
         player.CollisionMask = CombatCollisionLayers.World;
         player.AddToGroup("player", true);
@@ -85,8 +95,9 @@ public partial class BuildPrologueLevel : SceneTree
         {
             Name = "Sectors",
             PlayerPath = new NodePath("../../PlayerRoot/Player"),
-            InitialSector = PrologueSectorId.CanyonEntrance,
-            LayoutVersion = CanyonWorldLayout.CurrentLayoutVersion
+            InitialSector = profile?.Start.SectorId ?? PrologueSectorId.CanyonEntrance,
+            LayoutVersion = profile==null?CanyonWorldLayout.CurrentLayoutVersion:PrologueWorldProfile.LayoutVersion,
+            CandidateProfileId=profile?.Id ?? string.Empty
         };
         worldRoot.AddChild(sectors);
         var fireflyGuidance = new CanyonFireflyGuidanceController
@@ -116,6 +127,7 @@ public partial class BuildPrologueLevel : SceneTree
         protectedCues.AddChild(new FogPressureGateReadabilityOverlay { Name = "PressureGates" });
         protectedCues.AddChild(new FogMovingGeometryReadabilityOverlay { Name = "MovingBodies" });
         protectedCues.AddChild(new FogBarrierReadabilityOverlay { Name = "Barriers" });
+        protectedCues.AddChild(new FogRecyclingReadabilityOverlay { Name = "Recycling" });
         level.AddChild(protectedCues);
         level.AddChild(new PrologueFogController { Name = "FogController" });
         level.AddChild(BuildHud());
@@ -144,15 +156,24 @@ public partial class BuildPrologueLevel : SceneTree
         PrologueUiRoot productUi = uiScene.Instantiate<PrologueUiRoot>();
         productUi.Name = "ProductUi";
         level.AddChild(productUi);
-        level.AddChild(new PrologueGameFlowController { Name = "GameFlow" });
+        level.AddChild(new PrologueGameFlowController { Name = "GameFlow",
+            SavePath=profile==null?"user://knight/prologue-save-layout-v2.json":$"user://knight/{profile.Id}.json" });
         level.AddChild(new ProloguePlaytestRecorder { Name = "PlaytestRecorder" });
 
-        PopulateCanyonDefinitions(sectors, scenePaths);
+        if(profile==null)PopulateCanyonDefinitions(sectors, scenePaths);
+        else foreach(var definition in candidateDefinitions)
+        {
+            // The caller lends source descriptors/scenes; this authoring graph owns new descriptors.
+            var owned=new PrologueSectorDefinition(definition.Id,definition.Scene,definition.WorldOffset,definition.Bounds,definition.Previous,definition.Next);
+            owned.NeighborValues.Clear();foreach(int id in definition.NeighborValues)owned.NeighborValues.Add(id);
+            foreach(Rect2 bounds in definition.KeyInteractionBounds)owned.KeyInteractionBounds.Add(bounds);
+            sectors.Definitions.Add(owned);
+        }
         var definitions = sectors.Definitions.ToArray();
-        MinimapTerrainCatalog catalog = MinimapTerrainCatalogBuilder.Build(definitions);
+        MinimapTerrainCatalog catalog = MinimapTerrainCatalogBuilder.Build(definitions,profile?.MinimapCellSize??8);
         level.AddChild(new PrologueMinimapController { Name = "MinimapController", Catalog = catalog });
         level.GetNode<PrologueMinimapView>("Hud/FormalHud/Minimap").AuthoredCheckpoints =
-            MinimapTerrainCatalogBuilder.Checkpoints(definitions);
+            MinimapTerrainCatalogBuilder.Checkpoints(definitions,profile);
         ValidateSavedLevel(level, scenePaths);
         return level;
         }
@@ -173,6 +194,13 @@ public partial class BuildPrologueLevel : SceneTree
             throw new ArgumentException("Candidate output cannot replace a file or enter project/userdata.");
         var world = level.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors");
         ValidateSavedLevel(level, world.Definitions.ToDictionary(d => d.Id, d => d.Scene.ResourcePath));
+        int cellSize=8;
+        if(!string.IsNullOrEmpty(world.CandidateProfileId))
+        {
+            if(!PrologueWorldProfiles.TryResolve(world.CandidateProfileId,out var selectedProfile))
+                throw new ArgumentException("Unknown candidate minimap profile.");
+            cellSize=selectedProfile.MinimapCellSize;
+        }
         foreach (PrologueSectorDefinition definition in world.Definitions)
         {
             // Clear only the owned duplicate's path; never take over a cached source resource path.
@@ -180,18 +208,60 @@ public partial class BuildPrologueLevel : SceneTree
             snapshot.ResourcePath = string.Empty;
             definition.Scene = snapshot;
         }
-        using MinimapTerrainCatalog rebuilt = MinimapTerrainCatalogBuilder.Build(world.Definitions.ToArray());
+        using MinimapTerrainCatalog rebuilt = MinimapTerrainCatalogBuilder.Build(world.Definitions.ToArray(),cellSize);
         if (!rebuilt.SerializedValues.AsSpan().SequenceEqual(
             level.GetNode<PrologueMinimapController>("MinimapController").Catalog.SerializedValues))
             throw new InvalidOperationException("Candidate sector snapshots differ from the embedded minimap.");
-        return SceneBuildUtil.PackAndSave(level, output);
+        Error saved=SceneBuildUtil.PackAndSave(level,output);
+        if(saved!=Error.Ok || string.IsNullOrEmpty(world.CandidateProfileId))return saved;
+        using var fresh=ResourceLoader.Load<PackedScene>(output,cacheMode:ResourceLoader.CacheMode.Ignore);
+        if(fresh==null)throw new InvalidOperationException("Candidate did not reload from its saved file.");
+        var copy=fresh.Instantiate<PrologueLevelController>();
+        try
+        {
+            ValidateSavedLevel(copy);
+            if(CountNodes(copy)!=CountNodes(level) ||
+                copy.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors").CandidateProfileId!=world.CandidateProfileId ||
+                !copy.GetNode<PrologueMinimapController>("MinimapController").Catalog.SerializedValues.AsSpan().SequenceEqual(rebuilt.SerializedValues))
+                throw new InvalidOperationException("Saved candidate identity/nodecount/catalog differs.");
+            var cp=copy.GetNode<PrologueMinimapView>("Hud/FormalHud/Minimap").AuthoredCheckpoints;
+            if(!PrologueWorldProfiles.TryResolve(world.CandidateProfileId,out var profile))throw new InvalidOperationException("Unknown saved profile.");
+            var expected=MinimapTerrainCatalogBuilder.Checkpoints(copy.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors").Definitions.ToArray(),profile);
+            if(cp.Count!=expected.Count || expected.Any(p=>!cp.TryGetValue(p.Key,out var at) || at!=p.Value))
+                throw new InvalidOperationException("Saved checkpoint table differs.");
+        }
+        finally
+        {
+            // This private off-tree validation instance is not a reusable runtime scene.
+            // Free does not clear C# export fields/native array backing references.
+            copy.GetNode<SeamlessPrologueWorld>("WorldRoot/Sectors").Definitions.Clear();
+            copy.GetNode<PrologueMinimapController>("MinimapController").Catalog=null;
+            copy.Free();
+        }
+        return saved;
     }
+    private static int CountNodes(Node root)=>1+root.GetChildren().Sum(CountNodes);
 
     private static void ValidateSavedLevel(PrologueLevelController copy, IReadOnlyDictionary<PrologueSectorId, string> scenePaths = null)
     {
         SeamlessPrologueWorld copyWorld =
             copy.GetNodeOrNull<SeamlessPrologueWorld>("WorldRoot/Sectors");
-        bool streamValid = ValidateCanyonDefinitions(copyWorld, scenePaths);
+        bool streamValid;
+        if(copyWorld!=null && !string.IsNullOrEmpty(copyWorld.CandidateProfileId))
+        {
+            if(!PrologueWorldProfiles.TryResolve(copyWorld.CandidateProfileId,out var profile))throw new ArgumentException("Unknown candidate profile.");
+            var definitions=copyWorld.Definitions.ToArray();profile.ValidateDefinitions(definitions);
+            _=new PrologueSectorStreamModel(definitions,profile);
+            streamValid=copyWorld.LayoutVersion==3 && copyWorld.InitialSector==profile.Start.SectorId &&
+                copy.GetNode<CharacterBody2D>("PlayerRoot/Player").Position==profile.Start.WorldPosition;
+            foreach(var definition in definitions)
+            {
+                var leaf=definition.Scene.Instantiate<PrologueSector>();
+                try{streamValid &= leaf.ValidateContract(definition).Count==0;}
+                finally{leaf.Free();}
+            }
+        }
+        else streamValid = ValidateCanyonDefinitions(copyWorld, scenePaths);
         bool valid = copy.GetNodeOrNull<CharacterBody2D>("PlayerRoot/Player") != null &&
             copy.GetNodeOrNull<ThreadShuttleVisual>("PlayerRoot/Player/VisualRoot/MechanicalClaw") != null &&
             copy.GetNodeOrNull<Node2D>("RoomRoot") == null &&
@@ -209,6 +279,7 @@ public partial class BuildPrologueLevel : SceneTree
             copy.GetNodeOrNull<FogPressureGateReadabilityOverlay>("ProtectedCues/PressureGates") is { GateCueRadius: 620f } &&
             copy.GetNodeOrNull<FogMovingGeometryReadabilityOverlay>("ProtectedCues/MovingBodies") is { BodyCueRadius: 620f } &&
             copy.GetNodeOrNull<FogBarrierReadabilityOverlay>("ProtectedCues/Barriers") is { BarrierCueRadius: 620f } &&
+            copy.GetNodeOrNull<FogRecyclingReadabilityOverlay>("ProtectedCues/Recycling") is { CueRadius: 620f } &&
             copy.GetNodeOrNull<PrologueHud>("Hud") != null &&
             copy.GetNodeOrNull<PrologueFormalHud>("Hud/FormalHud") != null &&
             copy.GetNodeOrNull<Knight.Presentation.Minimap.PrologueMinimapView>("Hud/FormalHud/Minimap") is

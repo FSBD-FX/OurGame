@@ -5,6 +5,45 @@ namespace Knight.Tests.Unit;
 
 public static class PlayerMotionModelTests
 {
+    public static void RunEnvironmentalLaunchRegression()
+    {
+        var model = new PlayerMotionModel();
+        var released = new PlayerInputFrame(0f, Vector2.Right, false, false, false, false, false);
+        PlayerMotionResult Free(PlayerMotionState state, PlayerInputFrame input, bool floor) =>
+            model.StepFree(state, input, floor, .02d, MobilityModuleSettings.Standard, Vector2.Right, 0f, false, false);
+        var ordinary = new PlayerMotionState { Velocity = new(0, -480) };
+        TestAssert.Near(-193f, Free(ordinary, released, false).Velocity.Y, .002f,
+            "ordinary released jump still cuts to -230 then receives actual37 gravity");
+        var launched = new PlayerMotionState { Velocity = new(0, -480), EnvironmentalRiseProtected = true };
+        PlayerMotionResult launch = Free(launched, released, false);
+        TestAssert.Near(-443f, launch.Velocity.Y, .002f,
+            "environment launch keeps its -480 momentum and still receives actual37 gravity");
+        TestAssert.Near(37f, launch.GravityVelocityDelta.Y, .002f, "environment flag is not a gravity exemption");
+        TestAssert.True(!launched.GrappleRiseProtected && !launched.ThrusterRiseProtected &&
+            !launched.PreservingGrappleReleaseMomentum, "environment does not borrow unrelated movement authority");
+        var apex = new PlayerMotionState { Velocity = new(0, 10), EnvironmentalRiseProtected = true };
+        TestAssert.Near(47f, Free(apex, released, false).Velocity.Y, .002f, "apex keeps ordinary falling gravity");
+        TestAssert.True(!apex.EnvironmentalRiseProtected, "environment upward lease ends at apex");
+        var jump = new PlayerMotionState { Velocity = new(0, -480), EnvironmentalRiseProtected = true };
+        var pressed = new PlayerInputFrame(0f, Vector2.Right, true, true, false, false, false);
+        PlayerMotionResult jumped = Free(jump, pressed, true);
+        TestAssert.True(jumped.StartedJump && !jump.EnvironmentalRiseProtected, "new accepted ordinary jump owns its own release rule");
+        jump.Velocity = jumped.Velocity;
+        TestAssert.Near(-193f, Free(jump, released, false).Velocity.Y, .002f,
+            "new ordinary jump can still be shortened normally after an environmental launch");
+        var dash = new PlayerMotionState { Velocity = new(0, -480), EnvironmentalRiseProtected = true };
+        var shift = new PlayerInputFrame(0f, Vector2.Right, false, false, true, false, false);
+        TestAssert.True(model.Step(dash, shift, false, .02d).StartedDash && !dash.EnvironmentalRiseProtected,
+            "accepted legacy dash is a new owner, not another environmental rise");
+        var rejected = new PlayerMotionState { Velocity = new(0, -480), EnvironmentalRiseProtected = true, AirDashAvailable = false };
+        TestAssert.True(model.Step(rejected, shift, false, .02d).DashRejected && rejected.EnvironmentalRiseProtected,
+            "rejected legacy dash cannot revoke the current environmental lease");
+        launched.Reset();
+        TestAssert.True(!launched.EnvironmentalRiseProtected && launched.Velocity == Vector2.Zero,
+            "death/lifecycle reset leaves no environmental authority");
+        GD.Print("PLAYER_ENVIRONMENTAL_LAUNCH_MODEL_OK ordinary_cut=true environment_gravity=true apex=true ownership_reset=true");
+    }
+
     public static void RunGravityDeltaRegression()
     {
         GravityDeltaReportsActualAirAccelerationAndTerminalClamp();

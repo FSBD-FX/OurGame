@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ResidentSubtypeProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSubtypeProfile.cs" id="1_bjdf3"]
+
+[resource]
+script = ExtResource("1_bjdf3")
+SubtypeId = "ghost-tower"
+Family = 4
+Archetype = 4
+Carrier = 5
+GhostHiddenSeconds = 1.2
+GhostManifestSeconds = 4.0

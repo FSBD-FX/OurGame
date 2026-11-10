@@ -12,7 +12,11 @@ public enum MobilityEquipRejection { None, NotReady, InvalidModule, Burning, Con
 
 public partial class PlayerMotor : Node
 {
+#if REFCOUNTED_FATAL_IDENTITY
+    [Export] public PlayerTuning Tuning { get; set; } = Knight.Tests.Diagnostics.ResidentProfileLifetimeTrace.PlayerTuningCreated(new PlayerTuning(), "motor-default");
+#else
     [Export] public PlayerTuning Tuning { get; set; } = new();
+#endif
     [Export] public MobilityModuleDefinition InitialMobilityModule { get; set; }
 
     private PlayerMotionModel _model = null!;
@@ -27,6 +31,7 @@ public partial class PlayerMotor : Node
     private CharacterBody2D _body = null!;
     private PlayerInputReader _input = null!;
     private HealthComponent _health;
+    private Hurtbox _hurtbox;
     private float _abilityMovementScale = 1f;
     private float _shieldMovementScale = 1f;
     private float _grappleMovementScale = 1f;
@@ -43,6 +48,12 @@ public partial class PlayerMotor : Node
     private MechanicalClawController _claw;
     private ulong _motionRevision;
     internal ulong MotionAuthorityRevision => _motionRevision;
+    private PlayerGroundMotionObservation _groundMotionObservation;
+    private ulong _groundObservationGeneration;
+    public PlayerGroundMotionObservation GroundMotionObservation =>
+        _groundMotionObservation.OwnerId != 0 && _groundMotionObservation.Revision == _motionRevision &&
+        IsInsideTree() && MotionOwnerAvailable() && IsPhysicsProcessing() && CanProcess() && !GetTree().Paused
+            ? _groundMotionObservation : default;
 
     public bool IsDashing => _pulse?.IsBurning == true;
     // The actual Ready snapshot, not the mutable author Resource or a default.
@@ -50,7 +61,10 @@ public partial class PlayerMotor : Node
         throw new System.InvalidOperationException("Player motion is not initialized");
     public bool AirDashAvailable => _pulse?.AirUseAvailable ?? true;
     public bool HasGrappleReleaseMomentum => _state.PreservingGrappleReleaseMomentum;
+    public bool HasEnvironmentalLaunchMomentum => _state.EnvironmentalRiseProtected;
     public int AcceptedJumpCount { get; private set; }
+    // Presentation event identity survives transient resets; never a jump budget.
+    public ulong AcceptedJumpSequence { get; private set; }
     public int AcceptedDashCount { get; private set; }
     public int RejectedDashCount { get; private set; }
     public ulong LandingCount { get; private set; }
@@ -58,6 +72,8 @@ public partial class PlayerMotor : Node
     public int LastFallDamage { get; private set; }
     public bool LastFallDamageApplied { get; private set; }
     public LandingImpactSample LastLandingImpact { get; private set; } =
+        LandingImpactSample.Unavailable(LandingImpactFallbackReason.Missing);
+    internal LandingImpactSample LastPresentationLandingImpact { get; private set; } =
         LandingImpactSample.Unavailable(LandingImpactFallbackReason.Missing);
     public Vector2 UpdraftVelocityDelta { get; private set; }
     public Vector2 UpdraftCandidateVelocity { get; private set; }
@@ -117,6 +133,7 @@ public partial class PlayerMotor : Node
             return false;
         }
         _motionRevision = nextMotionRevision;
+        InvalidateGroundMotionObservation();
         _thrusterPresentation.Synchronize(_pulse.Snapshot);
         _thrusterPresentation.Step(0f, false, ThrusterCoastExit.ConfigurationChange);
         rejection = MobilityEquipRejection.None;
@@ -156,7 +173,13 @@ public partial class PlayerMotor : Node
 
     public override void _Ready()
     {
-        Tuning ??= new PlayerTuning();
+        Tuning ??=
+#if REFCOUNTED_FATAL_IDENTITY
+            Knight.Tests.Diagnostics.ResidentProfileLifetimeTrace.PlayerTuningCreated(new PlayerTuning(), "motor-ready-fallback");
+        Knight.Tests.Diagnostics.ResidentProfileLifetimeTrace.PlayerTuningAssigned(Tuning, this, "motor-ready");
+#else
+            new PlayerTuning();
+#endif
         System.Collections.Generic.IReadOnlyList<string> errors = Tuning.Validate();
         if (errors.Count > 0)
             throw new System.InvalidOperationException("Invalid PlayerTuning: " + string.Join("; ", errors));
@@ -173,6 +196,7 @@ public partial class PlayerMotor : Node
         _body = GetParent<CharacterBody2D>();
         _input = GetNode<PlayerInputReader>("../Input");
         _health = GetNodeOrNull<HealthComponent>("../Health");
+        _hurtbox = GetNodeOrNull<Hurtbox>("../Hurtbox");
         _claw = GetNodeOrNull<MechanicalClawController>("../MechanicalClaw");
         _state.Velocity = _body.Velocity;
         // Legacy saved Players without an authored module retain Standard.
@@ -190,6 +214,7 @@ public partial class PlayerMotor : Node
 
     public override void _ExitTree()
     {
+        InvalidateGroundMotionObservation();
         _motionRevision = checked(_motionRevision + 1UL);
         if (GodotObject.IsInstanceValid(_health)) _health.Died -= OnDied;
         if (_pulse != null) _thrusterPresentation?.End(_pulse.Interrupt(ThrusterEndReason.OwnerRetired));
@@ -205,15 +230,18 @@ public partial class PlayerMotor : Node
 
     public override void _Notification(int what)
     {
-        if (what == NotificationPaused || what == NotificationUnpaused) ClearEquipSupport();
+        if (what == NotificationPaused || what == NotificationUnpaused)
+        { ClearEquipSupport(); InvalidateGroundMotionObservation(); }
     }
 
     private void OnDied() => ResetTransientState(ThrusterEndReason.Death);
 
     public override void _PhysicsProcess(double delta)
     {
+        InvalidateGroundMotionObservation();
         if (!MotionOwnerAvailable() || GetTree().Paused || _health?.CurrentHealth <= 0) return;
         ulong motionRevision = _motionRevision;
+        ulong groundObservationGeneration = _groundObservationGeneration;
         try
         {
             PlayerInputFrame sampled = _input.CurrentFrame;
@@ -256,6 +284,7 @@ public partial class PlayerMotor : Node
                 {
                     _state.Velocity = inheritedVelocity;
                     _state.GrappleRiseProtected = inheritedGrappleRise;
+                    _state.EnvironmentalRiseProtected = false;
                     _state.PreservingGrappleReleaseMomentum = false;
                     startedDash = true;
                     AcceptedDashCount++;
@@ -264,6 +293,9 @@ public partial class PlayerMotor : Node
                 else RejectedDashCount++;
             }
             ThrusterIdentity burnIdentity = _pulse.ActiveIdentity;
+            float ordinaryBeforeX = _state.Velocity.X;
+            bool ordinaryMotionOwner = !_automaticGrapplePull && !_realGrappleAttached &&
+                _grappleVelocityCorrection == Vector2.Zero;
             PlayerMotionResult result = _model.StepFree(_state, input, wasOnFloor, delta,
                 _pulse.Module, _pulse.BurnDirection, _pulse.BurnRemaining, _automaticGrapplePull,
                 _suppressJumpForCurrentPhysicsFrame || sampled.DashPressed);
@@ -272,7 +304,7 @@ public partial class PlayerMotor : Node
             if (result.ThrustVelocityDelta.Y < 0f && result.Velocity.Y < 0f)
                 _state.ThrusterRiseProtected = true;
             bool dashDriven = hadActiveDash || startedDash;
-            if (result.StartedJump) AcceptedJumpCount++;
+            if (result.StartedJump) { AcceptedJumpCount++; AcceptedJumpSequence++; }
             // During automatic approach the claw owns acceleration in both axes.
             // Still advance jump/dash lifecycle, but do not add a second gravity/run
             // update after its bounded servo and collision prediction. Swing and
@@ -292,6 +324,13 @@ public partial class PlayerMotor : Node
                 commandedVelocity, wasOnFloor, delta);
             _body.Velocity = commandedVelocity;
             _body.MoveAndSlide();
+            // CanvasItem notifications can leave the damage Area at its old
+            // physics-server transform. Queries after Motor must see the same
+            // position as the body; forcing the body itself does not flush it.
+            if (GodotObject.IsInstanceValid(_hurtbox) && _hurtbox.IsInsideTree() && !_hurtbox.IsQueuedForDeletion())
+                _hurtbox.ForceUpdateTransform();
+            if (_motionRevision != motionRevision || !MotionOwnerAvailable() ||
+                GetTree().Paused || _health?.CurrentHealth <= 0) return;
             float afterWorldY = _body.GlobalPosition.Y;
             _fallDamage.SampleHeight(afterWorldY);
             Vector2 collisionAdjustment = _body.Velocity - commandedVelocity;
@@ -303,6 +342,7 @@ public partial class PlayerMotor : Node
             {
                 _state.GrappleRiseProtected = false;
                 _state.ThrusterRiseProtected = false;
+                _state.EnvironmentalRiseProtected = false;
             }
             if (_body.IsOnFloor()) _state.PreservingGrappleReleaseMomentum = false;
             if (_body.IsOnFloor() && TryGetFloorContact(out bool softLanding))
@@ -310,8 +350,10 @@ public partial class PlayerMotor : Node
                 if (!wasOnFloor)
                 {
                     LandingFloorSupport support = _landingSampler.InspectFloorSupport(_body);
-                    ConsumeFallLanding(afterWorldY, softLanding && support.AllSoft,
-                        _landingSampler.Complete(_body, impactBefore, support));
+                    var impact = _landingSampler.Complete(_body, impactBefore, support);
+                    LastPresentationLandingImpact = impact.IsReliable ? impact :
+                        _landingSampler.MeasureStaticSlideForPresentation(_body, impactBefore, support);
+                    ConsumeFallLanding(afterWorldY, softLanding && support.AllSoft, impact);
                 }
                 else _fallDamage.ResetOrigin(afterWorldY);
             }
@@ -336,6 +378,13 @@ public partial class PlayerMotor : Node
                 ulong frame = Engine.GetPhysicsFrames();
                 if (frame > _lastPresentationPhysicsFrame)
                 {
+                    // A synchronous claw callback may transfer only observation
+                    // ownership, without changing the physics authority revision.
+                    if (_groundObservationGeneration == groundObservationGeneration)
+                        _groundMotionObservation = new(GetInstanceId(), motionRevision, frame, (float)delta,
+                            ordinaryBeforeX, result.Velocity.X, _body.Velocity.X, input.MoveAxis,
+                            wasOnFloor && _body.IsOnFloor(), ordinaryMotionOwner && !dashDriven &&
+                                !result.StartedJump && !_body.IsOnWall(), result.Braking, result.BrakeReachedZero);
                     ThrusterCoastExit exit = result.StartedJump ? ThrusterCoastExit.Jump : ThrusterCoastExit.None;
                     if (LandingCount != landingBefore) exit |= ThrusterCoastExit.Landing;
                     if (result.BrakeReachedZero) exit |= ThrusterCoastExit.BrakedToZero;
@@ -354,10 +403,17 @@ public partial class PlayerMotor : Node
     public void SuppressJumpForCurrentPhysicsFrame() =>
         _suppressJumpForCurrentPhysicsFrame = true;
 
+    private void InvalidateGroundMotionObservation()
+    {
+        _groundMotionObservation = default;
+        _groundObservationGeneration = checked(_groundObservationGeneration + 1UL);
+    }
+
     public void ApplyGrappleConstraint(Vector2 velocityCorrection, float movementScale,
         bool realAttached = false, bool automaticPull = false,
         Vector2 swingAnchor = default, float swingRopeLength = 0f)
     {
+        InvalidateGroundMotionObservation();
         // Paired with the Reel-to-Swing correction reset, and every real attachment
         // exit: continue with actual motion, not a free base the rope was cancelling.
         if ((_automaticGrapplePull && !(realAttached && automaticPull)) ||
@@ -369,6 +425,7 @@ public partial class PlayerMotor : Node
         if (realAttached)
         {
             if (_pulse != null) _thrusterPresentation?.End(_pulse.Interrupt(ThrusterEndReason.ClawTakeover));
+            _state.EnvironmentalRiseProtected = false;
             _state.GrappleRiseProtected = false;
             _state.ThrusterRiseProtected = false;
         }
@@ -381,6 +438,7 @@ public partial class PlayerMotor : Node
     public void ApplyGrappleRelease(Vector2 outwardNormal, Vector2 boostDelta, float speedLimit,
         bool preserveLaunchMomentum)
     {
+        InvalidateGroundMotionObservation();
         Vector2 normal = outwardNormal.Normalized();
         Vector2 released = _body.Velocity + boostDelta;
         float inward = released.Dot(normal);
@@ -389,6 +447,7 @@ public partial class PlayerMotor : Node
         _state.Velocity = released;
         _body.Velocity = released;
         _state.PreservingGrappleReleaseMomentum = preserveLaunchMomentum;
+        _state.EnvironmentalRiseProtected = false;
         _state.GrappleRiseProtected = preserveLaunchMomentum && released.Y < 0f;
         _grappleVelocityCorrection = Vector2.Zero;
         _grappleMovementScale = 1f;
@@ -399,6 +458,7 @@ public partial class PlayerMotor : Node
 
     public void ClearGrappleConstraint()
     {
+        InvalidateGroundMotionObservation();
         // Target loss/unload and callback-driven cleanup are also ownership exits.
         // Explicit respawn ResetTransientState still resets all motion to zero.
         if (_realGrappleAttached) _state.Velocity = _body.Velocity;
@@ -411,6 +471,7 @@ public partial class PlayerMotor : Node
 
     internal void DetachGrappleWithoutRelease()
     {
+        InvalidateGroundMotionObservation();
         // Motor freezes actual incoming velocity once, before any callbacks.
         // Dedicated cleanup must not perform a second ownership inheritance.
         _grappleVelocityCorrection = Vector2.Zero;
@@ -422,11 +483,13 @@ public partial class PlayerMotor : Node
 
     public void ExternalImpulse(Vector2 velocity)
     {
+        InvalidateGroundMotionObservation();
         _motionRevision = checked(_motionRevision + 1UL);
         ClearEquipSupport();
         _state.PreservingGrappleReleaseMomentum = false;
         _state.GrappleRiseProtected = false;
         _state.ThrusterRiseProtected = false;
+        _state.EnvironmentalRiseProtected = false;
         if (_pulse != null) _thrusterPresentation?.End(_pulse.Interrupt(ThrusterEndReason.ExternalReplacement));
         _state.Velocity = velocity;
         _state.DashRemaining = 0f;
@@ -434,10 +497,18 @@ public partial class PlayerMotor : Node
         _thrusterPresentation?.Step(0f, false, ThrusterCoastExit.ExternalReplacement);
     }
 
+    public void ApplyEnvironmentalLaunch(Vector2 velocity)
+    {
+        if (!Finite(velocity)) throw new System.ArgumentException("Environment launch must be finite.", nameof(velocity));
+        ExternalImpulse(velocity);
+        _state.EnvironmentalRiseProtected = velocity.Y < 0f;
+    }
+
     public void ResetTransientState() => ResetTransientState(ThrusterEndReason.Reset);
 
     private void ResetTransientState(ThrusterEndReason reason)
     {
+        InvalidateGroundMotionObservation();
         _motionRevision = checked(_motionRevision + 1UL);
         ClearEquipSupport();
         _state.Reset();

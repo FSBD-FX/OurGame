@@ -1,80 +1,94 @@
 [gd_scene format=3]
 
-[ext_resource type="Script" path="res://scripts/prologue/seamless/PrologueSector.cs" id="1_qhd1w"]
-[ext_resource type="Script" path="res://scripts/presentation/CanyonBackdropVisual.cs" id="2_yckqa"]
-[ext_resource type="Script" path="res://scripts/presentation/CanyonPlatformVisual.cs" id="3_fwlft"]
-[ext_resource type="Script" path="res://scripts/abilities/GrappleSurface2D.cs" id="4_0er54"]
-[ext_resource type="Script" path="res://scripts/prologue/traversal/TraversalSegment2D.cs" id="5_0dqbe"]
-[ext_resource type="Script" path="res://scripts/world/KillZone.cs" id="6_synir"]
-[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragment.cs" id="7_1doyo"]
-[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragmentVisual.cs" id="8_ofo1x"]
-[ext_resource type="Script" path="res://scripts/prologue/CanyonEncounterGroup.cs" id="9_m6yff"]
+[ext_resource type="Script" path="res://scripts/prologue/seamless/PrologueSector.cs" id="1_0ah68"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonBackdropVisual.cs" id="2_ihru3"]
+[ext_resource type="Script" path="res://scripts/presentation/CanyonPlatformVisual.cs" id="3_3lmwb"]
+[ext_resource type="Script" path="res://scripts/abilities/GrappleSurface2D.cs" id="4_0npt7"]
+[ext_resource type="Script" path="res://scripts/prologue/traversal/TraversalSegment2D.cs" id="5_tbknr"]
+[ext_resource type="Script" path="res://scripts/world/KillZone.cs" id="6_qv7is"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonSpringboard.cs" id="7_d4mbr"]
+[ext_resource type="Script" path="res://scripts/mechanisms/CanyonFixedGear.cs" id="8_knbdc"]
+[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragment.cs" id="9_1m2mw"]
+[ext_resource type="Script" path="res://scripts/prologue/collections/QuestFragmentVisual.cs" id="10_lcrym"]
+[ext_resource type="Script" path="res://scripts/prologue/CanyonEncounterGroup.cs" id="11_frrv7"]
 
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_1ywwk"]
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_kx7eo"]
 size = Vector2(48, 720)
 
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_8rikj"]
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_eqjjm"]
 size = Vector2(320, 84)
 
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_1d8kf"]
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_kaeay"]
 size = Vector2(880, 84)
 
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_xm64a"]
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_5ljh2"]
 size = Vector2(150, 24)
 
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_gp026"]
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_viv3u"]
 size = Vector2(552, 80)
 
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_de3s8"]
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_vvcip"]
 size = Vector2(680, 400)
 
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_ayf52"]
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_080ep"]
 size = Vector2(1280, 16)
 
-[sub_resource type="CircleShape2D" id="CircleShape2D_vx6q7"]
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_l7pce"]
+size = Vector2(48, 12)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_8lsvt"]
+radius = 30.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_f6k4i"]
+size = Vector2(48, 12)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_2lqwp"]
+radius = 30.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_jd6yo"]
 radius = 18.0
 
-[node name="CanyonEntrance" type="Node2D" unique_id=2080418073]
-script = ExtResource("1_qhd1w")
+[node name="CanyonEntrance" type="Node2D" unique_id=1448717413]
+script = ExtResource("1_0ah68")
 metadata/canyon_layout_version = 2
 
-[node name="VisualRoot" type="Node2D" parent="." unique_id=1625813084]
+[node name="VisualRoot" type="Node2D" parent="." unique_id=550438180]
 
-[node name="Background" type="Node2D" parent="VisualRoot" unique_id=1995110886]
+[node name="Background" type="Node2D" parent="VisualRoot" unique_id=1647827622]
 z_index = -40
 metadata/replaceable_art_layer = true
 metadata/gameplay_authority = false
 
-[node name="CanyonVoid" type="Polygon2D" parent="VisualRoot/Background" unique_id=1759186191]
+[node name="CanyonVoid" type="Polygon2D" parent="VisualRoot/Background" unique_id=74908255]
 position = Vector2(640, 360)
 color = Color(0.03529412, 0.08235294, 0.105882354, 1)
 polygon = PackedVector2Array(-640, -360, 640, -360, 640, 360, -640, 360)
 
-[node name="DistantCanyon" type="Node2D" parent="VisualRoot/Background" unique_id=264991355]
-script = ExtResource("2_yckqa")
+[node name="DistantCanyon" type="Node2D" parent="VisualRoot/Background" unique_id=1026389885]
+script = ExtResource("2_ihru3")
 DistantLayer = true
 
-[node name="CanyonCoverageSkirt" type="Node2D" parent="VisualRoot/Background" unique_id=1978859912]
+[node name="CanyonCoverageSkirt" type="Node2D" parent="VisualRoot/Background" unique_id=1518207789]
 z_index = -100
 z_as_relative = false
-script = ExtResource("2_yckqa")
+script = ExtResource("2_ihru3")
 SectorBounds = Rect2(-1100, -940, 9880, 6200)
 CoverageLayer = true
 VisualRole = "coverage"
 
-[node name="Midground" type="Node2D" parent="VisualRoot" unique_id=589218732]
+[node name="Midground" type="Node2D" parent="VisualRoot" unique_id=94100021]
 z_index = -20
 metadata/replaceable_art_layer = true
 metadata/gameplay_authority = false
 
-[node name="CanyonLandmark" type="Node2D" parent="VisualRoot/Midground" unique_id=2006150683]
-script = ExtResource("2_yckqa")
+[node name="CanyonLandmark" type="Node2D" parent="VisualRoot/Midground" unique_id=1419116225]
+script = ExtResource("2_ihru3")
 UseCanyonDepthStaging = true
 
-[node name="ChallengeCompositions" type="Node2D" parent="VisualRoot/Midground" unique_id=935316164]
+[node name="ChallengeCompositions" type="Node2D" parent="VisualRoot/Midground" unique_id=851472685]
 
-[node name="LowCeilingBridge" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=417717039]
-script = ExtResource("2_yckqa")
+[node name="LowCeilingBridge" type="Node2D" parent="VisualRoot/Midground/ChallengeCompositions" unique_id=246418452]
+script = ExtResource("2_ihru3")
 UseCanyonDepthStaging = true
 VisualRole = "challenge"
 CompositionId = "broken-entrance-bell"
@@ -85,103 +99,108 @@ metadata/height_layer = 2
 metadata/silhouette_id = "broken-entrance-bell"
 metadata/collision_source = false
 
-[node name="GameplayReadable" type="Node2D" parent="VisualRoot" unique_id=1197746224]
+[node name="GameplayReadable" type="Node2D" parent="VisualRoot" unique_id=698495834]
 z_index = -2
 metadata/replaceable_art_layer = true
 metadata/gameplay_authority = false
 
-[node name="MicroSceneReadability" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=21151430]
+[node name="MicroSceneReadability" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1265144770]
 
-[node name="EntranceOuterWall" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1621507385]
+[node name="EntranceOuterWall" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1224212305]
 position = Vector2(24, 360)
-script = ExtResource("3_fwlft")
+script = ExtResource("3_3lmwb")
 SkinSize = Vector2(48, 720)
 UseCanyonDepthStaging = true
+RockSkinRole = 3
 metadata/material_family = "grip-stone-masonry"
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/EntranceOuterWall" unique_id=1181681027]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/EntranceOuterWall" unique_id=1100862422]
 position = Vector2(0, -357)
 color = Color(0.6156863, 0.73333335, 0.58431375, 1)
 polygon = PackedVector2Array(-24, -3, 24, -3, 24, 3, -24, 3)
 
-[node name="StartFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=302190468]
+[node name="StartFloor" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=586364576]
 position = Vector2(160, 678)
-script = ExtResource("3_fwlft")
+script = ExtResource("3_3lmwb")
 SkinSize = Vector2(320, 84)
 UseCanyonDepthStaging = true
+RockSkinRole = 1
 metadata/material_family = "grip-stone-masonry"
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/StartFloor" unique_id=469469041]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/StartFloor" unique_id=529158011]
 position = Vector2(0, -39)
 color = Color(0.6156863, 0.73333335, 0.58431375, 1)
 polygon = PackedVector2Array(-160, -3, 160, -3, 160, 3, -160, 3)
 
-[node name="BridgeFarBank" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1041606615]
+[node name="BridgeFarBank" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=719495986]
 position = Vector2(840, 678)
-script = ExtResource("3_fwlft")
+script = ExtResource("3_3lmwb")
 SkinSize = Vector2(880, 84)
 UseCanyonDepthStaging = true
+RockSkinRole = 1
 metadata/material_family = "grip-stone-masonry"
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/BridgeFarBank" unique_id=1287212451]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/BridgeFarBank" unique_id=617067191]
 position = Vector2(0, -39)
 color = Color(0.6156863, 0.73333335, 0.58431375, 1)
 polygon = PackedVector2Array(-440, -3, 440, -3, 440, 3, -440, 3)
 
-[node name="LowBridgeCeiling" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=410438812]
+[node name="LowBridgeCeiling" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=935748977]
 position = Vector2(325, 496)
-script = ExtResource("3_fwlft")
+script = ExtResource("3_3lmwb")
 SkinSize = Vector2(150, 24)
 UseCanyonDepthStaging = true
 metadata/material_family = "grip-stone-masonry"
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/LowBridgeCeiling" unique_id=1368591334]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/LowBridgeCeiling" unique_id=633973255]
 position = Vector2(0, -9)
 color = Color(0.6156863, 0.73333335, 0.58431375, 1)
 polygon = PackedVector2Array(-75, -3, 75, -3, 75, 3, -75, 3)
 
-[node name="EntranceSkyOverhang" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=578344207]
+[node name="EntranceSkyOverhang" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1868329850]
 position = Vector2(324, 40)
-script = ExtResource("3_fwlft")
+script = ExtResource("3_3lmwb")
 SkinSize = Vector2(552, 80)
 UseCanyonDepthStaging = true
+RockSkinRole = 2
 metadata/material_family = "grip-stone-masonry"
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/EntranceSkyOverhang" unique_id=1909091468]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/EntranceSkyOverhang" unique_id=378950438]
 position = Vector2(0, -37)
 color = Color(0.6156863, 0.73333335, 0.58431375, 1)
 polygon = PackedVector2Array(-276, -3, 276, -3, 276, 3, -276, 3)
 
-[node name="RiftEntryCeiling" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1523848645]
+[node name="RiftEntryCeiling" type="Node2D" parent="VisualRoot/GameplayReadable" unique_id=1690172690]
 position = Vector2(940, 200)
-script = ExtResource("3_fwlft")
+script = ExtResource("3_3lmwb")
 SkinSize = Vector2(680, 400)
 UseCanyonDepthStaging = true
+RockSkinRole = 2
 metadata/material_family = "grip-stone-masonry"
 
-[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/RiftEntryCeiling" unique_id=1706487744]
+[node name="ReadableEdge" type="Polygon2D" parent="VisualRoot/GameplayReadable/RiftEntryCeiling" unique_id=844215859]
 position = Vector2(0, -197)
 color = Color(0.6156863, 0.73333335, 0.58431375, 1)
 polygon = PackedVector2Array(-340, -3, 340, -3, 340, 3, -340, 3)
 
-[node name="Foreground" type="Node2D" parent="VisualRoot" unique_id=1215669933]
+[node name="Foreground" type="Node2D" parent="VisualRoot" unique_id=1341017127]
 z_index = 20
 metadata/replaceable_art_layer = true
 metadata/gameplay_authority = false
 
-[node name="DepthOccluders" type="Node2D" parent="VisualRoot/Foreground" unique_id=220310028]
+[node name="DepthOccluders" type="Node2D" parent="VisualRoot/Foreground" unique_id=503805853]
 
-[node name="NearLeft" type="Polygon2D" parent="VisualRoot/Foreground/DepthOccluders" unique_id=1190670994]
+[node name="NearLeft" type="Polygon2D" parent="VisualRoot/Foreground/DepthOccluders" unique_id=1655159432]
 color = Color(0.09019608, 0.14509805, 0.16470589, 0.66)
 polygon = PackedVector2Array(0, 0, 150, 0, 78, 93.6, 0, 67.392)
 metadata/occlusion_class = "foreground-safe-edge"
 
-[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=1283965248]
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=420218091]
 z_index = 30
 metadata/replaceable_art_layer = true
 metadata/gameplay_authority = false
 
-[node name="SectorLabel" type="Label" parent="VisualRoot/Effects" unique_id=1517853273]
+[node name="SectorLabel" type="Label" parent="VisualRoot/Effects" unique_id=335360771]
 visible = false
 modulate = Color(0.75, 0.82, 0.76, 0.55)
 offset_left = 42.0
@@ -190,167 +209,202 @@ offset_right = 42.0
 offset_bottom = 34.0
 text = "CanyonEntrance"
 
-[node name="Gameplay" type="Node2D" parent="." unique_id=178700186]
+[node name="Gameplay" type="Node2D" parent="." unique_id=1559795688]
 
-[node name="Collision" type="Node2D" parent="Gameplay" unique_id=757815707]
+[node name="Collision" type="Node2D" parent="Gameplay" unique_id=1254274197]
 
-[node name="EntranceOuterWall" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1241960353]
+[node name="EntranceOuterWall" type="StaticBody2D" parent="Gameplay/Collision" unique_id=679112947]
 position = Vector2(24, 360)
 collision_layer = 33
 collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/EntranceOuterWall" unique_id=1499421582]
-script = ExtResource("4_0er54")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/EntranceOuterWall" unique_id=1951415553]
+script = ExtResource("4_0npt7")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/EntranceOuterWall" unique_id=680795841]
-shape = SubResource("RectangleShape2D_1ywwk")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/EntranceOuterWall" unique_id=1508000198]
+shape = SubResource("RectangleShape2D_kx7eo")
 
-[node name="StartFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1471345703]
+[node name="StartFloor" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1929965073]
 position = Vector2(160, 678)
 collision_layer = 33
 collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/StartFloor" unique_id=297372157]
-script = ExtResource("4_0er54")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/StartFloor" unique_id=653665023]
+script = ExtResource("4_0npt7")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/StartFloor" unique_id=805431127]
-shape = SubResource("RectangleShape2D_8rikj")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/StartFloor" unique_id=1259662999]
+shape = SubResource("RectangleShape2D_eqjjm")
 
-[node name="BridgeFarBank" type="StaticBody2D" parent="Gameplay/Collision" unique_id=19684195]
+[node name="BridgeFarBank" type="StaticBody2D" parent="Gameplay/Collision" unique_id=107911225]
 position = Vector2(840, 678)
 collision_layer = 33
 collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/BridgeFarBank" unique_id=1305119180]
-script = ExtResource("4_0er54")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/BridgeFarBank" unique_id=1926881028]
+script = ExtResource("4_0npt7")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/BridgeFarBank" unique_id=399039126]
-shape = SubResource("RectangleShape2D_1d8kf")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/BridgeFarBank" unique_id=532997592]
+shape = SubResource("RectangleShape2D_kaeay")
 
-[node name="LowBridgeCeiling" type="StaticBody2D" parent="Gameplay/Collision" unique_id=740973582]
+[node name="LowBridgeCeiling" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1427753484]
 position = Vector2(325, 496)
 collision_layer = 33
 collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/LowBridgeCeiling" unique_id=1474134660]
-script = ExtResource("4_0er54")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/LowBridgeCeiling" unique_id=276198374]
+script = ExtResource("4_0npt7")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/LowBridgeCeiling" unique_id=1057379773]
-shape = SubResource("RectangleShape2D_xm64a")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/LowBridgeCeiling" unique_id=1045818331]
+shape = SubResource("RectangleShape2D_5ljh2")
 
-[node name="EntranceSkyOverhang" type="StaticBody2D" parent="Gameplay/Collision" unique_id=18728175]
+[node name="EntranceSkyOverhang" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1775620593]
 position = Vector2(324, 40)
 collision_layer = 33
 collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/EntranceSkyOverhang" unique_id=1751740313]
-script = ExtResource("4_0er54")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/EntranceSkyOverhang" unique_id=1814873416]
+script = ExtResource("4_0npt7")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/EntranceSkyOverhang" unique_id=1850724320]
-shape = SubResource("RectangleShape2D_gp026")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/EntranceSkyOverhang" unique_id=2041604284]
+shape = SubResource("RectangleShape2D_viv3u")
 
-[node name="RiftEntryCeiling" type="StaticBody2D" parent="Gameplay/Collision" unique_id=1354804155]
+[node name="RiftEntryCeiling" type="StaticBody2D" parent="Gameplay/Collision" unique_id=620971114]
 position = Vector2(940, 200)
 collision_layer = 33
 collision_mask = 0
 metadata/minimap_structural_provenance = "CanyonContentBuilder.Solid/v1"
 
-[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/RiftEntryCeiling" unique_id=951963605]
-script = ExtResource("4_0er54")
+[node name="GrappleSurfaceProfile" type="Node2D" parent="Gameplay/Collision/RiftEntryCeiling" unique_id=1994005596]
+script = ExtResource("4_0npt7")
 Material = 0
 UseCollisionHitPoint = true
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/RiftEntryCeiling" unique_id=1736096950]
-shape = SubResource("RectangleShape2D_de3s8")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Collision/RiftEntryCeiling" unique_id=1077730999]
+shape = SubResource("RectangleShape2D_vvcip")
 
-[node name="GrappleSurfaces" type="Node2D" parent="Gameplay" unique_id=215188701]
+[node name="GrappleSurfaces" type="Node2D" parent="Gameplay" unique_id=2059459478]
 
-[node name="TraversalContracts" type="Node2D" parent="Gameplay" unique_id=102748467]
+[node name="TraversalContracts" type="Node2D" parent="Gameplay" unique_id=422485891]
 
-[node name="canyonv2routebridge-to-rift" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=434747722]
-script = ExtResource("5_0dqbe")
+[node name="canyonv2routebridge-to-rift" type="Node2D" parent="Gameplay/TraversalContracts" unique_id=2016700660]
+script = ExtResource("5_tbknr")
 SegmentId = &"canyon.v2.route.bridge-to-rift"
 Kind = 3
 LaunchZone = Rect2(1190, 564, 70, 72)
 LandingZone = Rect2(1300, 564, 120, 72)
 
-[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routebridge-to-rift" unique_id=701235195]
+[node name="LaunchZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routebridge-to-rift" unique_id=1812258037]
 visible = false
 color = Color(0.36, 0.72, 0.62, 0.32)
 polygon = PackedVector2Array(1190, 564, 1260, 564, 1260, 636, 1190, 636)
 
-[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routebridge-to-rift" unique_id=853689785]
+[node name="LandingZoneVisual" type="Polygon2D" parent="Gameplay/TraversalContracts/canyonv2routebridge-to-rift" unique_id=719713923]
 visible = false
 color = Color(0.82, 0.66, 0.32, 0.34)
 polygon = PackedVector2Array(1300, 564, 1420, 564, 1420, 636, 1300, 636)
 
-[node name="RouteMarkers" type="Node2D" parent="Gameplay" unique_id=369980989]
+[node name="RouteMarkers" type="Node2D" parent="Gameplay" unique_id=1121522154]
 
-[node name="NextSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=815359525]
+[node name="NextSeam" type="Marker2D" parent="Gameplay/RouteMarkers" unique_id=1089113811]
 position = Vector2(1278, 600)
 
-[node name="FallRecovery" type="Node2D" parent="Gameplay" unique_id=821122019]
+[node name="FallRecovery" type="Node2D" parent="Gameplay" unique_id=1185870128]
 
-[node name="RecoveryVolume" type="Area2D" parent="Gameplay/FallRecovery" unique_id=422257222]
+[node name="RecoveryVolume" type="Area2D" parent="Gameplay/FallRecovery" unique_id=1758891792]
 position = Vector2(640, 712)
 collision_layer = 0
 collision_mask = 2
-script = ExtResource("6_synir")
+script = ExtResource("6_qv7is")
 RoomControllerPath = NodePath("../../../../../..")
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume" unique_id=1006249034]
-shape = SubResource("RectangleShape2D_ayf52")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/FallRecovery/RecoveryVolume" unique_id=302655855]
+shape = SubResource("RectangleShape2D_080ep")
 
-[node name="RecoveryLanding" type="Marker2D" parent="Gameplay/FallRecovery" unique_id=1025162604]
+[node name="RecoveryLanding" type="Marker2D" parent="Gameplay/FallRecovery" unique_id=1319283230]
 position = Vector2(160, 600)
 
-[node name="OptionalPaths" type="Node2D" parent="Gameplay" unique_id=682383597]
+[node name="OptionalPaths" type="Node2D" parent="Gameplay" unique_id=253763912]
 
-[node name="MicroScenes" type="Node2D" parent="Gameplay" unique_id=762244095]
+[node name="MicroScenes" type="Node2D" parent="Gameplay" unique_id=348828688]
 
-[node name="LowCeilingBridge" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=1305816649]
+[node name="LowCeilingBridge" type="Marker2D" parent="Gameplay/MicroScenes" unique_id=1171598474]
 position = Vector2(640, 360)
 metadata/local_bounds = Rect2(0, 0, 1280, 720)
 metadata/optional_subarea = false
 metadata/route_node_id = 0
 metadata/challenge_kind = 0
 
-[node name="Mechanisms" type="Node2D" parent="Gameplay" unique_id=1969216041]
+[node name="Mechanisms" type="Node2D" parent="Gameplay" unique_id=1947846896]
 
-[node name="QuestFragments" type="Node2D" parent="Gameplay" unique_id=1885325745]
+[node name="CombinationSpringboard" type="Area2D" parent="Gameplay/Mechanisms" unique_id=1566396446]
+position = Vector2(228, 636)
+script = ExtResource("7_d4mbr")
+Width = 48.0
+SupportBodyPath = NodePath("../../Collision/StartFloor")
 
-[node name="entrance" type="Area2D" parent="Gameplay/QuestFragments" unique_id=979591389]
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/CombinationSpringboard" unique_id=54031237]
+position = Vector2(0, -6)
+shape = SubResource("RectangleShape2D_l7pce")
+
+[node name="CombinationFixedGear" type="Area2D" parent="Gameplay/Mechanisms" unique_id=1871871468]
+position = Vector2(116, 506)
+script = ExtResource("8_knbdc")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/CombinationFixedGear" unique_id=1105908334]
+shape = SubResource("CircleShape2D_8lsvt")
+
+[node name="PracticeSpringboard" type="Area2D" parent="Gameplay/Mechanisms" unique_id=710539254]
+position = Vector2(780, 636)
+script = ExtResource("7_d4mbr")
+LaunchVelocity = Vector2(0, -420)
+Width = 48.0
+SupportBodyPath = NodePath("../../Collision/BridgeFarBank")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/PracticeSpringboard" unique_id=20139477]
+position = Vector2(0, -6)
+shape = SubResource("RectangleShape2D_f6k4i")
+
+[node name="PracticeFixedGear" type="Area2D" parent="Gameplay/Mechanisms" unique_id=669087976]
+position = Vector2(900, 430)
+script = ExtResource("8_knbdc")
+
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/Mechanisms/PracticeFixedGear" unique_id=1779525147]
+shape = SubResource("CircleShape2D_2lqwp")
+
+[node name="QuestFragments" type="Node2D" parent="Gameplay" unique_id=1733657948]
+
+[node name="entrance" type="Area2D" parent="Gameplay/QuestFragments" unique_id=443267227]
 position = Vector2(280, 600)
 collision_layer = 0
 collision_mask = 2
 monitorable = false
-script = ExtResource("7_1doyo")
+script = ExtResource("9_1m2mw")
 StableId = "canyon.v2.fragment.entrance"
 
-[node name="Collision" type="CollisionShape2D" parent="Gameplay/QuestFragments/entrance" unique_id=424707249]
-shape = SubResource("CircleShape2D_vx6q7")
+[node name="Collision" type="CollisionShape2D" parent="Gameplay/QuestFragments/entrance" unique_id=1365161566]
+shape = SubResource("CircleShape2D_jd6yo")
 
-[node name="AvailableVisual" type="Node2D" parent="Gameplay/QuestFragments/entrance" unique_id=879504715]
-script = ExtResource("8_ofo1x")
+[node name="AvailableVisual" type="Node2D" parent="Gameplay/QuestFragments/entrance" unique_id=479933569]
+script = ExtResource("10_lcrym")
 metadata/replaceable_art_layer = true
 metadata/gameplay_authority = false
 
-[node name="Status" type="Label" parent="Gameplay/QuestFragments/entrance" unique_id=2134590431]
+[node name="Status" type="Label" parent="Gameplay/QuestFragments/entrance" unique_id=2101493095]
 custom_minimum_size = Vector2(180, 30)
 offset_left = -90.0
 offset_top = -48.0
@@ -358,17 +412,17 @@ offset_right = -90.0
 offset_bottom = -48.0
 horizontal_alignment = 1
 
-[node name="Actors" type="Node2D" parent="Gameplay" unique_id=697490760]
+[node name="Actors" type="Node2D" parent="Gameplay" unique_id=160429668]
 
-[node name="RustShellSquire" type="Marker2D" parent="Gameplay/Actors" unique_id=755784181]
+[node name="RustShellSquire" type="Marker2D" parent="Gameplay/Actors" unique_id=1790893879]
 position = Vector2(560, 600)
 metadata/guidance_only = true
 
-[node name="Encounters" type="Node2D" parent="Gameplay" unique_id=1973896048]
+[node name="Encounters" type="Node2D" parent="Gameplay" unique_id=324686512]
 
-[node name="LowCeilingBridgeEncounter" type="Node" parent="Gameplay/Encounters" unique_id=956332743]
-script = ExtResource("9_m6yff")
+[node name="LowCeilingBridgeEncounter" type="Node" parent="Gameplay/Encounters" unique_id=1721457647]
+script = ExtResource("11_frrv7")
 EncounterId = &"canyon.v2.encounter.low-ceiling-bridge"
 
-[node name="Spawn" type="Marker2D" parent="." unique_id=2050467528]
+[node name="Spawn" type="Marker2D" parent="." unique_id=1736557262]
 position = Vector2(160, 600)

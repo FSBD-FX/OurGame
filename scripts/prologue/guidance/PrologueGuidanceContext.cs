@@ -2,8 +2,11 @@ using Knight.Abilities;
 using Knight.Prologue.Collections;
 using Knight.Prologue.Seamless;
 using Knight.Settings;
+using Knight.Presentation.Fog;
 
 namespace Knight.Prologue.Guidance;
+
+public enum PrologueRecyclingLesson { None, Combination, CombinationLaunched, Springboard, FixedGear }
 
 public readonly record struct PrologueGuidanceContext(
     PrologueObjective Objective,
@@ -18,4 +21,7 @@ public readonly record struct PrologueGuidanceContext(
     bool TerrainClawAttached = false,
     BossAdmissionResult? BossAdmission = null,
     bool AscentTransferOpportunity = false,
-    bool ShieldLaneNearby = false);
+    bool ShieldLaneNearby = false,
+    PrologueRecyclingLesson RecyclingLesson = PrologueRecyclingLesson.None,
+    VisibleLaserWarning VisibleLaser = VisibleLaserWarning.None,
+    bool ThrusterOpportunity = false);

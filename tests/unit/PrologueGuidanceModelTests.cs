@@ -14,6 +14,48 @@ namespace Knight.Tests.Unit;
 
 public static class PrologueGuidanceModelTests
 {
+    public static void RunRecyclingTeaching()
+    {
+        LoadStrings();
+        var glyphs=new Dictionary<StringName,string>(Glyphs)
+        { [InputActions.Jump]="HOP_BINDING", [InputActions.MoveRight]="BRAKE_BINDING" };
+        foreach(GameLanguage language in Enum.GetValues<GameLanguage>())
+        {
+            var context=new PrologueGuidanceContext(PrologueObjective.Wake,PrologueSectorId.CanyonEntrance,
+                PrologueBossGuidanceState.Inactive,3,language,true,FirstCombatNearby:true,
+                RecyclingLesson:PrologueRecyclingLesson.Combination);
+            var card=PrologueGuidanceModel.Evaluate(context,glyphs);
+            TestAssert.True(card.Visible && card.ContextTitle.Contains("ECHO") && card.Targets.Count==0 &&
+                card.HintText==string.Empty && card.StepText.Contains("HOP_BINDING") &&
+                card.StepText.Contains("BRAKE_BINDING") && !card.StepText.Contains('{') &&
+                card.StepText.Contains(language==GameLanguage.English?"UP-LEFT":"左上") &&
+                card.StepText.Contains(language==GameLanguage.English?"NO SHIELD":"盾无效"),
+                "live combination outranks competing early combat, fully explains functional danger and respects bindings without world boxes");
+            foreach(var lesson in new[]{PrologueRecyclingLesson.CombinationLaunched,PrologueRecyclingLesson.Springboard,PrologueRecyclingLesson.FixedGear})
+            {
+                var next=PrologueGuidanceModel.Evaluate(context with{RecyclingLesson=lesson,FirstCombatNearby=false},glyphs);
+                TestAssert.True(next.Visible && next.ContextTitle.Contains("ECHO") && next.Targets.Count==0 &&
+                    next.HintText==string.Empty && !next.StepText.Contains('{'),"all semantic device cards are complete in both languages");
+            }
+            var practiceDuringCombat=PrologueGuidanceModel.Evaluate(context with{
+                RecyclingLesson=PrologueRecyclingLesson.Springboard},glyphs);
+            TestAssert.True(!practiceDuringCombat.ContextTitle.Contains("ECHO") && practiceDuringCombat.StepText.Contains("J") &&
+                practiceDuringCombat.StepText.Contains("L"),
+                "RECYCLING_PRACTICE_PRIORITY_RED: a nonlethal practice pad must not hide the live enemy attack/shield lesson");
+            TestAssert.True(!PrologueGuidanceModel.Evaluate(context with{GuidanceEnabled=false},glyphs).Visible &&
+                !PrologueGuidanceModel.Evaluate(context with{Objective=PrologueObjective.Complete},glyphs).Visible,
+                "settings and completed flow remain the authority for visibility");
+            TestAssert.True(PrologueGuidanceModel.Evaluate(context with{Sector=PrologueSectorId.CanyonBasin},glyphs).ContextTitle==string.Empty &&
+                !PrologueGuidanceModel.Evaluate(context with{RecyclingLesson=(PrologueRecyclingLesson)999},glyphs).ContextTitle.Contains("ECHO"),
+                "wrong sector and unknown device state cannot invent a local mechanism card");
+            var attached=PrologueGuidanceModel.Evaluate(context with{Objective=PrologueObjective.LearnGrappleMode,
+                ClawState=MechanicalClawState.Reel},glyphs);
+            TestAssert.True(!attached.ContextTitle.Contains("ECHO"),"actual attached-claw controls are not hidden by an old idle device lesson");
+        }
+        GD.Print("RECYCLING_GUIDANCE_MODEL_OK languages=2 custom_bindings=true semantic_cards=4 danger_priority=true " +
+            "no_world_targets=true disabled_complete_wrong_sector=true pixels=false");
+    }
+
     public static void RunThrusterTeaching()
     {
         LoadStrings();
@@ -36,6 +78,54 @@ public static class PrologueGuidanceModelTests
             TestAssert.True(combat.ContextTitle != string.Empty && combat.StepText.Contains("J") &&
                 combat.StepText.Contains("L") && !combat.StepText.Contains("JET_CUSTOM"),
                 "immediate first-combat danger retains its existing attack/shield teaching priority");
+
+            // Break caught: unused real first-jet opportunity must select its
+            // own bounded lesson, not merely repeat the ordinary attack card.
+            var opportunity = context with { ThrusterOpportunity = true, SameSectorFailureCount = 3 };
+            var jet = PrologueGuidanceModel.Evaluate(opportunity, glyphs);
+            string title = language == GameLanguage.English ? "ECHO · THRUSTER" : "ECHO · 推进器";
+            TestAssert.True(jet.Visible && jet.ContextTitle == title && jet.Targets.Count == 0 &&
+                jet.HintText == string.Empty && jet.StepText.Contains("JET_CUSTOM") &&
+                jet.StepText.Contains("LEFT_CUSTOM") && jet.StepText.Contains("RIGHT_CUSTOM") &&
+                !jet.StepText.Contains('{'),
+                "first unused jet opportunity has its own localized fixed card and live bindings without failure clutter");
+            var pendingClaw = PrologueGuidanceModel.Evaluate(opportunity with
+                { Objective = PrologueObjective.LearnGrappleMode }, glyphs);
+            TestAssert.True(pendingClaw.ContextTitle == string.Empty && pendingClaw.StepText.Contains("K") &&
+                !pendingClaw.StepText.Contains("JET_CUSTOM"),
+                "mandatory first claw instruction outranks an unused optional short jet");
+            var onwardJet = PrologueGuidanceModel.Evaluate(opportunity with
+                { Objective = PrologueObjective.ReachBasin }, glyphs);
+            TestAssert.True(onwardJet.ContextTitle == title && onwardJet.Targets.Count == 1 &&
+                onwardJet.Targets[0] == PrologueGuidanceTargetKey.EntranceExit &&
+                onwardJet.StepText.Contains(language == GameLanguage.English ? "DESCENT ENTRANCE" : "下降区入口"),
+                "after first claw the optional jet preserves the mandatory forward target and route instruction");
+            foreach (PrologueSectorId sector in Enum.GetValues<PrologueSectorId>())
+            foreach (MechanicalClawState claw in Enum.GetValues<MechanicalClawState>())
+            {
+                var candidate = PrologueGuidanceModel.Evaluate(opportunity with { Sector = sector, ClawState = claw }, glyphs);
+                TestAssert.Equal(sector == PrologueSectorId.CanyonEntrance && claw == MechanicalClawState.Idle,
+                    candidate.ContextTitle == title, "first-jet opportunity belongs only to idle entrance traversal");
+            }
+            foreach (PrologueObjective objective in Enum.GetValues<PrologueObjective>())
+            {
+                var candidate = PrologueGuidanceModel.Evaluate(opportunity with { Objective = objective }, glyphs);
+                bool early = objective is PrologueObjective.Wake or PrologueObjective.LearnAttackMode or
+                    PrologueObjective.ReachBasin;
+                TestAssert.Equal(early, candidate.ContextTitle == title,
+                    "first-jet card never takes ownership of later objectives or completion");
+            }
+            TestAssert.True(!PrologueGuidanceModel.Evaluate(opportunity with { GuidanceEnabled = false }, glyphs).Visible &&
+                PrologueGuidanceModel.Evaluate(opportunity with { ThrusterOpportunity = false }, glyphs).ContextTitle != title &&
+                PrologueGuidanceModel.Evaluate(opportunity with { BossState = PrologueBossGuidanceState.Active }, glyphs).ContextTitle != title,
+                "disabled guidance, consumed opportunity and active boss revoke the optional jet lesson");
+            foreach (PrologueRecyclingLesson lesson in new[] { PrologueRecyclingLesson.Combination,
+                PrologueRecyclingLesson.CombinationLaunched, PrologueRecyclingLesson.Springboard, PrologueRecyclingLesson.FixedGear })
+                TestAssert.True(PrologueGuidanceModel.Evaluate(opportunity with { RecyclingLesson = lesson }, glyphs).ContextTitle != title,
+                    "real entrance mechanism instruction outranks optional first jet");
+            TestAssert.True(PrologueGuidanceModel.Evaluate(opportunity with { FirstCombatNearby = true }, glyphs).StepText == combat.StepText &&
+                PrologueGuidanceModel.Evaluate(opportunity with { VisibleLaser = Knight.Presentation.Fog.VisibleLaserWarning.Locked }, glyphs).ContextTitle != title,
+                "immediate combat and visible locked beam retain danger priority over first jet");
         }
         GD.Print("THRUSTER_TEACHING_GLYPHS_OK initial_objective=true localized=true custom_dash_left_right=true danger_priority_preserved=true");
     }
@@ -299,9 +389,11 @@ public static class PrologueGuidanceModelTests
     public static void Run()
     {
         LoadStrings();
+        RunRecyclingTeaching();
         BasinShieldObjectiveTemporarilyTeachesTheLiveClaw();
         OptionalDescentClawRespectsObjectiveAndPhase();
         MechanicalClawGuidanceUsesApprovedBindingsAndExcludesInternalNames();
+        DirectionalTeachingUsesConfiguredBindings();
         ClawPhaseBoundariesPreserveObjectiveOwnership();
         AttachedTeachingPreservesExpandedFailureContext();
         StagedClawGuidanceUsesSuppliedGlyphs();
@@ -328,6 +420,45 @@ public static class PrologueGuidanceModelTests
                          : new[] { "耗能", "过热", "粗糙", "冰面", "自动牵引", "跃出" })
                 TestAssert.True(all.Contains(concept, StringComparison.OrdinalIgnoreCase),
                     $"{language} first-level guidance covers {concept}");
+        }
+    }
+
+    private static void DirectionalTeachingUsesConfiguredBindings()
+    {
+        var remapped = new Dictionary<StringName, string>(Glyphs)
+        {
+            [InputActions.MoveUp] = "UP", [InputActions.MoveLeft] = "LEFT",
+            [InputActions.MoveDown] = "DOWN", [InputActions.MoveRight] = "RIGHT"
+        };
+        foreach (GameLanguage language in Enum.GetValues<GameLanguage>())
+        {
+            var entrance = new PrologueGuidanceContext(PrologueObjective.Wake, PrologueSectorId.CanyonEntrance,
+                PrologueBossGuidanceState.Inactive, 0, language, true);
+            var basin = entrance with { Objective = PrologueObjective.LearnShield, Sector = PrologueSectorId.CanyonBasin };
+            var temple = entrance with { Objective = PrologueObjective.PullTempleMechanism, Sector = PrologueSectorId.LostTemple };
+            var boss = temple with { Objective = PrologueObjective.DefeatBellkeeper, BossState = PrologueBossGuidanceState.Active };
+            var cases = new (PrologueGuidanceContext Context, bool Hint)[]
+            {
+                (entrance with { FirstCombatNearby = true }, false),
+                (entrance with { Objective = PrologueObjective.LearnGrappleMode }, false),
+                (basin, false), (basin with { Objective = PrologueObjective.ClimbCanyon }, false),
+                (temple, false), (boss, false),
+                (boss with { BossState = PrologueBossGuidanceState.ChainExposed }, false),
+                (basin with { SameSectorFailureCount = 2 }, true),
+                (temple with { SameSectorFailureCount = 2 }, true)
+            };
+            foreach (var sample in cases)
+            {
+                var original = PrologueGuidanceModel.Evaluate(sample.Context, Glyphs);
+                var custom = PrologueGuidanceModel.Evaluate(sample.Context, remapped);
+                string defaultText = sample.Hint ? original.HintText : original.StepText;
+                string customText = sample.Hint ? custom.HintText : custom.StepText;
+                TestAssert.True(defaultText.Contains("WASD", StringComparison.Ordinal) &&
+                    customText.Contains("UP/LEFT/DOWN/RIGHT", StringComparison.Ordinal) &&
+                    !customText.Contains("WASD", StringComparison.Ordinal) && !customText.Contains('{'),
+                    $"{language} {sample.Context.Objective} {sample.Context.BossState} hint={sample.Hint} " +
+                    $"must preserve default WASD and show all configured direction keys in order: '{customText}'");
+            }
         }
     }
 
@@ -405,10 +536,17 @@ public static class PrologueGuidanceModelTests
             var retry = PrologueGuidanceModel.Evaluate(context with { SameSectorFailureCount = 2 }, Glyphs);
             TestAssert.True(!string.IsNullOrEmpty(retry.HintText), "optional opportunity retains material/safe-platform retry help");
             var remapped = new Dictionary<StringName, string>(Glyphs)
-            { [InputActions.Claw] = "CAST_CUSTOM" };
+            { [InputActions.Claw] = "CAST_CUSTOM", [InputActions.MoveUp] = "UP_CUSTOM" };
             var custom = PrologueGuidanceModel.Evaluate(context, remapped);
             TestAssert.True(custom.StepText.Contains("CAST_CUSTOM") && !custom.StepText.Contains("LMB"),
                 "the optional opportunity uses the supplied independent claw binding");
+            string upPrefix = language == GameLanguage.English ? "UP_CUSTOM: AIM UP" : "UP_CUSTOM 瞄准";
+            TestAssert.True(custom.StepText.Contains(upPrefix, StringComparison.Ordinal),
+                $"DESCENT_MOVE_UP_GLYPH: {language} optional opportunity must contain literal '{upPrefix}'");
+            TestAssert.True(!custom.StepText.Contains("W 瞄准", StringComparison.Ordinal) &&
+                !custom.StepText.Contains("W: AIM UP", StringComparison.Ordinal) &&
+                !custom.StepText.Contains('{') && !custom.StepText.Contains('}'),
+                $"DESCENT_MOVE_UP_GLYPH: {language} optional opportunity leaks neither old W aim prefixes nor unresolved tokens");
         }
     }
 

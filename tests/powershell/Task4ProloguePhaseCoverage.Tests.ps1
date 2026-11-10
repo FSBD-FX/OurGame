@@ -17,7 +17,7 @@ if ([string]::IsNullOrWhiteSpace($VerifierPath)) {
 $source = Get-Content -LiteralPath $SourcePath -Raw
 $verifier = Get-Content -LiteralPath $VerifierPath -Raw
 $evidenceRoot = Join-Path $project 'screenshots\task4-capture-exit'
-$godot = 'G:\godot\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
+$godot = 'G:\knight\Tools\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
 
 function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "Assertion failed: $Message" }

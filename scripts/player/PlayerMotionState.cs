@@ -11,6 +11,9 @@ public sealed class PlayerMotionState
     public bool PreservingGrappleReleaseMomentum { get; set; }
     public bool GrappleRiseProtected { get; set; }
     public bool ThrusterRiseProtected { get; set; }
+    // Suppresses only variable-jump cut for a real environment launch.
+    // It grants no grapple/jet, wind, fall-damage or extra-jump authority.
+    public bool EnvironmentalRiseProtected { get; set; }
 
     public void Reset()
     {
@@ -21,6 +24,7 @@ public sealed class PlayerMotionState
         PreservingGrappleReleaseMomentum = false;
         GrappleRiseProtected = false;
         ThrusterRiseProtected = false;
+        EnvironmentalRiseProtected = false;
         DashDirection = Vector2.Right;
         AirDashAvailable = true;
         WasOnFloor = false;

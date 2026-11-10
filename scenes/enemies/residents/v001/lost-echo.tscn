@@ -1,0 +1,106 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/RustShellSquire.cs" id="1_3tr6w"]
+[ext_resource type="Script" path="res://scripts/combat/HealthComponent.cs" id="2_vo305"]
+[ext_resource type="Script" path="res://scripts/combat/Hurtbox.cs" id="3_2y8tb"]
+[ext_resource type="Script" path="res://scripts/combat/Hitbox.cs" id="4_456kl"]
+[ext_resource type="Script" path="res://scripts/abilities/ThreadTarget2D.cs" id="5_uo2uw"]
+[ext_resource type="Script" path="res://scripts/abilities/LegacyThreadInteractionAdapter.cs" id="6_utm6y"]
+[ext_resource type="Script" path="res://scripts/presentation/RustShellPresentationCoordinator.cs" id="7_aaa3u"]
+[ext_resource type="Script" path="res://scripts/config/PresentationProfile.cs" id="8_xd8q5"]
+[ext_resource type="PackedScene" path="res://scenes/presentation/RustShellFormalVisual.tscn" id="9_8p18x"]
+[ext_resource type="Script" path="res://scripts/presentation/RustShellFormalVisual.cs" id="10_2mo35"]
+[ext_resource type="Script" path="res://scripts/presentation/AttackTelegraphVisual.cs" id="11_la1fh"]
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSceneBinding.cs" id="12_ug3xc"]
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSubtypeProfile.cs" id="13_cdm4x"]
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_wvhn8"]
+radius = 18.0
+height = 64.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_kim24"]
+size = Vector2(26, 18)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_task6"]
+radius = 18.0
+
+[sub_resource type="Resource" id="Resource_8q0u2"]
+script = ExtResource("8_xd8q5")
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_semno"]
+radius = 18.0
+height = 64.0
+
+[sub_resource type="Resource" id="Resource_2rxdy"]
+script = ExtResource("13_cdm4x")
+SubtypeId = "lost-echo"
+Family = 4
+Carrier = 1
+GhostHiddenSeconds = 1.2
+GhostManifestSeconds = 4.0
+
+[node name="RustShellSquire" type="CharacterBody2D" unique_id=2145753522]
+collision_layer = 4
+script = ExtResource("1_3tr6w")
+
+[node name="Health" type="Node" parent="." unique_id=6603122]
+script = ExtResource("2_vo305")
+MaxHealth = 3
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=351913009]
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("3_2y8tb")
+
+[node name="HurtboxCollider" type="CollisionShape2D" parent="Hurtbox" unique_id=811526739]
+shape = SubResource("CapsuleShape2D_wvhn8")
+
+[node name="AttackHitbox" type="Area2D" parent="." unique_id=1256028283]
+collision_layer = 16
+collision_mask = 2
+monitoring = false
+monitorable = false
+script = ExtResource("4_456kl")
+Knockback = 190.0
+
+[node name="AttackCollider" type="CollisionShape2D" parent="AttackHitbox" unique_id=1617499558]
+shape = SubResource("RectangleShape2D_kim24")
+
+[node name="ThreadTarget" type="Node2D" parent="." unique_id=2141009303]
+script = ExtResource("5_uo2uw")
+Kind = 1
+Material = 1
+
+[node name="TargetCollision" type="Area2D" parent="ThreadTarget" unique_id=1207309010]
+collision_layer = 32
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape2D" parent="ThreadTarget/TargetCollision" unique_id=260231642]
+shape = SubResource("CircleShape2D_task6")
+
+[node name="LegacyThreadInteractionAdapter" type="Node" parent="ThreadTarget" unique_id=1758728582]
+script = ExtResource("6_utm6y")
+
+[node name="Presentation" type="Node" parent="." unique_id=513998298]
+script = ExtResource("7_aaa3u")
+Profile = SubResource("Resource_8q0u2")
+
+[node name="VisualRoot" type="Node2D" parent="." unique_id=1879846835]
+
+[node name="Formal" type="Node2D" parent="VisualRoot" unique_id=1291524085 instance=ExtResource("9_8p18x")]
+script = ExtResource("10_2mo35")
+metadata/profile_bounds = Rect2(-42, -42, 104, 68)
+
+[node name="AttackTelegraph" type="Node2D" parent="VisualRoot" unique_id=1879384715]
+z_index = 6
+script = ExtResource("11_la1fh")
+
+[node name="Effects" type="Node2D" parent="VisualRoot" unique_id=229042426]
+z_index = 10
+
+[node name="BodyCollider" type="CollisionShape2D" parent="." unique_id=2099102367]
+shape = SubResource("CapsuleShape2D_semno")
+
+[node name="ResidentBinding" type="Node" parent="." unique_id=1165968369]
+script = ExtResource("12_ug3xc")
+Profile = SubResource("Resource_2rxdy")

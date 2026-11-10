@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Threading.Tasks;
 using Godot;
+using Knight.Abilities;
 using Knight.Combat;
 using Knight.Player;
 using Knight.Prologue;
@@ -37,48 +38,105 @@ public static class P1LoopRuntimeTests
         CharacterBody2D player = level.Player;
         PlayerInputReader input = player.GetNode<PlayerInputReader>("Input");
         PlayerMotor motor = player.GetNode<PlayerMotor>("Motor");
+        var flow = level.GetNode<PrologueGameFlowController>("GameFlow");
+        long epoch = level.Residents.Epoch;
         ulong levelId = level.GetInstanceId();
         ulong playerId = player.GetInstanceId();
         int completed = 0;
         bool completionClosed = false;
+        bool completionEnabled = false;
+        bool completionIdentity = false;
+        bool residentCommitted = false;
         bool removed = false;
+        int requested = 0;
+        const string recoveryReason = "P1 EXIT DURING RECOVERY";
+        string requestedReason = null, completedReason = null;
+        var eventOrder = new List<string>(2);
+        ulong detachedSequence = 0;
+        Transform2D detachedPose = default;
+        Vector2 detachedVelocity = default;
+        Node detachedPlayerParent = null;
         Exception primaryFailure = null;
         void RemoveOwnedLevel()
         {
             if (!GodotObject.IsInstanceValid(level) || !level.IsInsideTree() || level.IsQueuedForDeletion()) return;
             tree.Root.RemoveChild(level);
             removed = true;
+            detachedSequence = input.CurrentFrameSequence;
+            detachedPose = player.Transform;
+            detachedVelocity = player.Velocity;
+            detachedPlayerParent = player.GetParent();
             GD.Print($"P1_RECOVERY_EXIT_TRACE stage=removed removal={removal} physics={Engine.GetPhysicsFrames()} level={levelId} player={playerId} inside={level.IsInsideTree()} player_processing={player.IsPhysicsProcessing()}");
         }
+        PrologueLevelController.RecoveryRequestedEventHandler requestObserver = reason =>
+        { requested++; requestedReason = reason; eventOrder.Add("requested"); };
         PrologueLevelController.RecoveryCompletedEventHandler completionObserver = reason =>
         {
             completed++;
-            completionClosed = !player.IsPhysicsProcessing() && !input.IsPhysicsProcessing() && !motor.IsPhysicsProcessing();
+            completedReason = reason; eventOrder.Add("completed");
+            completionClosed = RecoveryTransientsClosed(level);
+            completionEnabled = PlayerProcessingEnabled(level);
+            completionIdentity = ReferenceEquals(level.Player, player) &&
+                ReferenceEquals(player.GetNode<PlayerInputReader>("Input"), input) &&
+                ReferenceEquals(player.GetNode<PlayerMotor>("Motor"), motor);
+            residentCommitted = !level.ResidentPreparationPending &&
+                level.ResidentPreparationFailure.Length == 0 && level.Residents.Epoch == epoch;
             GD.Print($"P1_RECOVERY_EXIT_TRACE stage=completion removal={removal} physics={Engine.GetPhysicsFrames()} level={levelId} player={playerId} completed={completed} closed={completionClosed} reason={reason}");
-            // Exercise both public callback exits: before resume is entered, and
-            // after it has entered the first process wait. Never invoke resume ourselves.
+            // Resident completion commits before publishing LAST. Exercise both
+            // public removal boundaries; never invoke a private resume.
             if (deferRemoval) Callable.From(RemoveOwnedLevel).CallDeferred();
             else RemoveOwnedLevel();
         };
+        level.RecoveryRequested += requestObserver;
         level.RecoveryCompleted += completionObserver;
         try
         {
-            level.RequestRespawn("P1 EXIT DURING RECOVERY");
-            int observedProcessFrames = 0;
-            while (!removed && observedProcessFrames < 4)
+            level.RequestRespawn(recoveryReason);
+            TestAssert.True(requested == 1 && completed == 0 && requestedReason == recoveryReason &&
+                level.ResidentPreparationPending && !player.IsPhysicsProcessing() &&
+                !input.IsPhysicsProcessing() && !motor.IsPhysicsProcessing(),
+                "exit recovery accepts one public request and immediately stops gameplay");
+            int completionWait = 0;
+            while (completed == 0 && completionWait < 180)
+            {
+                TestAssert.True(GodotObject.IsInstanceValid(level) && GodotObject.IsInstanceValid(player) &&
+                    level.IsInsideTree() && player.IsInsideTree() && !level.IsQueuedForDeletion() &&
+                    !player.IsQueuedForDeletion() && flow.State == PrologueGameFlowState.Recovering &&
+                    level.ResidentPreparationPending && level.ResidentPreparationFailure.Length == 0,
+                    "public exit recovery keeps its owner until the actual resident commit");
+                await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+                completionWait++;
+            }
+            int removalWait = 0;
+            while (!removed && removalWait < 4)
             {
                 await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
-                observedProcessFrames++;
+                removalWait++;
             }
-            TestAssert.True(completed == 1 && completionClosed && removed && !level.IsInsideTree(),
-                "exit probe reaches detached-owner window after one completion but before gameplay resumption");
+            TestAssert.True(requested == 1 && completed == 1 && completionClosed && completionEnabled && completionIdentity &&
+                residentCommitted && completedReason == recoveryReason &&
+                string.Join("|", eventOrder) == "requested|completed" && removed && !level.IsInsideTree(),
+                "exit probe reaches a detached owner after one fully committed completion");
+            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
             await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
+            // PhysicsFrame precedes node physics processing. Observe the next
+            // process boundary before freeing, so this cycle can really finish.
+            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
             TestAssert.True(GodotObject.IsInstanceValid(level) && GodotObject.IsInstanceValid(player) &&
                 level.GetInstanceId() == levelId && player.GetInstanceId() == playerId &&
-                !level.IsInsideTree() && !player.IsPhysicsProcessing() && !input.IsPhysicsProcessing() && !motor.IsPhysicsProcessing(),
-                "pending public recovery never resumes or replaces the detached owner and player");
-            GD.Print($"P1_RECOVERY_EXIT_CASE_OK removal={removal} completed=1 detached_owner=true original_player=true gameplay_stayed_disabled=true " +
-                $"process_observation={observedProcessFrames} process_cap=4 physics_observation=1 " +
+                ReferenceEquals(level.Player, player) &&
+                ReferenceEquals(player.GetNode<PlayerInputReader>("Input"), input) &&
+                ReferenceEquals(player.GetNode<PlayerMotor>("Motor"), motor) &&
+                level.GetParent() == null && !level.IsInsideTree() && !player.IsInsideTree() &&
+                ReferenceEquals(player.GetParent(), detachedPlayerParent) &&
+                input.CurrentFrameSequence == detachedSequence && player.Transform == detachedPose &&
+                player.Velocity == detachedVelocity && requested == 1 && completed == 1,
+                "public recovery never executes, reenters or replaces the detached owner and player");
+            GD.Print($"P1_RECOVERY_EXIT_CASE_OK removal={removal} requested=1 completed=1 " +
+                $"completion_wait={completionWait} completion_cap=180 removal_wait={removalWait} removal_cap=4 " +
+                "completion_enabled=true resident_commit=true transients_closed=true sync_disabled_request=true " +
+                "exact_reason=true event_order=true detached_owner=true original_player=true detached_execution_stable=true " +
+                "process_observation=2 physics_observation=1 physics_cycle_finished=true " +
                 "public_request=true health_death=false human=false full_route=false");
         }
         catch (Exception exception)
@@ -92,6 +150,7 @@ public static class P1LoopRuntimeTests
             {
                 if (GodotObject.IsInstanceValid(level))
                 {
+                    level.RecoveryRequested -= requestObserver;
                     level.RecoveryCompleted -= completionObserver;
                     if (level.IsInsideTree()) await Dispose(tree, level);
                     else level.Free();
@@ -171,7 +230,10 @@ public static class P1LoopRuntimeTests
         string requestedReason = null;
         string completedReason = null;
         bool completionKeptDiscovery = false;
-        bool completionKeptProcessingDisabled = false;
+        bool completionEnabled = false;
+        bool residentCommitted = false;
+        bool transientsClosed = false;
+        long originalEpoch = level.Residents.Epoch;
         ulong completionLevelId = 0;
         ulong completionPlayerId = 0;
         var eventOrder = new List<string>(2);
@@ -189,8 +251,10 @@ public static class P1LoopRuntimeTests
             completionKeptDiscovery = level.Progress.HiddenAlcoveVisited;
             completionLevelId = level.GetInstanceId();
             completionPlayerId = level.Player.GetInstanceId();
-            completionKeptProcessingDisabled = !level.Player.IsPhysicsProcessing() &&
-                !input.IsPhysicsProcessing() && !motor.IsPhysicsProcessing();
+            completionEnabled = PlayerProcessingEnabled(level);
+            residentCommitted = !level.ResidentPreparationPending &&
+                level.ResidentPreparationFailure.Length == 0 && level.Residents.Epoch == originalEpoch;
+            transientsClosed = RecoveryTransientsClosed(level);
         };
         level.RecoveryRequested += requestObserver;
         level.RecoveryCompleted += completionObserver;
@@ -229,24 +293,30 @@ public static class P1LoopRuntimeTests
         completedOnReturn = completed;
         TraceRecovery("after_request_return");
         TestAssert.True(requested == 1 && completed == 0 && requestedReason == recoveryReason &&
-            !level.Player.IsPhysicsProcessing() && !input.IsPhysicsProcessing() && !motor.IsPhysicsProcessing(),
+            level.ResidentPreparationPending && !level.Player.IsPhysicsProcessing() &&
+            !input.IsPhysicsProcessing() && !motor.IsPhysicsProcessing(),
             "public recovery accepts one request and stops gameplay before deferred completion");
-        // The original zero-wait premise was invalid. Adopt the existing generated-main
-        // completion-only cap; do not borrow its actor-reset or resume wait budgets.
-        while (completed == 0 && completionWaitFrames < 4)
+        // Wait for actual preparation/commit, not the old nonresident process tail.
+        while (completed == 0 && completionWaitFrames < 180)
         {
-            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            TestAssert.True(GodotObject.IsInstanceValid(level) && level.IsInsideTree() &&
+                !level.IsQueuedForDeletion() && GodotObject.IsInstanceValid(level.Player) &&
+                level.Player.IsInsideTree() && flow.State == PrologueGameFlowState.Recovering &&
+                level.ResidentPreparationPending && level.ResidentPreparationFailure.Length == 0,
+                "hidden recovery remains owned until its actual resident commit");
+            await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
             completionWaitFrames++;
         }
         TraceRecovery("after_completion_observation");
         TestAssert.True(requested == 1 && completed == 1 && completedReason == recoveryReason &&
-            completionKeptDiscovery && completionKeptProcessingDisabled &&
+            completionKeptDiscovery && completionEnabled && residentCommitted && transientsClosed &&
             completionLevelId == originalLevelId && completionPlayerId == originalPlayerId &&
             level.GetInstanceId() == originalLevelId && level.Player.GetInstanceId() == originalPlayerId &&
             string.Join("|", eventOrder) == "requested|completed" && !traceOverflow,
             $"one deferred completion preserves discovery and persistent identities; " +
             $"wait_frames={completionWaitFrames} requested={requested} completed={completed} " +
-            $"hidden_at_completion={completionKeptDiscovery} stopped_at_completion={completionKeptProcessingDisabled}");
+            $"hidden_at_completion={completionKeptDiscovery} enabled_at_completion={completionEnabled} " +
+            $"resident_commit={residentCommitted} transients_closed={transientsClosed}");
         }
         finally
         {
@@ -257,8 +327,9 @@ public static class P1LoopRuntimeTests
             foreach (string row in recoveryTrace) GD.Print(row);
             GD.Print($"P1_HIDDEN_RECOVERY_ASSERT_PARTS requested={requested} completed={completed} " +
                 $"immediate_requested={requestedOnReturn} immediate_completed={completedOnReturn} " +
-                $"completion_wait={completionWaitFrames} completion_cap=4 " +
-                $"completion_hidden={completionKeptDiscovery} completion_stopped={completionKeptProcessingDisabled} " +
+                $"completion_wait={completionWaitFrames} completion_cap=180 " +
+                $"completion_hidden={completionKeptDiscovery} completion_enabled={completionEnabled} " +
+                $"resident_commit={residentCommitted} transients_closed={transientsClosed} " +
                 $"completion_level={completionLevelId} completion_player={completionPlayerId} " +
                 $"hidden={level.Progress.HiddenAlcoveVisited} flow={flow.State} hp={health.CurrentHealth} " +
                 $"player_processing={level.Player.IsPhysicsProcessing()} trace_rows={recoveryTrace.Count} overflow={traceOverflow}");
@@ -266,9 +337,11 @@ public static class P1LoopRuntimeTests
         TestAssert.True(level.Progress.HiddenAlcoveVisited,
             "hidden discovery persists when death restores the active checkpoint");
         GD.Print($"P1_HIDDEN_DEFERRED_COMPLETION_OK requested={requested} completed={completed} " +
-            $"completion_wait={completionWaitFrames} completion_cap=4 " +
-            "original_setup_physics=2 original_dispose_process=1 " +
-            "completion_snapshot=true discovery_preserved=true same_level_player=true public_request=true health_death=false");
+            $"completion_wait={completionWaitFrames} completion_cap=180 " +
+            "original_setup_physics=2 initial_commit=true original_dispose_process=1 " +
+            "completion_snapshot=true resident_commit=true completion_enabled=true transients_closed=true " +
+            "discovery_preserved=true same_level_player=true sync_disabled_request=true exact_reason=true " +
+            "event_order=true public_request=true health_death=false");
         }
         catch (Exception exception)
         {
@@ -329,9 +402,51 @@ public static class P1LoopRuntimeTests
     private static async Task<PrologueLevelController> LoadLevel(SceneTree tree, string name)
     {
         PrologueLevelController level = CreateLevelFixture(name);
-        tree.Root.AddChild(level);
-        await Frames(tree, 2);
-        return level;
+        try
+        {
+            tree.Root.AddChild(level);
+            await Frames(tree, 2);
+            await BasinAscentCameraRuntimeTests.WaitForPlaying(tree, level);
+            return level;
+        }
+        catch (Exception primary)
+        {
+            try
+            {
+                if (GodotObject.IsInstanceValid(level))
+                {
+                    if (level.IsInsideTree()) await Dispose(tree, level);
+                    else level.Free();
+                }
+            }
+            catch (Exception cleanup) { throw new AggregateException(primary, cleanup); }
+            throw;
+        }
+    }
+
+    private static bool PlayerProcessingEnabled(PrologueLevelController level) =>
+        level.Player.IsPhysicsProcessing() &&
+        level.Player.GetNode<PlayerInputReader>("Input").IsPhysicsProcessing() &&
+        level.Player.GetNode<PlayerMotor>("Motor").IsPhysicsProcessing() &&
+        level.Player.GetNode<PlayerCombat>("Combat").IsPhysicsProcessing() &&
+        level.Player.GetNode<MechanicalClawController>("MechanicalClaw").IsPhysicsProcessing() &&
+        level.Player.GetNode<PlayerActionModeController>("ActionModes").IsPhysicsProcessing() &&
+        level.Player.GetNode<PlayerShieldController>("Shield").IsPhysicsProcessing() &&
+        level.Player.GetNode<PlayerEnergyController>("Energy").IsPhysicsProcessing();
+
+    private static bool RecoveryTransientsClosed(PrologueLevelController level)
+    {
+        var player = level.Player;
+        var health = player.GetNode<HealthComponent>("Health");
+        var input = player.GetNode<PlayerInputReader>("Input");
+        var energy = player.GetNode<PlayerEnergyController>("Energy");
+        return health.CurrentHealth == health.MaxHealth && input.Current == default &&
+            input.RawFrame == default && player.Velocity == Vector2.Zero &&
+            !player.GetNode<PlayerCombat>("Combat").IsAttacking &&
+            player.GetNode<MechanicalClawController>("MechanicalClaw").CurrentFrame.State == MechanicalClawState.Idle &&
+            !player.GetNode<PlayerShieldController>("Shield").IsActive &&
+            energy.EnergyRatio >= .999f && energy.HeatRatio <= .001f &&
+            player.GetNode<PlayerMotor>("Motor").AcceptedDashCount == 0;
     }
 
     internal static PrologueLevelController CreateLevelFixture(string name)

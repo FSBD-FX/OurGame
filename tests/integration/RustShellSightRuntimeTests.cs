@@ -36,6 +36,7 @@ public static class RustShellSightRuntimeTests
             await Frames(tree, 3);
             TestAssert.Equal(player, tree.GetFirstNodeInGroup("player"), "isolated sight fixture owns the actual AI target");
             await AssertSustainedChase("authored forward AttackHitbox");
+            AssertSightQueryOwnership("authored colliders");
 
             var nested = new Node2D { Name = "OwnedSensorMount" };
             Area2D ownedArea = Area("OwnedNestedArea", new Vector2(direction * 75f, 0));
@@ -43,6 +44,7 @@ public static class RustShellSightRuntimeTests
             actor.AddChild(nested);
             await Frames(tree, 2);
             await AssertSustainedChase("nested actor-owned Area2D");
+            AssertSightQueryOwnership("nested owned colliders");
 
             Vector2 barrierPosition = actor.GlobalPosition + new Vector2(direction * 110f, 0);
             var wall = new StaticBody2D
@@ -82,6 +84,28 @@ public static class RustShellSightRuntimeTests
             }
             TestAssert.True(direction * (actor.GlobalPosition.X - startX) > 8f,
                 $"direction {direction}: real MoveAndSlide advances for multiple chase ticks through {ownCollider}");
+        }
+
+        void AssertSightQueryOwnership(string stage)
+        {
+            // No physics frames, GC, object writes or mock queries in this batch.
+            // Removing the production query's synchronous disposal must fail:
+            // each call would leave a new native query Object alive at return.
+            TestAssert.True(actor.HasLineOfSightTo(player), "ownership warmup retains actual visibility");
+            double maximumRetained = 0;
+            for (int call = 0; call < 64; call++)
+            {
+                double before = Performance.GetMonitor(Performance.Monitor.ObjectCount);
+                bool visible = actor.HasLineOfSightTo(player);
+                double retained = Performance.GetMonitor(Performance.Monitor.ObjectCount) - before;
+                maximumRetained = System.Math.Max(maximumRetained, retained);
+                TestAssert.True(visible, "query ownership must not change sight or collider exclusions");
+            }
+            TestAssert.True(maximumRetained <= 0,
+                $"direction {direction}: {stage} sight query releases its owned native Object before returning; " +
+                $"maximum_retained_delta={maximumRetained}");
+            GD.Print($"RUST_SIGHT_QUERY_OWNERSHIP_OK direction={direction} stage={stage} " +
+                $"calls=64 maximum_retained_delta={maximumRetained} added_frames=0 added_gc=0");
         }
 
         async Task AssertExternalBlocker(string blocker)

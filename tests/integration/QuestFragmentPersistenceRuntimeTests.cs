@@ -40,7 +40,8 @@ public static class QuestFragmentPersistenceRuntimeTests
             level = await Mount();
             var flow = level.GetNode<PrologueGameFlowController>("GameFlow");
             flow.StartNew();
-            await Frames(tree, 12);
+            await Playing(tree, level, flow);
+            for (int frame = 0; frame < 60 && !level.Player.IsOnFloor(); frame++) await Frames(tree, 1);
             TestAssert.True(flow.State == PrologueGameFlowState.Playing && level.Player.IsOnFloor(),
                 "fragment metadata fixture starts on the supported real initial platform");
             TestAssert.True(level.Progress.TryCollectFragment("canyon.v2.fragment.entrance") &&
@@ -72,7 +73,7 @@ public static class QuestFragmentPersistenceRuntimeTests
             string beforeContinue = Hash(savePath);
             TestAssert.True(flow.HasSave, "unloaded/remounted scene discovers its isolated collection save");
             flow.Continue();
-            await Frames(tree, 5);
+            await Playing(tree, level, flow);
             TestAssert.True(flow.State == PrologueGameFlowState.Playing &&
                 level.Progress.CollectedFragmentIds.SetEquals(new[] { "canyon.v2.fragment.entrance", "canyon.v2.fragment.rift" }) &&
                 level.Progress.CollectionRuleVersion == 1 && !level.Progress.LegacyCollectionQuotaExempt,
@@ -81,7 +82,7 @@ public static class QuestFragmentPersistenceRuntimeTests
             QuestFragmentCrossProcessTests.PreserveFlowWrittenSlot(savePath, "collected");
             flow.ReturnToTitle();
             flow.StartNew();
-            await Frames(tree, 4);
+            await Playing(tree, level, flow);
             TestAssert.True(level.Progress.CollectedFragmentIds.Count == 0 && !level.Progress.LegacyCollectionQuotaExempt &&
                 PrologueSaveStore.LoadOrNew(savePath, 2).CollectedFragmentIds.Count == 0,
                 "explicit new game resets live and persisted collection state");
@@ -106,7 +107,7 @@ public static class QuestFragmentPersistenceRuntimeTests
             TestAssert.Equal(beforeLegacyContinue, Hash(legacyEligiblePath),
                 "loading the eligible schema3 fixture does not rewrite its original bytes");
             flow.Continue();
-            await Frames(tree, 5);
+            await Playing(tree, level, flow);
             TestAssert.True(flow.State == PrologueGameFlowState.Playing && level.Progress.CollectionRuleVersion == 1 &&
                 level.Progress.LegacyCollectionQuotaExempt && level.Progress.CollectedFragmentIds.Count == 0 &&
                 level.Progress.RestoreCheckpoint().CheckpointId == "canyon.v2.temple-forecourt",
@@ -143,7 +144,7 @@ public static class QuestFragmentPersistenceRuntimeTests
             string beforeEligibleRemountContinue = Hash(legacyEligiblePath);
             TestAssert.True(flow.HasSave, "unloaded eligible schema4 save remains available to real Continue");
             flow.Continue();
-            await Frames(tree, 5);
+            await Playing(tree, level, flow);
             TestAssert.True(flow.State == PrologueGameFlowState.Playing && level.Progress.CollectionRuleVersion == 1 &&
                 level.Progress.LegacyCollectionQuotaExempt && level.Progress.CollectedFragmentIds.Count == 0 &&
                 level.Progress.RestoreCheckpoint().CheckpointId == "canyon.v2.temple-forecourt",
@@ -154,7 +155,7 @@ public static class QuestFragmentPersistenceRuntimeTests
             TestAssert.True(level.Progress.LegacyCollectionQuotaExempt && level.Progress.CollectedFragmentIds.Count == 0,
                 "returning to the title alone does not clear the migrated quota entitlement");
             flow.StartNew();
-            await Frames(tree, 4);
+            await Playing(tree, level, flow);
             var eligibleReset = PrologueSaveStore.LoadOrNew(legacyEligiblePath, 2);
             TestAssert.True(flow.State == PrologueGameFlowState.Playing &&
                 level.Progress.CollectionRuleVersion == 1 && !level.Progress.LegacyCollectionQuotaExempt &&
@@ -172,5 +173,11 @@ public static class QuestFragmentPersistenceRuntimeTests
     }
     private static async Task Frames(SceneTree tree, int count)
     { for (int frame = 0; frame < count; frame++) await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame); }
+    private static async Task Playing(SceneTree tree, PrologueLevelController level, PrologueGameFlowController flow)
+    {
+        for (int frame = 0; frame < 180 && flow.State == PrologueGameFlowState.Intro; frame++) await Frames(tree, 1);
+        TestAssert.True(flow.State == PrologueGameFlowState.Playing && !level.ResidentPreparationPending,
+            "collection consumer waits for actual accepted session preparation: " + level.ResidentPreparationFailure);
+    }
     private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
 }

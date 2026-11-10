@@ -40,7 +40,8 @@ public static class Task7CaseRegistry
     public static Task7Case Retired(string suite, string name) =>
         new($"{suite}.{name}", Task7CaseDisposition.Retired, null);
 
-    public static async Task<Task7CaseRun> Execute(IReadOnlyList<Task7Case> cases)
+    public static async Task<Task7CaseRun> Execute(IReadOnlyList<Task7Case> cases,
+        Action<string, bool> observeBoundary = null)
     {
         if (cases == null) throw new ArgumentNullException(nameof(cases));
         var all = new HashSet<string>(StringComparer.Ordinal);
@@ -79,8 +80,10 @@ public static class Task7CaseRegistry
                      Task7CaseDisposition.Executable))
         {
             TestAssert.True(started.Add(item.Name), $"case starts once: {item.Name}");
+            observeBoundary?.Invoke(item.Name, true);
             await item.Execute();
             TestAssert.True(completed.Add(item.Name), $"case completes once: {item.Name}");
+            observeBoundary?.Invoke(item.Name, false);
         }
         TestAssert.Equal(Join(executable), Join(started),
             "executable case registry and started delegates are identical");

@@ -21,6 +21,7 @@ public sealed class PlayerMotionModel
         float burnRemaining, bool automaticPull, bool suppressJump)
     {
         float seconds = (float)delta;
+        if (state.Velocity.Y >= 0f) state.EnvironmentalRiseProtected = false;
         bool landed = onFloor && !state.WasOnFloor;
         bool jumpBlocked = suppressJump || burnRemaining > 0f;
         state.JumpBufferRemaining = jumpBlocked ? 0f : input.JumpPressed
@@ -32,12 +33,13 @@ public sealed class PlayerMotionModel
         {
             state.GrappleRiseProtected = false;
             state.ThrusterRiseProtected = false;
+            state.EnvironmentalRiseProtected = false;
             state.PreservingGrappleReleaseMomentum = false;
             state.Velocity = new Vector2(state.Velocity.X, -_settings.JumpSpeed);
             state.JumpBufferRemaining = 0f;
             state.CoyoteRemaining = 0f;
         }
-        else if (!automaticPull && !state.GrappleRiseProtected && !state.ThrusterRiseProtected &&
+        else if (!automaticPull && !state.GrappleRiseProtected && !state.ThrusterRiseProtected && !state.EnvironmentalRiseProtected &&
             !input.JumpHeld && state.Velocity.Y < -_settings.JumpCutSpeed)
             state.Velocity = new Vector2(state.Velocity.X, -_settings.JumpCutSpeed);
 
@@ -71,6 +73,7 @@ public sealed class PlayerMotionModel
     public PlayerMotionResult Step(PlayerMotionState state, PlayerInputFrame input, bool onFloor, double delta)
     {
         float seconds = Mathf.Max(0f, (float)delta);
+        if (state.Velocity.Y >= 0f) state.EnvironmentalRiseProtected = false;
         bool landed = onFloor && !state.WasOnFloor;
         if (onFloor) state.PreservingGrappleReleaseMomentum = false;
         state.JumpBufferRemaining = input.JumpPressed
@@ -87,6 +90,7 @@ public sealed class PlayerMotionModel
             // An active dash replaces even a claw launch released during the dash.
             // Its tail must retain ordinary dash behavior rather than the launch exemption.
             state.PreservingGrappleReleaseMomentum = false;
+            state.EnvironmentalRiseProtected = false;
             state.DashRemaining = Mathf.Max(0f, state.DashRemaining - seconds);
             state.Velocity = state.DashDirection * _settings.DashSpeed;
             state.WasOnFloor = onFloor;
@@ -99,6 +103,7 @@ public sealed class PlayerMotionModel
         if (canStartDash)
         {
             state.PreservingGrappleReleaseMomentum = false;
+            state.EnvironmentalRiseProtected = false;
             state.DashDirection = ResolveDashDirection(input, state);
             state.DashRemaining = _settings.DashSeconds;
             if (!onFloor || input.JumpPressed) state.AirDashAvailable = false;
@@ -117,11 +122,12 @@ public sealed class PlayerMotionModel
         if (startedJump)
         {
             state.PreservingGrappleReleaseMomentum = false;
+            state.EnvironmentalRiseProtected = false;
             state.Velocity = new Vector2(state.Velocity.X, -_settings.JumpSpeed);
             state.JumpBufferRemaining = 0f;
             state.CoyoteRemaining = 0f;
         }
-        else if (!state.PreservingGrappleReleaseMomentum &&
+        else if (!state.PreservingGrappleReleaseMomentum && !state.EnvironmentalRiseProtected &&
                  !input.JumpHeld && state.Velocity.Y < -_settings.JumpCutSpeed)
         {
             state.Velocity = new Vector2(state.Velocity.X, -_settings.JumpCutSpeed);

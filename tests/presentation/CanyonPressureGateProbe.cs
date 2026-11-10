@@ -319,12 +319,12 @@ public partial class CanyonPressureGateProbe : SceneTree
         string storage = Path.GetFullPath(raw).TrimEnd(Path.DirectorySeparatorChar);
         string caseDirectory = Path.GetDirectoryName(storage) ?? "";
         string evidence = Path.GetFullPath(
-            "E:/OurGame/Knight/.evidence/september09-continuous-canyon/task16a")
+            "G:/knight/验证证据/september09-continuous-canyon/task16a")
             .TrimEnd(Path.DirectorySeparatorChar);
         string project = Path.GetFullPath(ProjectSettings.GlobalizePath("res://"))
             .TrimEnd(Path.DirectorySeparatorChar);
         string expectedProject = Path.GetFullPath(
-            "E:/OurGame/Knight/.worktrees/task6-certified-final-20260902T0555")
+            "G:/knight/Knight")
             .TrimEnd(Path.DirectorySeparatorChar);
         string temp = Path.Combine(caseDirectory, "unit-temp");
         if (!Directory.Exists(storage) || !Directory.Exists(temp) ||

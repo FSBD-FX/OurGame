@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Godot;
 using Knight.Combat;
@@ -39,6 +40,7 @@ public static class BellBackLaborerSightRuntimeTests
             ulong attackId = fixture.Actor.CurrentFrame.AttackTimeline.AttackId;
             TestAssert.True(attackId > 0, "automatic Telegraph allocates a real attack identity");
             TestAssert.Equal(direction, fixture.Actor.Facing, "near-target attack locks the correct facing");
+            AssertSightQueryOwnership(fixture, direction, true, "owned-colliders-open");
 
             // Controlled geometry changes AFTER a legal commitment. The right
             // case loses LOS only; the left also loses horizontal detection range.
@@ -75,6 +77,7 @@ public static class BellBackLaborerSightRuntimeTests
         await InFixture(tree, new Vector2(direction * 70, 0), wall, async fixture =>
         {
             await AssertNoNewAttack(tree, fixture, $"direction {direction}: real World wall");
+            AssertSightQueryOwnership(fixture, direction, false, "world-wall-blocked");
             wall.QueueFree();
             await Until(tree, () => fixture.Actor.CurrentState == BellBackLaborerState.Telegraph,
                 90, $"direction {direction}: removing the wall restores normal attack admission");
@@ -93,6 +96,46 @@ public static class BellBackLaborerSightRuntimeTests
             $"{reason}: must not publish a new Telegraph/Active/Recovery; observed=" +
             string.Join(",", fixture.Samples.Select(sample => $"{sample.Id}:{sample.Phase}").Distinct()));
         TestAssert.True(!fixture.Hitbox.Monitoring, $"{reason}: blocked target cannot arm the damage hitbox");
+    }
+
+    private static void AssertSightQueryOwnership(Fixture fixture, int direction, bool expected, string stage)
+    {
+        // Exercise the existing production query, not a duplicate ray or a new
+        // public test API. Missing call-local disposal must retain a native query
+        // Object after return. No added physics steps, GC or resource cache.
+        MethodInfo query = typeof(BellBackLaborer).GetMethod("HasClearTerrainPathTo",
+            BindingFlags.Instance | BindingFlags.NonPublic) ??
+            throw new InvalidOperationException("Bell production terrain query is unavailable");
+        bool Visible() => (bool)query.Invoke(fixture.Actor, new object[] { fixture.Player.GlobalPosition });
+        TestAssert.Equal(expected, Visible(), "ownership warmup preserves actual Bell terrain visibility");
+        ulong physics = Engine.GetPhysicsFrames(), process = Engine.GetProcessFrames();
+        ulong actorId = fixture.Actor.GetInstanceId(), playerId = fixture.Player.GetInstanceId();
+        Transform2D actorPose = fixture.Actor.GlobalTransform, playerPose = fixture.Player.GlobalTransform;
+        var state = fixture.Actor.CurrentState;
+        int facing = fixture.Actor.Facing, hp = fixture.Health.CurrentHealth;
+        int enemyHp = fixture.Actor.GetNode<HealthComponent>("Health").CurrentHealth;
+        double maximumRetained = 0;
+        for (int call = 0; call < 64; call++)
+        {
+            double before = Performance.GetMonitor(Performance.Monitor.ObjectCount);
+            bool visible = Visible();
+            double retained = Performance.GetMonitor(Performance.Monitor.ObjectCount) - before;
+            maximumRetained = Math.Max(maximumRetained, retained);
+            TestAssert.Equal(expected, visible, "ownership must preserve Bell World-only sight semantics");
+        }
+        TestAssert.True(Engine.GetPhysicsFrames() == physics && Engine.GetProcessFrames() == process &&
+            fixture.Actor.GetInstanceId() == actorId && fixture.Player.GetInstanceId() == playerId &&
+            fixture.Actor.GlobalTransform == actorPose && fixture.Player.GlobalTransform == playerPose &&
+            fixture.Actor.CurrentState == state && fixture.Actor.Facing == facing && fixture.Health.CurrentHealth == hp &&
+            fixture.Actor.GetNode<HealthComponent>("Health").CurrentHealth == enemyHp,
+            "Bell ownership controls add no native steps, movement, state or health writes");
+        GD.Print($"BELL_SIGHT_QUERY_OWNERSHIP_OBS direction={direction} stage={stage} calls=64 " +
+            $"maximum_retained_delta={maximumRetained} expected_visible={expected} added_frames=0 added_gc=0");
+        TestAssert.True(maximumRetained <= 0,
+            $"BELL_SIGHT_QUERY_OWNERSHIP_RED: call-local native query must retire before return; " +
+            $"direction={direction} stage={stage} maximum_retained_delta={maximumRetained}");
+        GD.Print($"BELL_SIGHT_QUERY_OWNERSHIP_OK direction={direction} stage={stage} calls=64 " +
+            $"maximum_retained_delta={maximumRetained} added_frames=0 added_gc=0");
     }
 
     private static async Task CommittedSweepDamageRespectsWorldWall(SceneTree tree, int direction, bool blocked)

@@ -52,8 +52,9 @@ public partial class PrologueSupplyCache : Area2D
 
         var level = _level;
         var flow = _flow;
-        var session = flow.Save;
         string discoveryId = DiscoveryId;
+        var claim = flow.BeginSupplyClaim(level, discoveryId);
+        if (claim == null) return;
         _claiming = true;
         try
         {
@@ -63,16 +64,14 @@ public partial class PrologueSupplyCache : Area2D
             int restored = health.RestoreHealth(HealthAmount);
             // The callback may start a new run or unload this level. Never finish an
             // old claim into a replaced/reset session; title/pause alone still saves.
-            if (restored == 0 || !IsInstanceValid(level) || level.IsQueuedForDeletion() ||
-                !IsInstanceValid(flow) || !ReferenceEquals(session, flow.Save) ||
-                !level.Progress.Discoveries.Contains(discoveryId)) return;
+            if (restored == 0 || !IsInstanceValid(flow) || !flow.OwnsSupplyClaim(claim)) return;
             if (flow.State == PrologueGameFlowState.Playing && _level == level && _flow == flow)
             {
                 _lastRestored = restored;
                 _feedbackSeconds = 1.5f;
                 RefreshVisuals();
             }
-            level.EmitSignal(PrologueLevelController.SignalName.ProgressPersistRequested, "discovery");
+            flow.FinishSupplyClaim(claim);
         }
         finally { _claiming = false; }
     }

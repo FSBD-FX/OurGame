@@ -121,6 +121,9 @@ public static partial class ResidentAirRuntimeTests
         {
             await f.Mount();bool rejected=false;try{f.Agent.ConfigureResidence(null);}catch(InvalidOperationException){rejected=true;}
             TestAssert.True(rejected,"mounted residence cannot be reconfigured/reset");
+            uint liveLayer=f.Actor.CollisionLayer,liveMask=f.Actor.CollisionMask;
+            TestAssert.True(liveLayer!=0&&liveMask!=0&&BodyBlocksRay(),
+                "living saved resident body really blocks the native Enemy ray");
             int deaths=0;f.Actor.Defeated+=()=>deaths++;
             TestAssert.True(f.Actor.GetNode<Hurtbox>("Hurtbox").Receive(new(2,Vector2.Zero,0,3,900)),"actual ordinary Health death");
             f.Agent.SetResidentDormant(true);f.Agent.SetResidentDormant(false);Vector2 pose=f.Actor.GlobalPosition;await f.Frames(20);
@@ -128,6 +131,20 @@ public static partial class ResidentAirRuntimeTests
             TestAssert.True(f.Health.CurrentHealth==0&&deaths==1&&f.Actor.CurrentState==GraveLampMothState.Dead&&
                 pose.DistanceTo(f.Actor.GlobalPosition)<.01f&&!target.IsAvailable&&target.GetNode<Area2D>("TargetCollision").CollisionLayer==0,
                 "sleep/wake cannot resurrect, move or reauthorize corpse before unload");
+            TestAssert.True(f.Actor.CollisionLayer==0&&f.Actor.CollisionMask==liveMask&&!BodyBlocksRay(),
+                "defeated resident body must release native claw sightlines, not only its target Area");
+            f.Actor.ResetForCheckpoint();await f.Frames(2);
+            TestAssert.True(f.Health.CurrentHealth==2&&f.Actor.CollisionLayer==liveLayer&&
+                f.Actor.CollisionMask==liveMask&&BodyBlocksRay()&&target.IsAvailable,
+                "explicit checkpoint reset restores the same live physical body and target authority");
+            bool BodyBlocksRay()
+            {
+                Vector2 p=f.Actor.GlobalPosition;
+                using var query=PhysicsRayQueryParameters2D.Create(p+Vector2.Left*64,p+Vector2.Right*64,CombatCollisionLayers.Enemy);
+                query.CollideWithAreas=false;query.CollideWithBodies=true;
+                using Godot.Collections.Dictionary hit=f.Actor.GetWorld2D().DirectSpaceState.IntersectRay(query);
+                return hit.Count>0&&ReferenceEquals(hit["collider"].AsGodotObject(),f.Actor);
+            }
         });
         await Check("zero_knockback_hurt_revokes_active_dive",async f=>
         {
@@ -149,13 +166,17 @@ public static partial class ResidentAirRuntimeTests
         await Check("native_death_publication_reset_preserves_second_life",async f=>
         {
             await f.Mount();int defeats=0,connections=0;bool reset=false;
+            uint liveLayer=f.Actor.CollisionLayer,liveMask=f.Actor.CollisionMask;
             f.Actor.Defeated+=()=>defeats++;
             f.Actor.FrameChanged+=(frame,_,_)=>{if(frame.State==GraveLampMothState.Dead&&!reset){reset=true;f.Actor.ResetForCheckpoint();}};
             Hitbox attack=f.IncomingAttack(f.Actor.GlobalPosition);attack.Connected+=_=>connections++;attack.Begin(201);
             await f.Until(()=>connections==1,12);await f.Frames(2);
-            TestAssert.True(reset&&connections==1&&defeats==1&&f.Health.CurrentHealth==2,"actual native first death's presentation subscriber resets the actor");
+            TestAssert.True(reset&&connections==1&&defeats==1&&f.Health.CurrentHealth==2&&
+                f.Actor.CollisionLayer==liveLayer&&f.Actor.CollisionMask==liveMask,
+                "actual native first death's presentation subscriber restores the same live body's layer and mask");
             attack.End();await f.Frames(2);attack.Begin(202);await f.Until(()=>connections==2,12);await f.Frames(1);
-            TestAssert.True(connections==2&&defeats==2&&f.Health.CurrentHealth==0&&!f.Actor.GetNode<Hurtbox>("Hurtbox").Monitorable,
+            TestAssert.True(connections==2&&defeats==2&&f.Health.CurrentHealth==0&&!f.Actor.GetNode<Hurtbox>("Hurtbox").Monitorable&&
+                f.Actor.CollisionLayer==0&&f.Actor.CollisionMask==liveMask,
                 "old death publication cannot poison the next life's defeat guard or deferred hurtbox state");
         });
         await Check("sleep_keeps_existing_external_physics_but_rejects_new_authority",async f=>
@@ -562,6 +583,43 @@ public static partial class ResidentAirRuntimeTests
         {
             if(!boundaries)
             {
+                await Check(role+"_targetless_phase_edges_preserve_patrol",async f=>
+                {
+                    Vector2 home=new(320,96);
+                    Vector2[] points=role==ResidentArchetype.Flyer
+                        ?new[]{home,home+new Vector2(128,0),home+new Vector2(128,96),home+new Vector2(0,96),home}
+                        :new[]{home,home+new Vector2(-32,0),home+new Vector2(32,0),home+new Vector2(-64,192),home};
+                    f.Agent.ConfigureResidence(Ghost(role,1.2f,4) with{Placement=new(home,new(224,64,320,256),points)});
+                    int samples=0,next=0,phaseEdges=0,healed=0;ulong lastPhysics=0;bool? lastManifest=null;Exception failure=null;
+                    Vector2 previous=home;float maximumStep=0;
+                    f.Health.Healed+=(_,_)=>healed++;
+                    var observer=new BasinBoardingTickObserver {ProcessPhysicsPriority=1000};
+                    observer.Sample=delta=>
+                    {
+                        if(failure!=null||samples>=720)return;
+                        try
+                        {
+                            ulong physics=Engine.GetPhysicsFrames();if(physics==lastPhysics)return;
+                            TestAssert.True(lastPhysics==0||physics==lastPhysics+1,"targetless Ghost is observed on every unique physics frame");lastPhysics=physics;samples++;
+                            Vector2 actual=f.Actor.GlobalPosition;maximumStep=MathF.Max(maximumStep,actual.DistanceTo(previous));previous=actual;
+                            TestAssert.True(maximumStep<=1.2f,"targetless hide edge must not recall an uninterrupted native patrol at combat-return speed: "+role+" tick="+samples+" step="+maximumStep);
+                            TestAssert.True(f.Actor.CurrentState==GraveLampMothState.Hover&&f.Health.CurrentHealth==2&&healed==0,"phase-only ordinary patrol keeps Hover and original HP");
+                            bool manifest=Target(f).IsAvailable;if(lastManifest.HasValue&&manifest!=lastManifest.Value)phaseEdges++;lastManifest=manifest;
+                            if(next<points.Length&&actual.DistanceTo(points[next])<=2)next++;
+                        }
+                        catch(Exception error){failure=error;}
+                    };
+                    f.Scope.AddChild(observer);
+                    try
+                    {
+                        await f.Mount(false,roleSpace:true);
+                        while(samples<720&&failure==null)await f.Frames(1);
+                        if(failure!=null)throw new InvalidOperationException("actual targetless Ghost phase/patrol regression role="+role+" samples="+samples+" max_step="+maximumStep+" cause="+failure.Message,failure);
+                        TestAssert.True(samples==720&&phaseEdges>=4&&next==points.Length,"all exact long-loop points visited across at least two real manifest/hide cycles, no target or pose injection");
+                        GD.Print($"RESIDENT_GHOST_TARGETLESS_PATROL_OK role={role} physics_steps={samples} phase_edges={phaseEdges} ordered_points={next} max_step={maximumStep} hp=2 healed=0 target_present=false");
+                    }
+                    finally{observer.Sample=null;if(GodotObject.IsInstanceValid(observer))observer.Free();}
+                });
                 await Check(role+"_hidden_native_contact_and_manifest_permissions",async f=>
                 {
                     f.Floor(432);f.Wall();await Mount(f,role,.6f,3);

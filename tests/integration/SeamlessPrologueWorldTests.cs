@@ -30,6 +30,16 @@ public static class SeamlessPrologueWorldTests
         GD.Print("SEAMLESS_RESET_OBSERVER_SCOPE_OK original_fixture_geometry=true authority_revocation=true exact_warning_source_count=true human=false full_route=false");
     }
 
+    public static async Task RunFeedbackCommitBoundaryControls(SceneTree tree)
+    {
+        RecoveryResourceBoundaryTrace.SetScope("queue-fixture");
+        await ReentrantTransitionsCoalesceAndFailedActiveWorkRetainsPending(tree);
+        RecoveryResourceBoundaryTrace.SetScope("visibility-fixture");
+        await VisibilityActivationFailureRollsBackBeforeTargetLost(tree);
+        GD.Print("SECTOR_COMMIT_TRANSACTION_CONTROLS_OK failed_activation_no_publication=true " +
+            "committed_root_identity=true queued_observer_reentry=true fixture_motor_disabled=true human=false");
+    }
+
     public static async Task Run(SceneTree tree)
     {
         await AutomaticBoundaryCrossingPreservesThePersistentPlayerAndBlendsCamera(tree);
@@ -1005,6 +1015,31 @@ public static class SeamlessPrologueWorldTests
     private static async Task ReentrantTransitionsCoalesceAndFailedActiveWorkRetainsPending(SceneTree tree)
     {
         Fixture fixture = await CreateFixture(tree, "Task7TransitionQueue", withEntranceTarget: false);
+        var committed = new List<PrologueSectorId>();
+        bool committedRootsValid = true;
+        bool requestFromCommit = false;
+        int observerDepth = 0, maximumObserverDepth = 0;
+        void ObserveCommit(SeamlessPrologueWorld source, PrologueSector sector)
+        {
+            observerDepth++;
+            maximumObserverDepth = Math.Max(maximumObserverDepth, observerDepth);
+            try
+            {
+                committedRootsValid &= ReferenceEquals(source, fixture.World) &&
+                    source.CurrentSector == sector.SectorId && sector.IsInsideTree() &&
+                    !sector.HasMeta(SeamlessPrologueWorld.StagedSectorMeta) &&
+                    source.TryGetMountedSector(source.CurrentSector, out PrologueSector current) &&
+                    ReferenceEquals(current, sector);
+                committed.Add(sector.SectorId);
+                if (requestFromCommit && sector.SectorId == PrologueSectorId.CanyonBasin)
+                {
+                    requestFromCommit = false;
+                    InvokeTransition(source, PrologueSectorId.LostTemple);
+                }
+            }
+            finally { observerDepth--; }
+        }
+        fixture.World.ActiveSectorCommitted += ObserveCommit;
         try
         {
             fixture.World.Definitions[2].Scene = PackObservedSector(PrologueSectorId.CanyonBasin);
@@ -1023,6 +1058,9 @@ public static class SeamlessPrologueWorldTests
             InvokeTransition(fixture.World, PrologueSectorId.CanyonBasin);
             TestAssert.Equal(PrologueSectorId.CanyonBasin, fixture.World.CurrentSector,
                 "a Ready reentry is queued rather than synchronously drained inside the active transition");
+            TestAssert.True(committedRootsValid && committed.Count == 1 &&
+                committed[0] == PrologueSectorId.CanyonBasin,
+                "successful commit publishes only the current fully mounted root, not preloaded neighbors");
             await PhysicsFrames(tree, 1);
             TestAssert.Equal(PrologueSectorId.CanyonEntrance, fixture.World.CurrentSector,
                 "the coalesced last-valid request executes on a later safe tick");
@@ -1038,19 +1076,37 @@ public static class SeamlessPrologueWorldTests
                 sector.QueueFree();
             };
             fixture.World.Definitions[2].Scene = PackObservedSector(PrologueSectorId.CanyonBasin);
+            int commitsBeforeFailure = committed.Count;
             bool failed = false;
             try { InvokeTransition(fixture.World, PrologueSectorId.CanyonBasin); }
             catch (InvalidOperationException) { failed = true; }
             TestAssert.True(failed, "post-Ready self-deletion fails the active staged transition");
             TestAssert.Equal(PrologueSectorId.CanyonEntrance, fixture.World.CurrentSector,
                 "failed active work leaves the old world committed");
+            TestAssert.Equal(commitsBeforeFailure, committed.Count,
+                "failed staged work never publishes a successful active-sector commit");
             SeamlessObservedSector.ReadyObserved = null;
             await PhysicsFrames(tree, 1);
             TestAssert.Equal(PrologueSectorId.LostTemple, fixture.World.CurrentSector,
                 "failure retains the last-valid pending request for a later safe tick");
+            TestAssert.True(committedRootsValid && committed.Count == commitsBeforeFailure + 1 &&
+                committed[^1] == PrologueSectorId.LostTemple,
+                "only the later successful queued transition publishes after a failed stage");
+
+            int commitsBeforeObserver = committed.Count;
+            requestFromCommit = true;
+            InvokeTransition(fixture.World, PrologueSectorId.CanyonBasin);
+            TestAssert.True(fixture.World.CurrentSector == PrologueSectorId.CanyonBasin &&
+                committed.Count == commitsBeforeObserver + 1 && !requestFromCommit && maximumObserverDepth == 1,
+                "a committed observer queues its request without recursive commit publication");
+            await PhysicsFrames(tree, 1);
+            TestAssert.True(fixture.World.CurrentSector == PrologueSectorId.LostTemple &&
+                committed.Count == commitsBeforeObserver + 2 && committedRootsValid && maximumObserverDepth == 1,
+                "the committed observer's queued request publishes once on the next safe tick");
         }
         finally
         {
+            fixture.World.ActiveSectorCommitted -= ObserveCommit;
             SeamlessObservedSector.ReadyObserved = null;
             await DisposeFixture(tree, fixture);
         }
@@ -1230,6 +1286,19 @@ public static class SeamlessPrologueWorldTests
         Fixture fixture = await CreateFixture(tree, "Task7VisibilityActivation", withEntranceTarget: true);
         int targetLost = 0;
         bool activationSawExactOldWorld = false;
+        int commitPublications = 0;
+        bool committedRootValid = true;
+        void ObserveCommit(SeamlessPrologueWorld source, PrologueSector sector)
+        {
+            commitPublications++;
+            committedRootValid &= ReferenceEquals(source, fixture.World) &&
+                source.CurrentSector == sector.SectorId && sector.IsInsideTree() &&
+                !sector.HasMeta(SeamlessPrologueWorld.StagedSectorMeta) &&
+                StagedSectorChildren(source) == 0 &&
+                source.TryGetMountedSector(source.CurrentSector, out PrologueSector current) &&
+                ReferenceEquals(current, sector);
+        }
+        fixture.World.ActiveSectorCommitted += ObserveCommit;
         try
         {
             await SelectGrappleMode(tree, fixture);
@@ -1261,6 +1330,7 @@ public static class SeamlessPrologueWorldTests
             fixture.World.Definitions[3].Scene = PackVisibilityTransformSector(
                 PrologueSectorId.CanyonAscent);
 
+            int commitsBeforeFailure = commitPublications;
             bool failed = false;
             try { InvokeTransition(fixture.World, PrologueSectorId.CanyonBasin); }
             catch (InvalidOperationException) { failed = true; }
@@ -1276,6 +1346,8 @@ public static class SeamlessPrologueWorldTests
                 "activation revalidation failure occurs before any irreversible TargetLost frame");
             TestAssert.Equal(PrologueSectorId.CanyonDescent, fixture.World.CurrentSector,
                 "activation failure preserves the old current sector");
+            TestAssert.Equal(commitsBeforeFailure, commitPublications,
+                "activation rollback emits no successful active-sector commit");
             AssertMounted(fixture.World, mountedBefore,
                 "activation failure preserves the exact old mounted map");
             TestAssert.True(ReferenceEquals(entranceBefore, fixture.World.GetNode("CanyonEntrance")),
@@ -1301,6 +1373,8 @@ public static class SeamlessPrologueWorldTests
             TestAssert.Equal(fixture.World.MountedSectorIds.Count,
                 DirectSectorChildren(fixture.World),
                 "successful commit leaves only graph-required and pinned non-staged children");
+            TestAssert.True(committedRootValid && commitPublications == commitsBeforeFailure + 1,
+                "the successful retry publishes its validated final root exactly once");
             AssertMounted(fixture.World,
                 [PrologueSectorId.CanyonEntrance, PrologueSectorId.CanyonDescent,
                     PrologueSectorId.CanyonBasin, PrologueSectorId.CanyonAscent],
@@ -1314,6 +1388,7 @@ public static class SeamlessPrologueWorldTests
         }
         finally
         {
+            fixture.World.ActiveSectorCommitted -= ObserveCommit;
             SeamlessVisibilityTransformSector.Reset();
             await DisposeFixture(tree, fixture);
         }
@@ -1845,6 +1920,7 @@ public static class SeamlessPrologueWorldTests
         bool withEntranceTarget, Vector2? authoredCameraPosition = null,
         PrologueSectorId? targetSector = null, int layoutVersion = 1)
     {
+        RecoveryResourceBoundaryTrace.Point("create-enter", name);
         var level = new PrologueLevelController
         {
             Name = name,
@@ -1853,9 +1929,13 @@ public static class SeamlessPrologueWorldTests
             HudPath = new NodePath("MissingHud"),
             SeamlessWorldPath = new NodePath("WorldRoot/Sectors")
         };
+        RecoveryResourceBoundaryTrace.Observe("root-created", "level", level);
         var playerRoot = new Node2D { Name = "PlayerRoot" };
-        CharacterBody2D player = GD.Load<PackedScene>("res://scenes/player/Player.tscn")
+        RecoveryResourceBoundaryTrace.Point("load-enter", "player-scene");
+        CharacterBody2D player = RecoveryResourceBoundaryTrace.Loaded(
+                GD.Load<PackedScene>("res://scenes/player/Player.tscn"), "player-scene")
             .Instantiate<CharacterBody2D>();
+        RecoveryResourceBoundaryTrace.Observe("instantiate-return", "player", player);
         player.Name = "Player";
         if (authoredCameraPosition.HasValue)
             player.GetNode<Camera2D>("Camera2D").Position = authoredCameraPosition.Value;
@@ -1882,9 +1962,14 @@ public static class SeamlessPrologueWorldTests
             LayoutVersion = layoutVersion,
             ProcessPhysicsPriority = 100
         };
+        RecoveryResourceBoundaryTrace.Observe("root-created", "world", world);
         foreach (PrologueSectorDefinition definition in Definitions(withEntranceTarget, targetSector,
                      layoutVersion))
+        {
+            RecoveryResourceBoundaryTrace.Observe("definition-created", definition.Id.ToString(), definition);
+            RecoveryResourceBoundaryTrace.Observe("definition-scene", definition.Id.ToString(), definition.Scene);
             world.Definitions.Add(definition);
+        }
         worldRoot.AddChild(world);
         level.AddChild(worldRoot);
         tree.Root.AddChild(level);
@@ -1900,6 +1985,7 @@ public static class SeamlessPrologueWorldTests
         player.GlobalPosition = new Vector2(32f, 0f);
         player.Velocity = Vector2.Zero;
 
+        RecoveryResourceBoundaryTrace.Observe("create-return", "level", level);
         return new Fixture(
             level,
             worldRoot,
@@ -2010,8 +2096,13 @@ public static class SeamlessPrologueWorldTests
         }
         Own(sector, sector);
         var packed = new PackedScene();
+        ulong traceSectorId = RecoveryResourceBoundaryTrace.Observe("pack-enter", id.ToString(), sector);
+        RecoveryResourceBoundaryTrace.Observe("pack-enter", "packed", packed);
         TestAssert.Equal(Error.Ok, packed.Pack(sector), $"{id} runtime sector fixture packs");
+        RecoveryResourceBoundaryTrace.Observe("pack-return", "packed", packed);
+        RecoveryResourceBoundaryTrace.Observe("free-enter", id.ToString(), sector, traceSectorId);
         sector.Free();
+        RecoveryResourceBoundaryTrace.Observe("free-return", id.ToString(), sector, traceSectorId);
         return packed;
     }
 
@@ -2125,8 +2216,13 @@ public static class SeamlessPrologueWorldTests
         sector.SectorId = id;
         sector.Bounds = new Rect2(0f, SectorTop, SectorWidth, SectorHeight);
         var packed = new PackedScene();
+        ulong traceSectorId = RecoveryResourceBoundaryTrace.Observe("pack-enter", id.ToString(), sector);
+        RecoveryResourceBoundaryTrace.Observe("pack-enter", "packed", packed);
         TestAssert.Equal(Error.Ok, packed.Pack(sector), $"{id} custom runtime sector fixture packs");
+        RecoveryResourceBoundaryTrace.Observe("pack-return", "packed", packed);
+        RecoveryResourceBoundaryTrace.Observe("free-enter", id.ToString(), sector, traceSectorId);
         sector.Free();
+        RecoveryResourceBoundaryTrace.Observe("free-return", id.ToString(), sector, traceSectorId);
         return packed;
     }
 
@@ -2384,8 +2480,14 @@ public static class SeamlessPrologueWorldTests
 
     private static async Task DisposeFixture(SceneTree tree, Fixture fixture)
     {
+        ulong traceLevelId = RecoveryResourceBoundaryTrace.Observe("cleanup-enter", "level", fixture.Level);
+        ulong traceWorldId = RecoveryResourceBoundaryTrace.Observe("cleanup-enter", "world", fixture.World);
+        ulong tracePlayerId = RecoveryResourceBoundaryTrace.Observe("cleanup-enter", "player", fixture.Player);
         if (GodotObject.IsInstanceValid(fixture.Level)) fixture.Level.QueueFree();
         await ProcessFrames(tree, 2);
+        RecoveryResourceBoundaryTrace.Observe("cleanup-return", "level", fixture.Level, traceLevelId);
+        RecoveryResourceBoundaryTrace.Observe("cleanup-return", "world", fixture.World, traceWorldId);
+        RecoveryResourceBoundaryTrace.Observe("cleanup-return", "player", fixture.Player, tracePlayerId);
     }
 
     private static async Task PhysicsFrames(SceneTree tree, int count)

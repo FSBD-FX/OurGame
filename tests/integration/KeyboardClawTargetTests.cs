@@ -3,13 +3,67 @@ using Godot;
 using Knight.Abilities;
 using Knight.Combat;
 using Knight.Player;
+using Knight.Enemies.Moth;
+using Knight.Enemies.Laborer;
+using Knight.Enemies;
 
 namespace Knight.Tests.Integration;
 
 public static class KeyboardClawTargetTests
 {
+    private static void VerifyGearCounterWindowContract()
+    {
+        (GraveLampMothState State, AttackPhase Phase, float Remaining, float Safe, float Lead, bool Expected)[] cases = {
+            (GraveLampMothState.Telegraph,AttackPhase.Telegraph,.5f,.7f,.3f,true),
+            (GraveLampMothState.Align,AttackPhase.None,0f,.5f,.3f,true),
+            (GraveLampMothState.Hover,AttackPhase.None,0f,float.PositiveInfinity,.3f,true),
+            (GraveLampMothState.Align,AttackPhase.Telegraph,.5f,.7f,.3f,false),
+            (GraveLampMothState.Telegraph,AttackPhase.None,0f,.7f,.3f,false),
+            (GraveLampMothState.Dive,AttackPhase.Active,.5f,.7f,.3f,false),
+            (GraveLampMothState.Recover,AttackPhase.Recovery,.5f,.7f,.3f,false),
+            (GraveLampMothState.ThreadStunned,AttackPhase.None,0f,.7f,.3f,false),
+            (GraveLampMothState.Dead,AttackPhase.None,0f,.7f,.3f,false),
+            (GraveLampMothState.Telegraph,AttackPhase.Telegraph,.3f,.7f,.3f,false),
+            (GraveLampMothState.Align,AttackPhase.None,0f,.3f,.3f,false),
+            (GraveLampMothState.Align,AttackPhase.None,0f,float.NaN,.3f,false),
+            (GraveLampMothState.Align,AttackPhase.None,0f,.7f,float.NaN,false),
+            (GraveLampMothState.Align,AttackPhase.None,0f,float.PositiveInfinity,float.PositiveInfinity,false),
+            (GraveLampMothState.Align,AttackPhase.None,0f,.7f,-.3f,false),
+            (GraveLampMothState.Align,AttackPhase.None,-1f,.7f,.3f,false),
+            (GraveLampMothState.Align,AttackPhase.None,.2f,.7f,.3f,false)
+        };
+        foreach (var sample in cases)
+            TestAssert.Equal(sample.Expected,PrologueCanyonGeneratedMainRouteTests.Task10GearMothCastWindow(
+                sample.State,sample.Phase,sample.Remaining,sample.Safe,sample.Lead),
+                $"GEAR_COUNTER_WINDOW_RED: safe preemptive control and unsafe-state rejection {sample}");
+        GD.Print("GEAR_COUNTER_WINDOW_CONTRACT_OK checks=17 controlled_states=Hover,Align,Telegraph rejects_stunned=true");
+    }
+
     public static async Task Run(SceneTree tree)
     {
+        VerifyGearCounterWindowContract();
+        var warning = new AttackTimelineFrame(2, EnemyAttackKind.RustShellThrust,
+            AttackPhase.Telegraph, .65f, .5333333f, Vector2.Zero, true);
+        var controlCases = new[]
+        {
+            (Enabled:true, State:RustShellState.Telegraph, Timeline:warning, Safe:.4166666f, Lead:.16f, Want:true),
+            (Enabled:false, State:RustShellState.Telegraph, Timeline:warning, Safe:.4166666f, Lead:.16f, Want:false),
+            (Enabled:true, State:RustShellState.Stunned, Timeline:warning, Safe:.4166666f, Lead:.16f, Want:false),
+            (Enabled:true, State:RustShellState.Telegraph, Timeline:warning with { AttackId=0 }, Safe:.4166666f, Lead:.16f, Want:false),
+            (Enabled:true, State:RustShellState.Telegraph, Timeline:warning with { Phase=AttackPhase.Active }, Safe:.4166666f, Lead:.16f, Want:false),
+            (Enabled:true, State:RustShellState.Telegraph, Timeline:warning with { Kind=EnemyAttackKind.LaborerSweep }, Safe:.4166666f, Lead:.16f, Want:false),
+            (Enabled:true, State:RustShellState.Telegraph, Timeline:warning with { PhaseRemainingSeconds=.16f }, Safe:.4166666f, Lead:.16f, Want:false),
+            (Enabled:true, State:RustShellState.Telegraph, Timeline:warning, Safe:.16f, Lead:.16f, Want:false),
+            (Enabled:true, State:RustShellState.Telegraph, Timeline:warning, Safe:float.NaN, Lead:.16f, Want:false),
+            (Enabled:true, State:RustShellState.Telegraph, Timeline:warning, Safe:.4166666f, Lead:float.NaN, Want:false),
+            (Enabled:true, State:RustShellState.Telegraph, Timeline:warning, Safe:.4166666f, Lead:0f, Want:false),
+            (Enabled:true, State:RustShellState.Telegraph, Timeline:warning, Safe:float.PositiveInfinity, Lead:.16f, Want:true)
+        };
+        foreach (var sample in controlCases)
+            TestAssert.Equal(sample.Want, PrologueCanyonGeneratedMainRouteTests.Task10LowerBellControlWindow(
+                sample.Enabled, sample.State, sample.Timeline, sample.Safe, sample.Lead),
+                "LOWER_BELL_CONTROL_WINDOW_RED: preempt only a live warned Rust with all-source lead: " + sample);
+        GD.Print("LOWER_BELL_CONTROL_WINDOW_OK checks=12 original_timing=true no_production_change=true");
         var root = new Node2D { Name = "KeyboardClawTargets" };
         var caster = new Node2D { Name = "Caster" };
         root.AddChild(caster);
@@ -61,9 +115,146 @@ public static class KeyboardClawTargetTests
             TestAssert.True(resolver.ResolveKeyboard(caster, Vector2.Right).Surface == null, "outside 22.5 cone rejected");
             outside.QueueFree(); await Physics(tree);
             await LiveCasterExclusionsFollowSubtreeChanges(tree, root, caster, resolver);
+            await NearerEnemyWinsBehindTerrain(tree, root, caster, resolver);
+            GD.Print("KEYBOARD_SAME_QUERY_TRACE_OK full_resolution_parity=true saturated_0_1=true query_counters_are_callsite=true whole_route=false");
             GD.Print("KEYBOARD_CLAW_TARGETS_OK");
         }
         finally { root.QueueFree(); await Physics(tree); }
+    }
+
+    private static async Task NearerEnemyWinsBehindTerrain(SceneTree tree, Node2D root,
+        Node2D caster, MechanicalClawTargetResolver resolver)
+    {
+        var moth = GD.Load<PackedScene>("res://scenes/enemies/GraveLampMoth.tscn").Instantiate<GraveLampMoth>();
+        moth.Name = "NearInteractableEnemy";
+        moth.Position = new Vector2(40, -200);
+        var slab = Terrain("FarAxisTerrain", new Vector2(0, -300), new Vector2(200, 20), GrappleSurfaceMaterial.TempleMetal);
+        root.AddChild(moth);
+        moth.SetPhysicsProcess(false);
+        root.AddChild(slab);
+        try
+        {
+            await Physics(tree);
+            var target = moth.GetNode<ThreadTarget2D>("ThreadTarget");
+            var adapter = target.GetNode<LegacyThreadInteractionAdapter>("LegacyThreadInteractionAdapter");
+            Vector2 velocity = moth.Velocity;
+            int applications = adapter.ApplicationCount;
+            var selection = resolver.ResolveKeyboard(caster, Vector2.Up);
+            GD.Print($"KEYBOARD_NEAR_ENEMY_MEASURE selected={selection.Surface?.GetPath()} anchor={selection.Snapshot.WorldAnchor} enemy={target.WorldAnchor} available={target.IsAvailable} distance={caster.GlobalPosition.DistanceTo(target.WorldAnchor)} applications={adapter.ApplicationCount} human=false");
+            TestAssert.True(target.IsAvailable && adapter.ApplicationCount == applications && moth.Velocity.IsEqualApprox(velocity),
+                "native selection reads real eligible enemy without applying pull or adapter");
+            TestAssert.Equal(target, selection.Surface,
+                "KEYBOARD_NEAR_ENEMY_RED nearer visible interactable enemy beats farther zero-angle terrain");
+            VerifySameQueryTrace(caster,Vector2.Up,resolver,selection);
+            await NearEnemyBoundaries(tree, root, caster, resolver, moth, slab);
+            GD.Print("KEYBOARD_NEAR_ENEMY_PRIORITY_OK actual_saved_enemy=true native_world=true no_interaction_probe=true human=false");
+        }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(moth)) moth.QueueFree();
+            if (GodotObject.IsInstanceValid(slab)) slab.QueueFree();
+            await Physics(tree);
+        }
+    }
+
+    private static async Task NearEnemyBoundaries(SceneTree tree, Node2D root, Node2D caster,
+        MechanicalClawTargetResolver resolver, GraveLampMoth moth, StaticBody2D slab)
+    {
+        var target = moth.GetNode<ThreadTarget2D>("ThreadTarget");
+        var adapter = target.GetNode<LegacyThreadInteractionAdapter>("LegacyThreadInteractionAdapter");
+        var terrain = slab.GetNode<GrappleSurface2D>("GrappleSurfaceProfile");
+        int checks = 0;
+        void Expect(GrappleSurface2D expected, string contract)
+        {
+            var ordinary = resolver.ResolveKeyboard(caster, Vector2.Up);
+            TestAssert.Equal(expected, ordinary.Surface, contract);
+            VerifySameQueryTrace(caster,Vector2.Up,resolver,ordinary);
+            TestAssert.Equal(0, adapter.ApplicationCount, "selection never probes application: " + contract);
+            checks++;
+        }
+        target.Material = GrappleSurfaceMaterial.Ice; Expect(terrain, "ice enemy cannot gain promotion");
+        target.Material = GrappleSurfaceMaterial.Forbidden; Expect(terrain, "forbidden enemy cannot gain promotion");
+        target.Material = GrappleSurfaceMaterial.DedicatedAnchor;
+        moth.Position = new Vector2(150, -200); await Physics(tree); Expect(terrain, "near but outside22.5 cone remains excluded");
+        moth.Position = new Vector2(150, -700); await Physics(tree); Expect(terrain, "beyond620 remains excluded");
+        moth.Position = new Vector2(40, -200); await Physics(tree);
+        target.RemoveFromGroup(ThreadTarget2D.TargetGroup); Expect(terrain, "hidden thread-group target cannot steal selection");
+        target.AddToGroup(ThreadTarget2D.TargetGroup);
+        target.RemoveFromGroup(GrappleSurface2D.TargetGroup); Expect(terrain, "unregistered grapple surface cannot be promoted");
+        target.AddToGroup(GrappleSurface2D.TargetGroup);
+        NodePath receiverPath = target.PullReceiverPath;
+        target.PullReceiverPath = new NodePath("../MissingReceiver"); Expect(terrain, "missing receiver cannot be promoted");
+        target.PullReceiverPath = new NodePath("."); Expect(terrain, "unsupported receiver cannot be promoted");
+        target.PullReceiverPath = receiverPath;
+        target.RemoveChild(adapter); Expect(terrain, "enemy without dispatch adapter cannot gain priority");
+        target.AddChild(adapter);
+        float speed = adapter.EnemyPullSpeed;
+        adapter.EnemyPullSpeed = 0f; Expect(terrain, "zero-speed adapter cannot dispatch promotion");
+        adapter.EnemyPullSpeed = float.NaN; Expect(terrain, "nonfinite adapter cannot dispatch promotion");
+        adapter.EnemyPullSpeed = speed;
+        NodePath adapterPath = adapter.TargetPath;
+        adapter.TargetPath = new NodePath("../.."); Expect(terrain, "adapter pointing to wrong node cannot gain priority");
+        adapter.TargetPath = adapterPath;
+
+        var blocker = Terrain("EnemyOnlyOccluder", new Vector2(20, -100), new Vector2(10, 20), null);
+        root.AddChild(blocker);
+        try { await Physics(tree); Expect(terrain, "real wall hides enemy but not the axis terrain"); }
+        finally { blocker.QueueFree(); await Physics(tree); }
+        var mechanism = new ThreadTarget2D { Name = "DeclaredMechanismWithoutAdapter", Position = new Vector2(0, -280),
+            Kind = ThreadTargetKind.Mechanism };
+        root.AddChild(mechanism);
+        try { await Physics(tree); Expect(mechanism, "explicit Mechanism remains protected even without adapter"); }
+        finally { mechanism.QueueFree(); await Physics(tree); }
+        var pointAnchor = Point("FarMovementAnchor", new Vector2(0, -280));
+        root.AddChild(pointAnchor);
+        try { await Physics(tree); Expect(target, "ordinary movement point anchor follows disclosed nearer-enemy rule"); }
+        finally { pointAnchor.QueueFree(); await Physics(tree); }
+
+        // Narrow axis terrain leaves the oblique farther-enemy LOS genuinely clear;
+        // its rejection must be distance, not a wall hiding it.
+        ((RectangleShape2D)slab.GetChild<CollisionShape2D>(0).Shape).Size = new Vector2(10, 20);
+        moth.Position = new Vector2(100, -400); await Physics(tree);
+        TestAssert.True(resolver.SnapshotLocked(caster, target, target.WorldAnchor, Vector2.Down).HasLineOfSight,
+            "farther-enemy distance control has actual clear LOS");
+        Expect(terrain, "visible enemy behind nearer terrain must not be promoted");
+        moth.Position = new Vector2(40, -Mathf.Sqrt(290f * 290f - 40f * 40f)); await Physics(tree);
+        TestAssert.Near(290f, caster.GlobalPosition.DistanceTo(target.WorldAnchor), .001f, "equal-distance fixture hand-derived290");
+        Expect(terrain, "equal-distance enemy does not gain strictly-nearer priority");
+        moth.Position = new Vector2(40, -285); await Physics(tree); Expect(target, "strictly closer visible enemy does gain priority");
+        moth.Position = new Vector2(40, -200); await Physics(tree);
+        var second = GD.Load<PackedScene>("res://scenes/enemies/GraveLampMoth.tscn").Instantiate<GraveLampMoth>();
+        second.Name = "AA_SymmetricEnemy"; second.Position = new Vector2(20, -400);
+        root.AddChild(second); second.SetPhysicsProcess(false);
+        try
+        {
+            await Physics(tree);
+            var other = second.GetNode<ThreadTarget2D>("ThreadTarget");
+            TestAssert.True(resolver.SnapshotLocked(caster, other, other.WorldAnchor, Vector2.Down).HasLineOfSight,
+                "best-angle but farther enemy in full candidate-pool control is visible");
+            Expect(target, "farther best-angle enemy must not erase another closer eligible enemy");
+            second.Position = new Vector2(-40, -200); await Physics(tree);
+            for (int repeat = 0; repeat < 8; repeat++) Expect(other, "equal enemy angle/distance uses stable path despite later allocation");
+            TestAssert.Equal(0, other.GetNode<LegacyThreadInteractionAdapter>("LegacyThreadInteractionAdapter").ApplicationCount,
+                "second enemy was not used as an interaction probe");
+        }
+        finally { second.QueueFree(); await Physics(tree); }
+        moth.Position = new Vector2(2000, 2000); await Physics(tree);
+        var heavy = GD.Load<PackedScene>("res://scenes/enemies/BellBackLaborer.tscn").Instantiate<BellBackLaborer>();
+        heavy.Name = "ActualHeavyEnemy"; heavy.Position = new Vector2(40, -200);
+        root.AddChild(heavy); heavy.SetPhysicsProcess(false);
+        try
+        {
+            await Physics(tree);
+            var heavyTarget = heavy.GetNode<ThreadTarget2D>("ThreadTarget");
+            Expect(heavyTarget, "actual saved HeavyEnemy remains supported");
+            TestAssert.Equal(0, heavyTarget.GetNode<LegacyThreadInteractionAdapter>("LegacyThreadInteractionAdapter").ApplicationCount,
+                "heavy enemy was not used as interaction probe");
+        }
+        finally { heavy.QueueFree(); await Physics(tree); }
+        moth.Position = new Vector2(40, -200); await Physics(tree);
+        moth.GetNode<HealthComponent>("Health").ApplyDamage(new DamageRequest(99, Vector2.Zero, 0, 99142));
+        Expect(terrain, "dead real enemy cannot gain promotion");
+        GD.Print($"KEYBOARD_NEAR_ENEMY_BOUNDARIES_OK checks={checks} visible_distance=true full_pool=true original_limits=true human=false");
     }
 
     private static async Task LiveCasterExclusionsFollowSubtreeChanges(SceneTree tree, Node2D root,
@@ -148,6 +339,38 @@ public static class KeyboardClawTargetTests
         if (material.HasValue) body.AddChild(new GrappleSurface2D { Name = "GrappleSurfaceProfile",
             Material = material.Value, UseCollisionHitPoint = true, AnchorOffset = new Vector2(999,999) });
         return body;
+    }
+
+    private static void VerifySameQueryTrace(Node2D caster,Vector2 direction,
+        MechanicalClawTargetResolver resolver,MechanicalClawTargetResolution ordinary)
+    {
+        TestAssert.Equal(ordinary,resolver.ResolveKeyboard(caster,direction,null),
+            "KEYBOARD_TRACE explicit null preserves every original resolution field");
+        var full = new MechanicalClawKeyboardTrace(128);
+        TestAssert.Equal(ordinary,resolver.ResolveKeyboard(caster,direction,full),
+            "KEYBOARD_TRACE full buffer preserves every original resolution field");
+        TestAssert.True(full.ConeQueries == 33 && full.Count > 0 && full.Dropped == 0 && full.Faults == 0,
+            "KEYBOARD_TRACE_RED same-call bounded receipts include all original33cone queries");
+        bool resultSeen = false;
+        for (int row=0; row<full.Count; row++)
+            resultSeen |= full.Read(row).Stage == KeyboardClawTraceStage.Result &&
+                full.Read(row).Surface == ordinary.Snapshot.RuntimeId;
+        TestAssert.True(resultSeen,"KEYBOARD_TRACE actual returned identity is recorded after final promotion");
+        foreach (int capacity in new[] { 0, 1 })
+        {
+            var saturated = new MechanicalClawKeyboardTrace(capacity);
+            TestAssert.Equal(ordinary,resolver.ResolveKeyboard(caster,direction,saturated),
+                "KEYBOARD_TRACE saturation never changes actual native selection");
+            TestAssert.True(saturated.ConeQueries == 33 && saturated.LosQueries == full.LosQueries &&
+                saturated.Dropped > 0 && saturated.Faults == 0,
+                "KEYBOARD_TRACE query counters remain independent of saturated record capacity");
+            TestAssert.Equal(ordinary,resolver.ResolveKeyboard(caster,direction,saturated),
+                "KEYBOARD_TRACE already-full buffer remains passive");
+            TestAssert.True(saturated.ConeQueries == 66 && saturated.LosQueries == 2*full.LosQueries,
+                "KEYBOARD_TRACE already-full invocation still completes original query calls");
+        }
+        GD.Print($"KEYBOARD_SAME_QUERY_TRACE_SAMPLE rays={full.ConeQueries} los={full.LosQueries} " +
+            "full_resolution_parity=true saturated_0_1=true query_counters_are_callsite=true whole_route=false");
     }
 
     private static async Task Physics(SceneTree tree)

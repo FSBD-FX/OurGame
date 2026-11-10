@@ -66,14 +66,20 @@ public static class PrologueCanyonBuildParts
         PrologueSector copy = packed.Instantiate<PrologueSector>();
         try
         {
+#if METADATA_RESOURCE_IDENTITY
+            Knight.Tests.Integration.MetadataResourceTrace.Capture("save-default", packed, copy);
+#endif
             nodesAfter = CountNodes(copy);
             if (nodesAfter != nodesBefore)
             {
                 failure = $"node loss before={nodesBefore} after={nodesAfter}";
                 return Error.InvalidData;
             }
-            var definition = new PrologueSectorDefinition(copy.SectorId, packed,
+            using var definition = new PrologueSectorDefinition(copy.SectorId, packed,
                 WorldOffsets[copy.SectorId], copy.Bounds, null, null);
+#if REFCOUNTED_FATAL_IDENTITY
+            Knight.Tests.Diagnostics.Task14NativeResourceIdentity.ObserveCensusResource(definition,path,"census-temporary-definition");
+#endif
             IReadOnlyList<string> errors = copy.ValidateContract(definition);
             if (errors.Count > 0)
             {
@@ -85,6 +91,9 @@ public static class PrologueCanyonBuildParts
         finally
         {
             copy.Free();
+#if METADATA_RESOURCE_IDENTITY
+            Knight.Tests.Integration.MetadataResourceTrace.Liveness("after-save-copy-free");
+#endif
         }
     }
 

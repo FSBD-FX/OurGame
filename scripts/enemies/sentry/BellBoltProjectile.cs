@@ -47,6 +47,7 @@ public partial class BellBoltProjectile : CharacterBody2D
     public override void _Ready()
     {
         _hitbox = GetNode<Hitbox>("Hitbox");
+        _hitbox.SourcePermission = () => !IsRetired;
         _hitbox.Connected += OnConnected;
         SetPhysicsProcess(false);
     }
@@ -102,8 +103,8 @@ public partial class BellBoltProjectile : CharacterBody2D
     {
         ArgumentNullException.ThrowIfNull(available);
         _residentArea=area;_residentAvailable=available;
-        // Logical revocation is synchronous even while physics Monitoring must
-        // be changed deferred. Only opt-in resident bolts receive this filter.
+        // Resident restrictions stay separate from source lifetime permission while
+        // physics Monitoring may still need deferred changes.
         _hitbox.TargetFilter=_=>!IsRetired&&available()&&ResidentCircleFits();
     }
 

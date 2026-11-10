@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="ResidentSubtypeProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/prologue/residents/ResidentSubtypeProfile.cs" id="1_he7d6"]
+
+[resource]
+script = ExtResource("1_he7d6")
+SubtypeId = "scrap-scatter"
+Family = 1
+Archetype = 4
+Carrier = 6

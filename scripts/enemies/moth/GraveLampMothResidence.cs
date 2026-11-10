@@ -25,7 +25,7 @@ public partial class GraveLampMoth : IResidentEnemyAgent,IDamageReceiver,IThread
     private int _airApproachSide;
     private float _airAttackSpeed;
     private Func<Hurtbox,bool> _airOriginalFilter;
-    private uint _airHurtLayer,_airTargetLayer;
+    private uint _airHurtLayer,_airTargetLayer,_airBodyLayer;
     private bool _airHurtMonitoring,_airHurtMonitorable,_airThreadGroup,_airGrappleGroup;
     private bool _airDormant,_airReturning,_airDamageActive,_airVoidPending,_airDefeated;
     private int _airPoint;
@@ -134,6 +134,7 @@ public partial class GraveLampMoth : IResidentEnemyAgent,IDamageReceiver,IThread
     private void InitializeAirResidence()
     {
         if(_airResidence==null)return;
+        _airBodyLayer=CollisionLayer;
         _airHurt=GetNode<Hurtbox>("Hurtbox");_airHurt.SetDamageReceiverPath(new NodePath(".."));
         _airHurtLayer=_airHurt.CollisionLayer;_airHurtMonitoring=_airHurt.Monitoring;_airHurtMonitorable=_airHurt.Monitorable;
         _airTarget=GetNode<ThreadTarget2D>("ThreadTarget");_airTargetArea=_airTarget.GetNode<Area2D>("TargetCollision");
@@ -171,6 +172,10 @@ public partial class GraveLampMoth : IResidentEnemyAgent,IDamageReceiver,IThread
     {
         bool unavailable=_airDormant||_airVoidPending||_health.CurrentHealth<=0;
         bool targetUnavailable=unavailable||!GhostAirAllowsInteraction;
+        // Residents retain their corpse for lifecycle reset; unlike old wave
+        // actors, no encounter owner frees it. A dead body must not occlude the
+        // claw's Enemy ray. Keep live sleep/hidden physics and the saved mask.
+        CollisionLayer=_health.CurrentHealth<=0?0:_airBodyLayer;
         _airHurt.CollisionLayer=unavailable?0:_airHurtLayer;_airHurt.Monitoring=!unavailable&&_airHurtMonitoring;
         // Native lethal contact and a same-signal reset both require this boundary.
         // Re-read current life; never enqueue a stale false/true from an old life.
@@ -223,7 +228,11 @@ public partial class GraveLampMoth : IResidentEnemyAgent,IDamageReceiver,IThread
             changed=true;
             if(!_ghostAirManifest)
             {
-                CancelAirAttack(true);
+                // Hiding revokes combat, not an uninterrupted targetless patrol.
+                // Keep physical return for real engagements, accepted external
+                // force, and any return already in progress (the helper ORs it).
+                bool engaged=CurrentState!=GraveLampMothState.Hover||_airCombatTarget!=null||_attackTargetLocked;
+                CancelAirAttack(engaged);
                 if(life!=_airLifeVersion||!AirLive(this)||_health.CurrentHealth<=0||_airDormant)return;
             }
         }

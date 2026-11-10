@@ -14,7 +14,7 @@ public partial class PrologueMainMenu : Control
     {
         Visible = true;
         Button continueButton = GetNode<Button>("Panel/Buttons/Continue");
-        continueButton.Disabled = !hasSave;
+        UpdateContinueAvailability(hasSave);
         GetNode<Label>("Panel/Title").Text = "THE NAMELESS BELFRY";
         GetNode<Label>("Panel/Subtitle").Text = BasinQualitySampleMode
             ? language == GameLanguage.ChineseSimplified
@@ -37,7 +37,6 @@ public partial class PrologueMainMenu : Control
             GetNode<Button>("Panel/Buttons/Start").Text = chinese
                 ? "开始峡谷（旧存档保留）" : "Start canyon (old save kept)";
             continueButton.Text = chinese ? "从映射存档点继续" : "Continue from mapped checkpoint";
-            continueButton.Disabled = !hasSave || MigrationStatus != PrologueSaveLoadStatus.MigratableLegacy;
             GetNode<Label>("Panel/Footer").Text = MigrationStatus == PrologueSaveLoadStatus.Recovered
                 ? chinese ? "开始前将原异常存档备份到同一文件夹。"
                     : "Unreadable slot: same-folder backup before starting."
@@ -45,6 +44,11 @@ public partial class PrologueMainMenu : Control
                     : "Your old save is kept. Choose how to enter.";
         }
     }
+
+    internal void UpdateContinueAvailability(bool hasSave) =>
+        GetNode<Button>("Panel/Buttons/Continue").Disabled = !hasSave ||
+            (!BasinQualitySampleMode && MigrationStatus.HasValue &&
+                MigrationStatus != PrologueSaveLoadStatus.MigratableLegacy);
 
     private void SetButton(string name, string key, GameLanguage language) =>
         GetNode<Button>($"Panel/Buttons/{name}").Text = PrologueStrings.Get(key, language);

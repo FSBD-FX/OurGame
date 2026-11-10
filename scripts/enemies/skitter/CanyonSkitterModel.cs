@@ -24,6 +24,9 @@ public sealed class CanyonSkitterModel
     private ulong _nextAttackId;
     private ulong _attackId;
 
+    // Deliberately read the model's live Resource, not a replacement actor Settings.
+    public float AttackTelegraphSeconds => _settings.TelegraphSeconds;
+
     public CanyonSkitterModel(CanyonSkitterSettings settings = null)
     {
         _settings = settings ?? new CanyonSkitterSettings();

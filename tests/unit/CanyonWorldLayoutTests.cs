@@ -37,7 +37,7 @@ public static class CanyonWorldLayoutTests
         {
             [PrologueSectorId.CanyonEntrance] = new(0f, 0f, 1280f, 720f),
             [PrologueSectorId.CanyonDescent] = new(1280f, 0f, 1280f, 3600f),
-            [PrologueSectorId.CanyonBasin] = new(1280f, 3600f, 3840f, 720f),
+            [PrologueSectorId.CanyonBasin] = new(1280f, 3600f, 5120f, 720f),
             [PrologueSectorId.CanyonAscent] = new(3840f, 720f, 1280f, 2880f),
             [PrologueSectorId.LostTemple] = new(5120f, 720f, 2560f, 720f)
         };
@@ -66,17 +66,18 @@ public static class CanyonWorldLayoutTests
             [CanyonRouteNodeId.FrozenDetour] = (PrologueSectorId.CanyonDescent, new(1280f, 1800f, 640f, 1560f)),
             [CanyonRouteNodeId.BasinCamp] = (PrologueSectorId.CanyonBasin, new(1280f, 3600f, 800f, 720f)),
             [CanyonRouteNodeId.GearPistons] = (PrologueSectorId.CanyonBasin, new(2080f, 3600f, 960f, 720f)),
-            [CanyonRouteNodeId.SteamValves] = (PrologueSectorId.CanyonBasin, new(3040f, 3960f, 1160f, 360f)),
+            [CanyonRouteNodeId.SteamValves] = (PrologueSectorId.CanyonBasin, new(3040f, 3800f, 1160f, 520f)),
             [CanyonRouteNodeId.CounterweightLift] = (PrologueSectorId.CanyonAscent, new(3840f, 2800f, 1280f, 800f)),
             [CanyonRouteNodeId.PendulumGallery] = (PrologueSectorId.CanyonAscent, new(3840f, 2000f, 1280f, 800f)),
             [CanyonRouteNodeId.SplitLevelEncounter] = (PrologueSectorId.CanyonAscent, new(3840f, 1200f, 1280f, 800f)),
             [CanyonRouteNodeId.SealedCourtyard] = (PrologueSectorId.LostTemple, new(5120f, 720f, 960f, 720f)),
             [CanyonRouteNodeId.BossHall] = (PrologueSectorId.LostTemple, new(6080f, 720f, 1200f, 720f)),
-            [CanyonRouteNodeId.SafeExit] = (PrologueSectorId.LostTemple, new(7280f, 720f, 400f, 720f))
+            [CanyonRouteNodeId.SafeExit] = (PrologueSectorId.LostTemple, new(7280f, 720f, 400f, 720f)),
+            [CanyonRouteNodeId.IncineratorAnnex] = (PrologueSectorId.CanyonBasin, new(5120f, 3600f, 1280f, 720f))
         };
 
-        TestAssert.Equal(14, CanyonWorldLayout.Nodes.Count,
-            "layout publishes all twelve challenges plus two support nodes");
+        TestAssert.Equal(15, CanyonWorldLayout.Nodes.Count,
+            "layout publishes all twelve challenges, two support nodes and optional incinerator annex");
         foreach (CanyonRouteNodeDefinition node in CanyonWorldLayout.Nodes)
         {
             TestAssert.True(expectedBounds.TryGetValue(node.Id, out var expected),

@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Godot;
 using Knight.Build.Prologue;
 using Knight.Prologue.Residents;
@@ -143,5 +147,87 @@ public static class CanyonResidentCatalogTests
         try { values[0] = replacement; }
         catch (NotSupportedException) { refused = true; }
         TestAssert.True(refused, "immutable contract refuses caller overwrite");
+    }
+
+    public static void RunAuthoredLayout()
+    {
+        const string digest = "AEACB6915FD16F9BDEE4ECC93FC59AD55D028EAE40E05EFCE83926831762DF18";
+        const string context = "376E243A4D9DF7363A97769F2F6A062853B1DBF52EC698D017035B703B119707";
+        byte[] bytes = FileAccess.GetFileAsBytes("res://assets/data/residents/canyon-resident-layout-v001.json");
+        TestAssert.Equal(digest, Convert.ToHexString(SHA256.HashData(bytes)), "actual runtime authored input has the independently pinned digest");
+        var sites = ResidentAuthoredLayout.Parse(bytes, digest, context);
+        TestAssert.Equal(50, sites.Count, "runtime authored input must bind all fifty real site rows, not an empty allocation");
+        TestAssert.Equal(new Vector2(666, 604), sites[0].Definition.Placement.WorldSpawn, "literal bridge home");
+        TestAssert.Equal(new Vector2(1818, 1744), sites[13].Definition.Placement.WorldSpawn, "literal lower Archive home uses expanded-layout source");
+        TestAssert.Equal(new Vector2(5153, 1211), sites[49].Definition.Placement.WorldSpawn, "literal courtyard turret home");
+        using (var source = JsonDocument.Parse(bytes))
+        {
+            for (int i = 0; i < 50; i++)
+            {
+                var row = source.RootElement.GetProperty("sites")[i];
+                var site = sites[i]; var slot = CanyonResidentCatalog.All[i]; var p = site.Definition.Placement;
+                TestAssert.True(site.Definition == slot with { Placement = p } && site.Definition.StableId == row.GetProperty("stableId").GetString(),
+                    "authored data inherits identity, family, sector and subtype instead of remapping allocation");
+                TestAssert.True(p.WorldSpawn == Point(row.GetProperty("home")) && p.Territory == Rect(row.GetProperty("territory")) &&
+                    site.Occupancy == Rect(row.GetProperty("occupancy")) && p.PatrolPoints.SequenceEqual(row.GetProperty("points").EnumerateArray().Select(Point)),
+                    "every numeric field and every ordered patrol point round-trips from the real runtime input");
+            }
+        }
+        AssertReadOnly((IList<ResidentAuthoredSite>)sites, sites[1]);
+        AssertReadOnly((IList<Vector2>)sites[0].Definition.Placement.PatrolPoints, Vector2.Zero);
+        byte[] changed = bytes.ToArray(); var retained = ResidentAuthoredLayout.Parse(changed, digest, context);
+        Array.Fill(changed, (byte)0);
+        TestAssert.True(retained[0].Definition.Placement.WorldSpawn == new Vector2(666, 604) &&
+            retained[0].Definition.Placement.PatrolPoints[1] == new Vector2(602, 604), "parsed values own immutable copies, not caller bytes");
+
+        int negatives = 0;
+        void Reject(byte[] input, string label, string hash = null, string ctx = context)
+        {
+            bool refused = false;
+            try { ResidentAuthoredLayout.Parse(input, hash ?? Convert.ToHexString(SHA256.HashData(input)), ctx); }
+            catch (ArgumentException error) { refused = error.Message.StartsWith("resident_layout.", StringComparison.Ordinal); }
+            TestAssert.True(refused, "same production layout consumer rejects " + label); negatives++;
+        }
+        void Mutate(string label, Action<JsonObject> mutation)
+        {
+            var root = JsonNode.Parse(bytes).AsObject(); mutation(root);
+            Reject(Encoding.UTF8.GetBytes(root.ToJsonString()), label);
+        }
+        Mutate("missing identity", root => root["sites"].AsArray().RemoveAt(0));
+        Mutate("duplicate identity", root => root["sites"][1]["stableId"] = root["sites"][0]["stableId"].GetValue<string>());
+        Mutate("unknown identity", root => root["sites"][0]["stableId"] = "canyon.v2.resident.missing.01");
+        Mutate("ordered identity swap", root => { var rows = root["sites"].AsArray(); var a = rows[0].DeepClone(); rows[0] = rows[1].DeepClone(); rows[1] = a; });
+        Mutate("expanded territory", root => root["sites"][0]["territory"][2] = 1281);
+        Mutate("home outside territory", root => root["sites"][0]["home"] = new JsonArray(-1, 604));
+        Mutate("point shape", root => root["sites"][0]["home"] = new JsonArray(666));
+        Mutate("home mismatch", root => root["sites"][0]["home"][0] = 667);
+        Mutate("open route", root => root["sites"][0]["points"].AsArray().RemoveAt(3));
+        Mutate("no motion", root => root["sites"][0]["points"] = new JsonArray(new JsonArray(666,604),new JsonArray(666,604),new JsonArray(666,604)));
+        Mutate("turret movement", root => root["sites"][2]["points"].AsArray().Add(new JsonArray(315,455)));
+        Mutate("too many points", root => { var points = root["sites"][0]["points"].AsArray(); while (points.Count <= 16) points.Add(new JsonArray(666,604)); });
+        Mutate("empty occupancy", root => root["sites"][0]["occupancy"][2] = 0);
+        Mutate("overflowed rectangle end", root => root["sites"][0]["occupancy"] = new JsonArray(float.MaxValue,0,float.MaxValue,1));
+        Mutate("out of territory patrol", root => root["sites"][0]["points"][1][0] = -1);
+        Mutate("wrong schema", root => root["schema"] = 2);
+        Mutate("wrong kind", root => root["kind"] = "accepted-bucket");
+        Mutate("unknown root field", root => root["formalCertificate"] = true);
+        Mutate("unknown row field", root => root["sites"][0]["family"] = "Ghost");
+        Mutate("missing field", root => root["sites"][0].AsObject().Remove("occupancy"));
+        Mutate("null row", root => root["sites"][0] = null);
+        Mutate("null points", root => root["sites"][0]["points"] = null);
+        Mutate("nonnumeric point", root => root["sites"][0]["home"][0] = "666");
+        Reject(Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(bytes).Replace("\"schema\":1", "\"schema\":1,\"schema\":1")), "duplicate JSON property");
+        Reject(Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(bytes).Replace("\"home\":[666,604]", "\"home\":[1e99,604]")), "nonfinite single precision point");
+        Reject(bytes, "digest", new string('0',64));
+        Reject(bytes, "invalid digest format", new string('Z',64));
+        Reject(bytes, "context", digest, new string('B',64));
+        Reject(Encoding.UTF8.GetBytes("{"), "malformed JSON");
+        Reject(Array.Empty<byte>(), "empty");
+        Reject(new byte[1024*1024+1], "oversize");
+        TestAssert.Equal(31, negatives, "all independently corrupted production layout controls executed");
+        TestAssert.True(CanyonResidentCatalog.All.All(x => x.Placement == null), "allocation baseline remains unplaced; loaded data does not mutate it or certify scenes");
+        GD.Print($"RESIDENT_AUTHORED_LAYOUT_OK identities=50 fields=all ordered=true immutable=true negatives={negatives} native_certificate=false spawned=0");
+        static Vector2 Point(JsonElement p) => new(p[0].GetSingle(),p[1].GetSingle());
+        static Rect2 Rect(JsonElement p) => new(p[0].GetSingle(),p[1].GetSingle(),p[2].GetSingle(),p[3].GetSingle());
     }
 }

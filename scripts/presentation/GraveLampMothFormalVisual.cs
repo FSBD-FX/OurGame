@@ -12,6 +12,7 @@ public partial class GraveLampMothFormalVisual : Node2D, IEntityVisual2D
     private GraveLampMoth _attackSource;
     private float _phase;
     private int _hurtFlashFrames;
+    private AttackPhase _lampPhase;
     private EnemyFormalVisualPart _body;
     private Node2D _wings;
     private EnemyFormalVisualPart _farWing;
@@ -118,6 +119,7 @@ public partial class GraveLampMothFormalVisual : Node2D, IEntityVisual2D
 
     private void ApplyAttackTimeline(AttackTimelineFrame timeline)
     {
+        _lampPhase = timeline.Kind == EnemyAttackKind.MothDive ? timeline.Phase : AttackPhase.None;
         if (timeline.Phase == AttackPhase.None || timeline.Kind != EnemyAttackKind.MothDive)
         {
             CurrentAttackFrame = default;
@@ -198,7 +200,7 @@ public partial class GraveLampMothFormalVisual : Node2D, IEntityVisual2D
         _body.SetFeedback(CurrentContactIntensity, CurrentHurtFlashIntensity);
         _farWing.SetFeedback(CurrentContactIntensity, CurrentHurtFlashIntensity);
         _nearWing.SetFeedback(CurrentContactIntensity, CurrentHurtFlashIntensity);
-        _lamp.SetFeedback(CurrentContactIntensity, CurrentHurtFlashIntensity);
+        _lamp.SetFeedback(CurrentContactIntensity, CurrentHurtFlashIntensity, _lampPhase);
         _corruption.SetFeedback(CurrentContactIntensity, CurrentHurtFlashIntensity);
     }
 

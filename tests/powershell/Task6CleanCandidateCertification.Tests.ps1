@@ -73,7 +73,7 @@ function Invoke-Task6CleanCandidateRestore([string]$CandidateRoot, [string]$Stat
 }
 
 function Invoke-Task6RealEditorImport([string]$CandidateRoot, [string]$EvidenceRoot) {
-    $godot = 'G:\godot\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
+    $godot = 'G:\knight\Tools\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe'
     $log = Join-Path $EvidenceRoot 'clean-import.log'
     $console = Join-Path $EvidenceRoot 'clean-import.console.log'
     $prior = $ErrorActionPreference

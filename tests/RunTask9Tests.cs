@@ -1,5 +1,7 @@
 using System;
+using System.Linq;
 using Godot;
+using Knight.Prologue.Residents;
 using Knight.Tests.Integration;
 using Knight.Tests.Unit;
 
@@ -7,10 +9,50 @@ namespace Knight.Tests;
 
 public partial class RunTask9Tests : SceneTree
 {
+    private const string P1LowerHandleArmArgument = "--p1-lower-handle-arm";
+    private const string ResidentFirstStartArmArgument = "--resident-first-start-arm";
+
     public override async void _Initialize()
     {
         try
         {
+            string[] userArgs = OS.GetCmdlineUserArgs();
+            string[] residentFlags = userArgs.Where(value => value.TrimStart()
+                .StartsWith(ResidentFirstStartArmArgument, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (residentFlags.Length != 0)
+            {
+                TestAssert.True(residentFlags.Length == 1 && userArgs.Length == 2,
+                    "Resident first-start probe requires exactly one explicit arm and one isolated storage root");
+                string residentArm = residentFlags[0] switch
+                {
+                    ResidentFirstStartArmArgument + "=guidance-only" => "guidance-only",
+                    ResidentFirstStartArmArgument + "=registry-prefix" => "registry-prefix",
+                    _ => throw new InvalidOperationException("Invalid resident first-start arm")
+                };
+                TestAssert.Equal("headless", DisplayServer.GetName(), "Resident first-start probe is headless only");
+                string residentStorage = IsolatedPrologueFixture.ValidateStorageRoot();
+                Callable.From(() => RunResidentFirstStartArm(residentArm, residentStorage)).CallDeferred();
+                return;
+            }
+            string[] armFlags = userArgs.Where(value => value.TrimStart()
+                .StartsWith(P1LowerHandleArmArgument, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (armFlags.Length != 0)
+            {
+                TestAssert.True(armFlags.Length == 1 && userArgs.Length == 2,
+                    "P1 lower Handle probe requires exactly one explicit arm and one isolated storage root");
+                string arm = armFlags[0] switch
+                {
+                    P1LowerHandleArmArgument + "=lower-only" => "lower-only",
+                    P1LowerHandleArmArgument + "=reload" => "reload",
+                    P1LowerHandleArmArgument + "=recovery-reload" => "recovery-reload",
+                    _ => throw new InvalidOperationException("Invalid P1 lower Handle arm")
+                };
+                TestAssert.Equal("headless", DisplayServer.GetName(), "P1 lower Handle probe is headless only");
+                string storageRoot = IsolatedPrologueFixture.ValidateStorageRoot();
+                // Begin all arms after SceneTree initialization, without adding a frame wait.
+                Callable.From(() => RunP1LowerHandleArm(arm, storageRoot)).CallDeferred();
+                return;
+            }
             if (HasArgument("--registry-contract"))
             {
                 await Task7CaseRegistryTests.Run(this);
@@ -147,6 +189,121 @@ public partial class RunTask9Tests : SceneTree
             GD.PushError(exception.ToString());
             Quit(1);
         }
+    }
+
+    private async void RunResidentFirstStartArm(string arm, string storageRoot)
+    {
+        const int targetIndex = 18;
+        const string targetName = "PrologueGuidanceRuntimeTests.MountedGuidanceRendersAndClearsWithoutHidingObjective";
+        bool previousFallbacks = Knight.Presentation.PrologueProductionMode.AllowDiagnosticFallbacks;
+        CanyonResidentManager.ResidentFirstInstantiateTrace trace = null;
+        try
+        {
+            Knight.Presentation.PrologueProductionMode.AllowDiagnosticFallbacks = true;
+            var registered = RunPrologueTests.BuildLegacyMainCases(this, storageRoot);
+            RunPrologueTests.AssertLegacyMainClassifications(registered);
+            TestAssert.Equal(targetName, registered[targetIndex].Name, "Resident first-start probe binds original post case #18");
+            int start = arm == "guidance-only" ? targetIndex : 0;
+            Task7Case[] selected = registered.Skip(start).Take(targetIndex + 1 - start).ToArray();
+            TestAssert.True(selected.All(item => item.Disposition == Task7CaseDisposition.Executable && item.Execute != null),
+                "Resident first-start probe requires all original selected cases to be executable");
+
+            ulong originalRoot = Root.GetInstanceId();
+            ulong[] originalChildren = CaptureRootChildren();
+            int cursor = start;
+            GD.Print($"RESIDENT_FIRST_ARM_BEGIN arm={arm} count={selected.Length}");
+            await Task7CaseRegistry.Execute(selected, (name, entered) =>
+            {
+                TestAssert.Equal(registered[cursor].Name, name, "Resident first-start probe preserves original case order");
+                if (cursor == targetIndex && !entered)
+                {
+                    trace?.Dispose();
+                    TestAssert.True(trace?.Complete == true, "Resident first-start instantiate trace was absent, exceeded its bound, or failed to write");
+                    trace = null;
+                }
+                GD.Print($"RESIDENT_FIRST_CASE arm={arm} index={cursor} stage={(entered ? "enter" : "return")} " +
+                    $"name={name} physics={Engine.GetPhysicsFrames()} process={Engine.GetProcessFrames()}");
+                if (cursor == targetIndex && entered) trace = new(arm);
+                if (!entered) cursor++;
+            });
+            TestAssert.Equal(targetIndex + 1, cursor, "Resident first-start probe requires every original selected case to return");
+            TestAssert.True(originalRoot == Root.GetInstanceId() && originalChildren.SequenceEqual(CaptureRootChildren()),
+                "Resident first-start probe retains the original root and direct child identities after the original case tail");
+            GD.Print($"RESIDENT_FIRST_ARM_END arm={arm} count={selected.Length} root_delta=0 diagnostic=true resource_fixed=false");
+            Quit(0);
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            Quit(1);
+        }
+        finally
+        {
+            trace?.Dispose();
+            Knight.Presentation.PrologueProductionMode.AllowDiagnosticFallbacks = previousFallbacks;
+        }
+    }
+
+    private async void RunP1LowerHandleArm(string arm, string storageRoot)
+    {
+        bool previousFallbacks = Knight.Presentation.PrologueProductionMode.AllowDiagnosticFallbacks;
+        try
+        {
+            Knight.Presentation.PrologueProductionMode.AllowDiagnosticFallbacks = true;
+            var registered = RunPrologueTests.BuildLegacyMainCases(this, storageRoot);
+            RunPrologueTests.AssertLegacyMainClassifications(registered);
+            (int Index, string Name) lowerStructure = (6, "P1LoopStructureTests.LowerRouteHasMixedEncounterContracts");
+            (int Index, string Name) hiddenRecovery = (11, "P1LoopRuntimeTests.HiddenDiscoveryPersistsAcrossDeathRecovery");
+            (int Index, string Name) lowerReset = (12, "P1LoopRuntimeTests.PartialLowerEncounterResetsBothActors");
+            (int Index, string Name)[] plan = arm switch
+            {
+                "lower-only" => [lowerReset],
+                "reload" => [lowerStructure, lowerReset],
+                "recovery-reload" => [lowerStructure, hiddenRecovery, lowerReset],
+                _ => throw new InvalidOperationException("Unrecognized admitted P1 lower Handle arm")
+            };
+            Task7Case[] selected = plan.Select(item =>
+            {
+                Task7Case original = registered[item.Index];
+                TestAssert.True(original.Name == item.Name && original.Disposition == Task7CaseDisposition.Executable &&
+                    original.Execute != null, $"P1 lower Handle probe requires original executable post case {item.Index} {item.Name}");
+                return original;
+            }).ToArray();
+
+            ulong originalRoot = Root.GetInstanceId();
+            ulong[] originalChildren = CaptureRootChildren();
+            int cursor = 0;
+            GD.Print($"P1_LOWER_HANDLE_ARM_BEGIN arm={arm} count={plan.Length}");
+            await Task7CaseRegistry.Execute(selected, (name, entered) =>
+            {
+                (int index, string expectedName) = plan[cursor];
+                TestAssert.Equal(expectedName, name, "P1 lower Handle probe preserves the original case order");
+                GD.Print($"P1_LOWER_HANDLE_CASE arm={arm} index={index} stage={(entered ? "enter" : "return")} " +
+                    $"name={name} physics={Engine.GetPhysicsFrames()} process={Engine.GetProcessFrames()}");
+                if (!entered) cursor++;
+            });
+            TestAssert.Equal(plan.Length, cursor, "P1 lower Handle probe requires every original case to return");
+            TestAssert.True(originalRoot == Root.GetInstanceId() && originalChildren.SequenceEqual(CaptureRootChildren()),
+                "P1 lower Handle probe retains the original root and direct child identities after the original case tail");
+            GD.Print($"P1_LOWER_HANDLE_ARM_END arm={arm} count={plan.Length} root_delta=0 diagnostic=true resource_fixed=false");
+            Quit(0);
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            Quit(1);
+        }
+        finally
+        {
+            Knight.Presentation.PrologueProductionMode.AllowDiagnosticFallbacks = previousFallbacks;
+        }
+    }
+
+    private ulong[] CaptureRootChildren()
+    {
+        var ids = new ulong[Root.GetChildCount(true)];
+        for (int index = 0; index < ids.Length; index++) ids[index] = Root.GetChild(index, true).GetInstanceId();
+        return ids;
     }
 
     private static bool HasArgument(string expected)

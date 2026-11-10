@@ -17,6 +17,16 @@ public sealed class RangedWeaponModel
     private ulong _nextAttackId;
     private ulong _attackId;
 
+    public float AttackTelegraphSeconds => _settings.TelegraphSeconds;
+
+    // A single admitted Step in this Active cycle, not a multi-phase forecast.
+    // This says nothing about shots that have already left the muzzle.
+    internal bool IsBurstEmissionClearThrough(ulong attackId, double seconds) =>
+        _settings.Role == RangedWeaponRole.Burst && _state == RangedWeaponState.Active &&
+        attackId != 0 && attackId == _attackId && double.IsFinite(seconds) && seconds > 0d &&
+        seconds <= float.MaxValue &&
+        ScheduledEmissionCount(Math.Min(_settings.ActiveSeconds, _elapsed + seconds)) <= _emissionsEmitted;
+
     public RangedWeaponModel(RangedWeaponSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -92,7 +102,7 @@ public sealed class RangedWeaponModel
                 break;
             case RangedWeaponState.Active:
                 Advance(_settings.ActiveSeconds, seconds);
-                int scheduled = ScheduledEmissionCount();
+                int scheduled = ScheduledEmissionCount(_elapsed);
                 if (scheduled > _emissionsEmitted)
                 {
                     firstEmissionIndex = _emissionsEmitted;
@@ -120,11 +130,11 @@ public sealed class RangedWeaponModel
         return Frame(); // _nextAttackId survives sleep/territorial cancellation.
     }
 
-    private int ScheduledEmissionCount()
+    private int ScheduledEmissionCount(double elapsed)
     {
         if (_settings.Role != RangedWeaponRole.Burst) return 1;
         double tolerance = _settings.BurstIntervalSeconds * BoundaryRelativeTolerance;
-        double available = Math.Floor((_elapsed + tolerance) / _settings.BurstIntervalSeconds) + 1d;
+        double available = Math.Floor((elapsed + tolerance) / _settings.BurstIntervalSeconds) + 1d;
         return (int)Math.Min(_settings.BurstEmissionCount, available);
     }
 

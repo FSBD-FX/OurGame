@@ -45,6 +45,179 @@ public static class ThrusterPlayerRuntimeTests
         GD.Print("THRUSTER_BOUNDARIES_OK automatic_cases=33 accepted_claw_phases=4 rejected_claw_phases=4 queued_owner_and_ancestor=true pause_boost_stages=3 reset_revokes_pending=true residency_reentrant_reset=true high_incoming=true pending_replacement_points=4 ordinary_attached_replacement_preserved=true human=false");
     }
 
+    public static async Task RunLegacyMomentum(SceneTree tree)
+    {
+        await LegacyHitPreservesUnattachedMomentum(tree, movingAway: true);
+        await LegacyHitPreservesUnattachedMomentum(tree, movingAway: false);
+        GD.Print("THRUSTER_LEGACY_MOMENTUM_OK cases=2 saved_player=true saved_receiver=true automatic_physics=true " +
+            "real_keys=true hit_tick_bracket=true player_pose_writes=0 player_velocity_writes=0 human=false");
+    }
+
+    // Break caught: an effect-only legacy hit must not project the caster's
+    // actual velocity as if it had attached a rope to a physical surface.
+    private static async Task LegacyHitPreservesUnattachedMomentum(SceneTree tree, bool movingAway)
+    {
+        using var fixture = new FreeFixture(tree, false);
+        var mechanism = GD.Load<PackedScene>("res://scenes/mechanisms/BellChainMechanism.tscn")
+            .Instantiate<BellChainMechanism>();
+        mechanism.Position = new Vector2(300, -380); // Initial fixture placement, before tree entry.
+        fixture.Root.AddChild(mechanism);
+        var player = fixture.Player;
+        var input = fixture.Input;
+        var motor = fixture.Motor;
+        var health = player.GetNode<HealthComponent>("Health");
+        var claw = player.GetNode<MechanicalClawController>("MechanicalClaw");
+        var target = mechanism.GetNode<ThreadTarget2D>("ThreadTarget");
+        var adapter = target.GetNode<LegacyThreadInteractionAdapter>("LegacyThreadInteractionAdapter");
+        bool armed = false, hitObserved = false, postMotorObserved = false, callbackMotionUnchanged = true;
+        int opens = 0, latched = 0, released = 0, attachments = 0, keyEdges = 0;
+        int healthBefore = 0;
+        ulong beforePhysics = 0, beforeSequence = 0, beforeAuthority = 0, cast = 0;
+        Vector2 beforePosition = default, beforeVelocity = default, afterVelocity = default;
+        Vector2 postMotorPosition = default, postMotorVelocity = default;
+        MechanicalClawFrame beforeFrame = default;
+        Exception observationFault = null;
+        string side = movingAway ? "away" : "toward";
+        var before = new ThrusterPostMotorObserver { ProcessPhysicsPriority = -110 };
+        var after = new ThrusterPostMotorObserver { ProcessPhysicsPriority = -75 };
+        var postMotor = new ThrusterPostMotorObserver { ProcessPhysicsPriority = 100 };
+        before.Observe = () =>
+        {
+            if (!armed || hitObserved || observationFault != null) return;
+            try
+            {
+                beforePhysics = Engine.GetPhysicsFrames(); beforeSequence = input.CurrentFrameSequence;
+                beforeAuthority = motor.MotionAuthorityRevision;
+                beforePosition = player.GlobalPosition; beforeVelocity = player.Velocity;
+                beforeFrame = claw.CurrentFrame;
+                if (input.CurrentFrame.ClawPressed) keyEdges++;
+            }
+            catch (Exception error) { observationFault = error; }
+        };
+        after.Observe = () =>
+        {
+            if (!armed || hitObserved || observationFault != null || adapter.ApplicationCount == 0) return;
+            try
+            {
+                hitObserved = true; afterVelocity = player.Velocity;
+                cast = claw.CurrentFrame.CastId;
+                TestAssert.True(beforePhysics == Engine.GetPhysicsFrames() &&
+                    beforeSequence == input.CurrentFrameSequence && beforeAuthority == motor.MotionAuthorityRevision &&
+                    beforeFrame.State == MechanicalClawState.Travel && beforeFrame.CastId != 0 &&
+                    cast == beforeFrame.CastId && claw.CurrentFrame.State == MechanicalClawState.Released &&
+                    beforeFrame.LockedTargetRuntimeId == target.GetInstanceId(),
+                    "legacy momentum brackets the same real hit tick, sequence, motion owner and cast");
+                TestAssert.True(player.GlobalPosition == beforePosition && player.GetSlideCollisionCount() == 0 &&
+                    !player.IsOnFloor() && !player.IsOnWall() && !player.IsOnCeiling() &&
+                    health.CurrentHealth == healthBefore && motor.AcceptedJumpCount == 0 &&
+                    motor.AcceptedDashCount == 0 && !motor.IsDashing &&
+                    !input.CurrentFrame.JumpHeld && !input.CurrentFrame.DashPressed &&
+                    MathF.Abs(input.CurrentFrame.MoveAxis) < .001f &&
+                    !Input.IsPhysicalKeyPressed(Key.A) && !Input.IsPhysicalKeyPressed(Key.D) &&
+                    !Input.IsPhysicalKeyPressed(Key.Space) && !Input.IsPhysicalKeyPressed(Key.Shift),
+                    "legacy hit has no intervening body movement, collision, damage, brake, jump or thrust");
+                float radial = beforeVelocity.Dot(beforeFrame.SurfaceNormal.Normalized());
+                TestAssert.True(beforeVelocity.Length() < 850f &&
+                    (movingAway ? radial > 25f : radial < -50f),
+                    $"legacy {side} fixture has real nonzero radial momentum below the release cap; radial={radial:R}");
+                Vector2 projection = beforeVelocity;
+                if (radial < 0) projection -= beforeFrame.SurfaceNormal.Normalized() * radial;
+                GD.Print($"THRUSTER_LEGACY_MOMENTUM_HIT side={side} physics={beforePhysics} sample={beforeSequence} " +
+                    $"cast={cast} target={target.GetInstanceId()} before={beforeVelocity} after={afterVelocity} " +
+                    $"normal={beforeFrame.SurfaceNormal} legacy_projection={projection} radial={radial:R} " +
+                    $"position={beforePosition} callbacks_unchanged={callbackMotionUnchanged} " +
+                    $"opens={opens} latched={latched} released={released} attachments={attachments} key_edges={keyEdges}");
+            }
+            catch (Exception error) { observationFault = error; }
+        };
+        postMotor.Observe = () =>
+        {
+            if (!hitObserved || postMotorObserved || observationFault != null) return;
+            try
+            {
+                TestAssert.True(Engine.GetPhysicsFrames() == beforePhysics &&
+                    input.CurrentFrameSequence == beforeSequence && player.GetSlideCollisionCount() == 0,
+                    "legacy continuation observes the same automatic Motor tick without contact");
+                postMotorPosition = player.GlobalPosition; postMotorVelocity = player.Velocity;
+                postMotorObserved = true;
+            }
+            catch (Exception error) { observationFault = error; }
+        };
+        fixture.Root.AddChild(before); fixture.Root.AddChild(after); fixture.Root.AddChild(postMotor);
+        BellChainMechanism.OpenedEventHandler opened = _ =>
+        {
+            opens++;
+            callbackMotionUnchanged &= player.GlobalPosition == beforePosition && player.Velocity == beforeVelocity;
+        };
+        Action<MechanicalClawFrame, GrappleSurface2D> publication = (frame, _) =>
+        {
+            if (!armed) return;
+            if (frame.State is MechanicalClawState.Reel or MechanicalClawState.Swing or MechanicalClawState.Boost)
+                attachments++;
+            if (frame.State == MechanicalClawState.Latched) latched++;
+            if (frame.State == MechanicalClawState.Released) released++;
+            if (frame.State is MechanicalClawState.Latched or MechanicalClawState.Released)
+                callbackMotionUnchanged &= player.GlobalPosition == beforePosition && player.Velocity == beforeVelocity;
+        };
+        mechanism.Opened += opened; claw.ClawFrameChanged += publication;
+        try
+        {
+            await fixture.Start();
+            healthBefore = health.CurrentHealth;
+            TestAssert.True(target.WorldAnchor == new Vector2(300, -460) && !mechanism.IsOpen &&
+                healthBefore > 0 && adapter.ApplicationCount == 0 && motor.IsPhysicsProcessing() &&
+                input.IsPhysicsProcessing() && claw.IsPhysicsProcessing(),
+                "legacy fixture preserves the saved receiver and automatic Player physics");
+            KeyEvent(movingAway ? Key.A : Key.D, true); await Frames(tree, input, 10);
+            KeyEvent(movingAway ? Key.A : Key.D, false);
+            if (movingAway)
+            {
+                // One real opposing sample restores Right aim, with its braking
+                // honestly included in the incoming velocity measured at the hit.
+                KeyEvent(Key.D, true); await Frames(tree, input, 1); KeyEvent(Key.D, false);
+            }
+            Vector2 offset = target.WorldAnchor - player.GlobalPosition;
+            TestAssert.True(offset.Length() < 620f && offset.Normalized().Dot(Vector2.Right) >= Mathf.Cos(Mathf.Pi / 8f) &&
+                input.KeyboardAimDirection == Vector2.Right,
+                $"legacy {side} fixture is genuinely inside the unchanged keyboard selection cone and range");
+            armed = true;
+            KeyEvent(Key.K, true); await Frames(tree, input, 1); KeyEvent(Key.K, false);
+            for (int tick = 0; tick < 60 && !hitObserved && observationFault == null; tick++)
+                await Frames(tree, input, 1);
+            TestAssert.True(observationFault == null, "legacy hit observation: " + observationFault);
+            TestAssert.True(hitObserved && postMotorObserved && callbackMotionUnchanged && mechanism.IsOpen && adapter.ApplicationCount == 1 &&
+                opens == 1 && latched == 1 && released == 1 && attachments == 0 && keyEdges == 1 &&
+                claw.CurrentTarget == null && claw.ResidencyTarget == null &&
+                claw.CurrentFrame.VelocityCorrection == Vector2.Zero && motor.GrappleMovementScale == 1f,
+                $"legacy {side} is one real effect-only hit, with no persistent tether or callback impulse");
+            TestAssert.Near(beforeVelocity.X, afterVelocity.X, .001f,
+                $"legacy {side} hit does not manufacture horizontal caster braking without a physical tether");
+            TestAssert.Near(beforeVelocity.Y, afterVelocity.Y, .001f,
+                $"legacy {side} hit does not manufacture vertical caster impulse before ordinary Motor physics");
+            // Independent free-flight law from the actual configuration, not a
+            // call to the production Step/forecast helper under test.
+            float seconds = 1f / Engine.PhysicsTicksPerSecond;
+            float expectedX = beforeVelocity.X * MathF.Exp(-motor.ThrusterState.Module.AirDragRate * seconds);
+            float expectedY = MathF.Min(beforeVelocity.Y + motor.MotionSettings.Gravity * seconds,
+                motor.MotionSettings.MaxFallSpeed);
+            TestAssert.Near(expectedX, postMotorVelocity.X, .001f,
+                $"legacy {side} continues with ordinary exponential air drag, not stale motion state");
+            TestAssert.Near(expectedY, postMotorVelocity.Y, .001f,
+                $"legacy {side} continues with ordinary gravity and terminal fall limit");
+            TestAssert.True(postMotorPosition.DistanceTo(beforePosition + postMotorVelocity * seconds) < .002f,
+                "legacy continuation is native integrated displacement, not only a pre-Motor velocity receipt");
+            GD.Print($"THRUSTER_LEGACY_MOMENTUM_CONTINUED side={side} physics={beforePhysics} " +
+                $"velocity={postMotorVelocity} expected=({expectedX:R},{expectedY:R}) position={postMotorPosition} native_movement=true");
+            GD.Print($"THRUSTER_LEGACY_MOMENTUM_CASE_OK side={side} cast={cast} real_hit=true no_unowned_impulse=true");
+        }
+        finally
+        {
+            armed = false; before.Observe = null; after.Observe = null; postMotor.Observe = null;
+            mechanism.Opened -= opened; claw.ClawFrameChanged -= publication;
+            Release();
+        }
+    }
+
     private static async Task SpentAirUsePreservesClawPhase(SceneTree tree, MechanicalClawState phase)
     {
         using var fixture = new FreeFixture(tree, true);

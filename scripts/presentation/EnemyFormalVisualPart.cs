@@ -1,4 +1,5 @@
 using Godot;
+using Knight.Combat;
 
 namespace Knight.Presentation;
 
@@ -42,13 +43,15 @@ public partial class EnemyFormalVisualPart : Node2D
     [Export] public EnemyFormalPartKind Kind { get; set; }
     public float ContactIntensity { get; private set; }
     public float HurtFlashIntensity { get; private set; }
+    public Color LampLightColor { get; private set; } = Glow;
 
     public override void _Ready() => QueueRedraw();
 
-    public void SetFeedback(float contactIntensity, float hurtFlashIntensity)
+    public void SetFeedback(float contactIntensity, float hurtFlashIntensity, AttackPhase phase = AttackPhase.None)
     {
         ContactIntensity = Mathf.Clamp(contactIntensity, 0f, 1f);
         HurtFlashIntensity = Mathf.Clamp(hurtFlashIntensity, 0f, 1f);
+        LampLightColor = Feedback(phase == AttackPhase.Telegraph ? Warning : Glow);
         QueueRedraw();
     }
 
@@ -83,7 +86,7 @@ public partial class EnemyFormalVisualPart : Node2D
                 break;
             case EnemyFormalPartKind.MothLamp:
                 DrawCircle(new Vector2(0f, 1f), 7f, Ink);
-                DrawCircle(new Vector2(0f, 1f), 4.5f, Glow);
+                DrawCircle(new Vector2(0f, 1f), 4.5f, LampLightColor);
                 break;
             case EnemyFormalPartKind.LaborerCorruption:
                 DrawCircle(Vector2.Zero, 12f, new Color("315b55", .28f));

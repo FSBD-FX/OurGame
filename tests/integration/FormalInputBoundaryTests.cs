@@ -5,8 +5,10 @@ using System.Threading.Tasks;
 using Godot;
 using Knight.Abilities;
 using Knight.Combat;
+using Knight.Mechanisms;
 using Knight.Player;
 using Knight.Prologue;
+using Knight.Prologue.Collections;
 using Knight.Shared;
 
 namespace Knight.Tests.Integration;
@@ -33,6 +35,12 @@ public static class FormalInputBoundaryTests
         var motor = level.GetNode<PlayerMotor>("PlayerRoot/Player/Motor");
         var modes = level.GetNode<PlayerActionModeController>("PlayerRoot/Player/ActionModes");
         var pause = level.GetNode<ProloguePauseMenu>("PauseMenu");
+        Action beforeInputTick = null;
+        level.AddChild(new ThrusterPostMotorObserver
+        {
+            ProcessMode = Node.ProcessModeEnum.Always, ProcessPhysicsPriority = -301,
+            Observe = () => beforeInputTick?.Invoke()
+        });
         var firstSample = new FormalInputSampleObserver
         {
             ProcessMode = Node.ProcessModeEnum.Always, ProcessPhysicsPriority = -299
@@ -50,20 +58,58 @@ public static class FormalInputBoundaryTests
             TestAssert.True(flow.State == PrologueGameFlowState.Title &&
                 level.GetNode<Button>("ProductUi/MainMenu/Panel/Buttons/Start").HasFocus() &&
                 !input.IsPhysicsProcessing(), "formal boundary fixture begins at the actual focused Title");
+            ulong beforeStart = input.CurrentFrameSequence;
             await MenuPulse(tree, Key.Enter);
+            GD.Print($"FORMAL_INPUT_START_REQUEST state={flow.State} pending={level.ResidentPreparationPending} " +
+                $"input_enabled={input.IsPhysicsProcessing()} samples={input.CurrentFrameSequence - beforeStart}");
+            await BasinAscentCameraRuntimeTests.WaitForPlaying(tree, level);
             await KeyboardActionRuntimeTests.Frames(tree, input, 8);
             TestAssert.True(flow.State == PrologueGameFlowState.Playing && level.Player.IsOnFloor(),
                 "physical Enter starts the real supported player without calling StartNew");
 
-            // Walk to the original entrance fragment, not a metadata grant.
+            // The current entrance put a live pressure plate before the same fragment.
+            // Use the existing recycling proof's short, ordinary ground jump over it.
+            var entrance = level.CurrentSectorRoot;
+            var support = entrance.GetNode<StaticBody2D>("Gameplay/Collision/StartFloor");
+            var pad = entrance.GetNode<CanyonSpringboard>("Gameplay/Mechanisms/CombinationSpringboard");
+            var fragment = entrance.GetNode<QuestFragment>("Gameplay/QuestFragments/entrance");
+            var health = level.Player.GetNode<HealthComponent>("Health");
+            const string entranceFragmentId = "canyon.v2.fragment.entrance";
+            ulong launches = pad.LaunchSequence;
+            int jumps = motor.AcceptedJumpCount, dashes = motor.AcceptedDashCount, hp = health.CurrentHealth;
+            TestAssert.True(HasFloorContact(level.Player, support) && pad.HasLiveSensor && launches == 0 &&
+                pad.GlobalPosition == new Vector2(228, 636) && fragment.GlobalPosition == new Vector2(280, 600) &&
+                fragment.StableId == entranceFragmentId && !fragment.IsCollected && fragment.FeedbackCount == 0 &&
+                level.Progress.CollectedFragmentIds.Count == 0,
+                "keyboard approach starts on the original floor before the enabled plate and untouched saved fragment");
             SendKey(Key.D, true);
-            for (int frame = 0; frame < 50 && level.Progress.CollectedFragmentIds.Count == 0; frame++)
+            for (int frame = 0; frame < 30 && level.Player.GlobalPosition.X < 176; frame++)
+                await KeyboardActionRuntimeTests.Frames(tree, input, 1);
+            TestAssert.True(HasFloorContact(level.Player, support) && level.Player.GlobalPosition.X is >= 176 and < 195 &&
+                pad.LaunchSequence == launches, $"short jump starts on actual support before the plate: {level.Player.GlobalPosition}");
+            SendKey(Key.Space, true);
+            await KeyboardActionRuntimeTests.Frames(tree, input, 7);
+            SendKey(Key.Space, false);
+            for (int frame = 0; frame < 50 && level.Player.GlobalPosition.X < 280; frame++)
                 await KeyboardActionRuntimeTests.Frames(tree, input, 1);
             SendKey(Key.D, false);
+            for (int frame = 0; frame < 40 && !HasFloorContact(level.Player, support); frame++)
+                await KeyboardActionRuntimeTests.Frames(tree, input, 1);
             await KeyboardActionRuntimeTests.Frames(tree, input, 8);
-            TestAssert.True(level.Player.IsOnFloor() && level.Progress.CollectedFragmentIds.SetEquals(
-                    new[] { "canyon.v2.fragment.entrance" }),
-                "normal physical D collects exactly the actual entrance fragment on original support");
+            bool originalFloor = HasFloorContact(level.Player, support);
+            GD.Print($"FORMAL_INPUT_ENTRANCE_CONTACT player={level.Player.GlobalPosition} start_floor={originalFloor} " +
+                $"pad_launches={pad.LaunchSequence - launches} jumps={motor.AcceptedJumpCount - jumps} " +
+                $"dashes={motor.AcceptedDashCount - dashes} hp={hp}->{health.CurrentHealth} recoveries={recovered} " +
+                $"fragment={fragment.StableId} collected={fragment.IsCollected} contacts={fragment.FeedbackCount} result={fragment.LastResult}");
+            TestAssert.True(flow.State == PrologueGameFlowState.Playing && originalFloor &&
+                level.Player.GlobalPosition.X is >= 270 and <= 310 && pad.LaunchSequence == launches &&
+                motor.AcceptedJumpCount == jumps + 1 && motor.AcceptedDashCount == dashes &&
+                recovered == 0 && health.CurrentHealth == hp,
+                "physical D and one ordinary Space jump clear the live plate without launch, damage or recovery");
+            TestAssert.True(fragment.IsCollected && fragment.FeedbackCount == 1 &&
+                fragment.LastResult == FragmentCollectionResult.Collected &&
+                level.Progress.CollectedFragmentIds.SetEquals(new[] { entranceFragmentId }),
+                "the actual saved fragment commits exactly once by real contact on the original floor");
             AssertSavedFragment(paths.SavePath);
 
             foreach (Key heldKey in EdgeKeys)
@@ -109,21 +155,31 @@ public static class FormalInputBoundaryTests
                 string savedHash = Hash(paths.SavePath);
                 int priorAttacks = attacks;
                 await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
-                ulong beforeContinueSample = input.CurrentFrameSequence;
+                firstSample.Arm(input);
+                bool heldAtFirstContinueSample = false;
+                bool freshAtFirstContinueSample = false;
+                beforeInputTick = () =>
+                {
+                    if (input.CurrentFrameSequence != firstSample.BeforeSequence ||
+                        !input.IsPhysicsProcessing() || !input.CanProcess()) return;
+                    heldAtFirstContinueSample = Input.IsPhysicalKeyPressed(heldKey);
+                    freshAtFirstContinueSample = Input.IsActionJustPressed(ActionFor(heldKey));
+                };
                 SendKey(heldKey, true);
                 TestAssert.True(Input.IsActionJustPressed(ActionFor(heldKey)),
                     "the held Title command is a fresh real edge immediately before Continue");
                 SendKey(Key.Enter, true);
                 SendKey(Key.Enter, false);
-                await KeyboardActionRuntimeTests.Frames(tree, input, 1);
-                TestAssert.Equal(beforeContinueSample + 1, input.CurrentFrameSequence,
-                    "Continue assertion observes exactly the first resumed input sample");
-                GD.Print($"FORMAL_INPUT_CONTINUE_FIRST key={heldKey} frame={input.CurrentFrameSequence} " +
-                    $"attack={input.Current.AttackPressed} claw={input.Current.ClawPressed} " +
-                    $"q={input.Current.InteractPressed} dash={input.Current.DashPressed} " +
-                    $"slot={input.Current.RequestedSlot} attacks={attacks - priorAttacks}");
-                TestAssert.Equal(PrologueGameFlowState.Playing, flow.State, "physical Enter executes real Continue");
-                AssertNoEdges(input.Current, "first Continue sample " + heldKey);
+                await ObserveFirstSample(tree, firstSample);
+                beforeInputTick = null;
+                TestAssert.True(flow.State == PrologueGameFlowState.Playing && !level.ResidentPreparationPending &&
+                    heldAtFirstContinueSample, "physical Enter commits real Continue while the original Title key is still held");
+                var continueFrame = firstSample.FirstFrame;
+                GD.Print($"FORMAL_INPUT_CONTINUE_FIRST key={heldKey} frame={firstSample.FirstSequence} " +
+                    $"attack={continueFrame.AttackPressed} claw={continueFrame.ClawPressed} " +
+                    $"q={continueFrame.InteractPressed} dash={continueFrame.DashPressed} " +
+                    $"slot={continueFrame.RequestedSlot} attacks={attacks - priorAttacks} fresh_at_sample={freshAtFirstContinueSample}");
+                AssertNoEdges(continueFrame, "first Continue sample " + heldKey);
                 TestAssert.True(attacks == priorAttacks && modes.ActiveSlot == 1 &&
                     claw.CurrentFrame.State == MechanicalClawState.Idle && motor.AcceptedDashCount == 0,
                     "Title commands do not replay through Continue into combat, claw, dash or equipment");
@@ -138,34 +194,55 @@ public static class FormalInputBoundaryTests
             await FreshAttack(tree, input, () => attacks);
             await KeyboardActionRuntimeTests.Frames(tree, input, 35);
 
-            var health = level.Player.GetNode<HealthComponent>("Health");
             foreach (Key heldKey in EdgeKeys)
             {
                 int priorRecoveries = recovered;
                 int attacksAtDeath = attacks;
                 firstSample.Arm(input);
-                SignalAwaiter recoveryCompleted = tree.ToSignal(level,
-                    PrologueLevelController.SignalName.RecoveryCompleted);
                 TestAssert.True(health.ApplyDamage(new DamageRequest(health.CurrentHealth, Vector2.Zero, 0f,
                     660001UL + (ulong)priorRecoveries, level.Player.GetInstanceId(), DamageGuardClass.Unblockable)),
                     "controlled lethal hit enters the actual health/death/recovery pipeline");
                 TestAssert.Equal(PrologueGameFlowState.Recovering, flow.State,
                     "real death stops gameplay in Recovering before deferred relocation");
                 TestAssert.True(!input.IsPhysicsProcessing(), "actual death disables input before key staging");
-                await recoveryCompleted;
-                await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
-                TestAssert.True(!input.IsPhysicsProcessing(),
-                    "recovery edge is staged during the last disabled process boundary, not inside physics");
-                ulong stagedSequence = input.CurrentFrameSequence;
-                SendKey(heldKey, true);
-                bool freshEdgeAtRecovery = Input.IsActionJustPressed(ActionFor(heldKey));
+                ulong stagedSequence = 0;
+                ulong stagedPhysics = 0;
+                ulong recoverySamplePhysics = 0;
+                bool freshEdgeAtRecovery = false;
+                void StageRecoveryKey()
+                {
+                    stagedSequence = input.CurrentFrameSequence;
+                    stagedPhysics = Engine.GetPhysicsFrames();
+                    SendKey(heldKey, false);
+                    SendKey(heldKey, true);
+                }
+                StageRecoveryKey();
+                beforeInputTick = () =>
+                {
+                    if (input.CurrentFrameSequence != firstSample.BeforeSequence) return;
+                    if (flow.State == PrologueGameFlowState.Recovering && !input.IsPhysicsProcessing())
+                    {
+                        // Native key edges target the next physics tick. Refresh only while
+                        // recovery still disables Input, without guessing the commit frame.
+                        if (stagedPhysics != Engine.GetPhysicsFrames()) StageRecoveryKey();
+                    }
+                    else if (flow.State == PrologueGameFlowState.Playing && !level.ResidentPreparationPending &&
+                        recovered == priorRecoveries + 1 && input.IsPhysicsProcessing() && input.CanProcess())
+                    {
+                        recoverySamplePhysics = Engine.GetPhysicsFrames();
+                        freshEdgeAtRecovery = Input.IsPhysicalKeyPressed(heldKey) &&
+                            Input.IsActionJustPressed(ActionFor(heldKey));
+                    }
+                };
                 await ObserveFirstSample(tree, firstSample);
+                beforeInputTick = null;
                 GD.Print($"FORMAL_INPUT_RECOVERY_STAGE key={heldKey} fresh={freshEdgeAtRecovery} " +
-                    $"staged_seq={stagedSequence} " +
+                    $"staged_seq={stagedSequence} staged_physics={stagedPhysics} sample_physics={recoverySamplePhysics} " +
                     $"before={firstSample.BeforeSequence} first={firstSample.FirstSequence} " +
                     $"current={input.CurrentFrameSequence} attack={firstSample.FirstFrame.AttackPressed}");
-                TestAssert.True(freshEdgeAtRecovery && stagedSequence == firstSample.BeforeSequence,
-                    "controlled physical recovery key is fresh immediately before the first restored sample");
+                TestAssert.True(freshEdgeAtRecovery && stagedSequence == firstSample.BeforeSequence &&
+                    recoverySamplePhysics == stagedPhysics + 1,
+                    "the physical key staged while recovery disabled Input is still fresh just before its first restored sample");
                 AssertNoEdges(firstSample.FirstFrame, "first real death recovery sample " + heldKey);
                 TestAssert.True(attacks == attacksAtDeath && modes.ActiveSlot == 1 &&
                     motor.AcceptedDashCount == 0 && claw.CurrentFrame.State == MechanicalClawState.Idle,
@@ -188,12 +265,24 @@ public static class FormalInputBoundaryTests
         }
         finally
         {
-            foreach (Key key in new[] { Key.D, Key.J, Key.K, Key.Q, Key.Shift, Key.Key2, Key.Escape, Key.Enter, Key.Down })
+            beforeInputTick = null;
+            foreach (Key key in new[] { Key.D, Key.Space, Key.J, Key.K, Key.Q, Key.Shift, Key.Key2, Key.Escape, Key.Enter, Key.Down })
                 SendKey(key, false);
             tree.Paused = false;
             await TestSceneTeardown.FreeSceneAfterAudioDrain(tree, level);
             GC.KeepAlive(scene);
         }
+    }
+
+    private static bool HasFloorContact(CharacterBody2D player, StaticBody2D support)
+    {
+        if (!player.IsOnFloor()) return false;
+        for (int i = 0; i < player.GetSlideCollisionCount(); i++)
+        {
+            using KinematicCollision2D hit = player.GetSlideCollision(i);
+            if (hit.GetCollider() == support && hit.GetNormal().Y < -.7f) return true;
+        }
+        return false;
     }
 
     private static void AssertNoEdges(PlayerInputFrame frame, string boundary) => TestAssert.True(
@@ -202,7 +291,9 @@ public static class FormalInputBoundaryTests
 
     private static async Task ObserveFirstSample(SceneTree tree, FormalInputSampleObserver observer)
     {
-        for (int frame = 0; frame < 120 && !observer.Captured; frame++) await ProcessFrames(tree, 1);
+        // The real resident commit can span 180 native physics boundaries.
+        for (int frame = 0; frame < 240 && !observer.Captured; frame++)
+            await tree.ToSignal(tree, SceneTree.SignalName.PhysicsFrame);
         TestAssert.True(observer.Captured, "first restored physical input sample was observed");
         TestAssert.Equal(observer.BeforeSequence + 1, observer.FirstSequence,
             "test snapshot records exactly the first restored input sample before action consumers");

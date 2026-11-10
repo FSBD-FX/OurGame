@@ -20,6 +20,7 @@ public abstract partial class RangedWeaponEnemy : CharacterBody2D, IThreadPullRe
     public event Action<AttackPresentationFrame> AttackFrameChanged;
     public event Action<PresentationCue> PresentationCueRequested;
     public event Action<RangedWeaponFrame> FrameChanged;
+    public event Action PresentationResetRequested;
     public event Action<ulong, Vector2> ShotEmitted;
 
     public RangedWeaponFrame CurrentFrame { get; private set; } =
@@ -28,6 +29,12 @@ public abstract partial class RangedWeaponEnemy : CharacterBody2D, IThreadPullRe
     // Presentation consumers need synchronous revocation authority; the last
     // published frame may still be Active until the next native physics tick.
     internal bool HasPresentationAuthority => CanOwnAttack();
+    internal float AttackTelegraphSeconds => _model?.AttackTelegraphSeconds ?? 0f;
+
+    internal bool IsBurstEmissionClearThrough(ulong attackId, double delta) =>
+        Role == RangedWeaponRole.Burst && CanOwnAttack() && !GetTree().Paused && IsPhysicsProcessing() &&
+        CurrentFrame.AttackTimeline.Phase == AttackPhase.Active && CurrentFrame.AttackTimeline.AttackId == attackId &&
+        _model?.IsBurstEmissionClearThrough(attackId, NormalizeStep(delta, _runtimeSettings.Gravity)) == true;
 
     private readonly RangedVolleyDamageLedger _ledger = new();
     private readonly Dictionary<RangedWeaponProjectile, DamageAttackIdentity> _projectiles = new();
@@ -214,6 +221,7 @@ public abstract partial class RangedWeaponEnemy : CharacterBody2D, IThreadPullRe
         _health?.ResetFull();
         _residentTarget=null;_residence?.ResetForCheckpoint();
         GetNodeOrNull<ThreadTarget2D>("ThreadTarget")?.AddToGroup(ThreadTarget2D.TargetGroup);
+        PresentationResetRequested?.Invoke();
         FrameChanged?.Invoke(CurrentFrame);
     }
 
